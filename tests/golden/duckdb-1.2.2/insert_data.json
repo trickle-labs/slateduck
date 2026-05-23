@@ -1,0 +1,1 @@
+{"operation":"INSERT INTO my_lake.main.test_table VALUES (1, 'alice', 3.14), (2, 'bob', 2.71)","snapshot_id":3,"result":"success","rows_affected":2,"data_file":{"data_file_id":1,"file_format":"parquet","record_count":2}}

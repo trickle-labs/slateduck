@@ -1,0 +1,1 @@
+{"operation":"CREATE SCHEMA my_lake.main","snapshot_id":1,"result":"success","catalog_state":{"schemas":[{"schema_id":1,"schema_name":"main","begin_snapshot":1}]}}

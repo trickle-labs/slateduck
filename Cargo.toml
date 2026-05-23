@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/slateduck-core",
+    "crates/slateduck-catalog",
+    "crates/slateduck-sql",
+    "crates/slateduck-sqlite-vfs",
+    "crates/slateduck-pgwire",
+    "crates/slateduck-ffi",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/geir-gronmo/slateduck"
+
+[workspace.dependencies]
+# Storage
+slatedb = "0.13"
+object_store = { version = "0.12", features = ["aws"] }
+bytes = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prost = "0.13"
+prost-types = "0.13"
+
+# SQL parsing
+sqlparser = { version = "0.55", features = ["visitor"] }
+
+# PG wire protocol
+pgwire = "0.28"
+
+# Testing
+proptest = "1"
+tempfile = "3"
+criterion = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }

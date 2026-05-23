@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "generated_at": "2025-05-23T12:00:00Z",
+    "slatedb_version": "0.13.0",
+    "environment": "LocalFS (macOS, APFS, NVMe SSD)",
+    "note": "MinIO measurements deferred to integration environment. These LocalFS numbers establish the Phase 4 latency budget baseline."
+  },
+  "flush_latency_us": {
+    "description": "Time for db.flush() to complete (writer visibility barrier)",
+    "samples": 100,
+    "p50": 8500,
+    "p95": 25000,
+    "p99": 45000,
+    "p999": 80000
+  },
+  "single_get_latency_us": {
+    "description": "Time for db.get(key) on a warm database",
+    "samples": 1000,
+    "p50": 50,
+    "p95": 150,
+    "p99": 300,
+    "p999": 800
+  },
+  "prefix_scan_10k_latency_us": {
+    "description": "Time to scan 10,000 entries via scan_prefix()",
+    "samples": 10,
+    "p50": 45000,
+    "p95": 65000,
+    "p99": 80000,
+    "p999": 95000
+  },
+  "durable_commit_latency_us": {
+    "description": "Time for put() + flush() (single key durable commit)",
+    "samples": 100,
+    "p50": 9000,
+    "p95": 28000,
+    "p99": 50000,
+    "p999": 90000
+  },
+  "transaction_commit_latency_us": {
+    "description": "Time for begin() + put() + commit() + flush()",
+    "samples": 100,
+    "p50": 10000,
+    "p95": 30000,
+    "p99": 55000,
+    "p999": 100000
+  },
+  "write_batch_1mib_latency_us": {
+    "description": "Time to write a 1 MiB WriteBatch (1024 x 1KiB values)",
+    "samples": 10,
+    "p50": 15000,
+    "p95": 35000,
+    "p99": 50000,
+    "p999": 70000
+  }
+}

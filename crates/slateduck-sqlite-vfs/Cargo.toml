@@ -1,0 +1,13 @@
+[package]
+name = "slateduck-sqlite-vfs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+slateduck-core = { path = "../slateduck-core" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

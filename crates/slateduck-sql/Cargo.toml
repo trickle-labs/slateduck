@@ -1,0 +1,15 @@
+[package]
+name = "slateduck-sql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+slateduck-core = { path = "../slateduck-core" }
+slateduck-catalog = { path = "../slateduck-catalog" }
+sqlparser = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

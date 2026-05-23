@@ -1,0 +1,1 @@
+{"operation":"DROP TABLE my_lake.main.test_table","snapshot_id":5,"result":"success","catalog_state":{"table":{"table_id":1,"end_snapshot":5},"columns_ended":[1,2,3,4]}}

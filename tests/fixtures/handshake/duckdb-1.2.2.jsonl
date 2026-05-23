@@ -1,0 +1,39 @@
+{"seq":1,"direction":"client_to_server","type":"StartupMessage","payload":{"protocol_version":"3.0","parameters":{"user":"duckdb","database":"ducklake","client_encoding":"UTF8","application_name":"duckdb"}}}
+{"seq":2,"direction":"server_to_client","type":"AuthenticationOk","payload":{}}
+{"seq":3,"direction":"server_to_client","type":"ParameterStatus","payload":{"name":"server_version","value":"15.0"}}
+{"seq":4,"direction":"server_to_client","type":"ParameterStatus","payload":{"name":"client_encoding","value":"UTF8"}}
+{"seq":5,"direction":"server_to_client","type":"ParameterStatus","payload":{"name":"DateStyle","value":"ISO, MDY"}}
+{"seq":6,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":7,"direction":"client_to_server","type":"Query","payload":{"query":"SELECT version()"}}
+{"seq":8,"direction":"server_to_client","type":"RowDescription","payload":{"fields":[{"name":"version","type_oid":25,"format":0}]}}
+{"seq":9,"direction":"server_to_client","type":"DataRow","payload":{"values":["PostgreSQL 15.0 on x86_64-pc-linux-gnu"]}}
+{"seq":10,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SELECT 1"}}
+{"seq":11,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":12,"direction":"client_to_server","type":"Query","payload":{"query":"SELECT current_schema()"}}
+{"seq":13,"direction":"server_to_client","type":"RowDescription","payload":{"fields":[{"name":"current_schema","type_oid":25,"format":0}]}}
+{"seq":14,"direction":"server_to_client","type":"DataRow","payload":{"values":["public"]}}
+{"seq":15,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SELECT 1"}}
+{"seq":16,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":17,"direction":"client_to_server","type":"Query","payload":{"query":"SELECT oid, typname FROM pg_catalog.pg_type WHERE typname IN ('bool','int2','int4','int8','float4','float8','text','varchar','timestamp','timestamptz','uuid','json','jsonb')"}}
+{"seq":18,"direction":"server_to_client","type":"RowDescription","payload":{"fields":[{"name":"oid","type_oid":23,"format":0},{"name":"typname","type_oid":25,"format":0}]}}
+{"seq":19,"direction":"server_to_client","type":"DataRow","payload":{"values":["16","bool"]}}
+{"seq":20,"direction":"server_to_client","type":"DataRow","payload":{"values":["21","int2"]}}
+{"seq":21,"direction":"server_to_client","type":"DataRow","payload":{"values":["23","int4"]}}
+{"seq":22,"direction":"server_to_client","type":"DataRow","payload":{"values":["20","int8"]}}
+{"seq":23,"direction":"server_to_client","type":"DataRow","payload":{"values":["700","float4"]}}
+{"seq":24,"direction":"server_to_client","type":"DataRow","payload":{"values":["701","float8"]}}
+{"seq":25,"direction":"server_to_client","type":"DataRow","payload":{"values":["25","text"]}}
+{"seq":26,"direction":"server_to_client","type":"DataRow","payload":{"values":["1043","varchar"]}}
+{"seq":27,"direction":"server_to_client","type":"DataRow","payload":{"values":["1114","timestamp"]}}
+{"seq":28,"direction":"server_to_client","type":"DataRow","payload":{"values":["1184","timestamptz"]}}
+{"seq":29,"direction":"server_to_client","type":"DataRow","payload":{"values":["2950","uuid"]}}
+{"seq":30,"direction":"server_to_client","type":"DataRow","payload":{"values":["114","json"]}}
+{"seq":31,"direction":"server_to_client","type":"DataRow","payload":{"values":["3802","jsonb"]}}
+{"seq":32,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SELECT 13"}}
+{"seq":33,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":34,"direction":"client_to_server","type":"Query","payload":{"query":"SET client_encoding = 'UTF8'"}}
+{"seq":35,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SET"}}
+{"seq":36,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":37,"direction":"client_to_server","type":"Query","payload":{"query":"SET DateStyle = 'ISO'"}}
+{"seq":38,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SET"}}
+{"seq":39,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}

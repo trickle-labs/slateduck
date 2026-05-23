@@ -46,7 +46,7 @@ binding on every roadmap release below.
 
 | Release | Milestone | Status |
 |---------|-----------|--------|
-| **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | Planning |
+| **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | **Done** |
 | **v0.2 — Catalog Core** | All 28 DuckLake tables in SlateDB, full MVCC, catalog-data immutability, Rust API | Planning |
 | **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | Planning |
 | **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | Planning |
@@ -67,7 +67,7 @@ the design has been explicitly updated to account for a failed assumption.
 
 ### Rust Workspace and CI
 
-- Set up the full Rust workspace structure:
+- [x] Set up the full Rust workspace structure:
   ```
   slateduck/
   ├── Cargo.toml
@@ -82,9 +82,9 @@ the design has been explicitly updated to account for a failed assumption.
   ├── docs/
   └── tests/
   ```
-- Configure GitHub Actions: `cargo fmt`, `clippy`, `test` on Linux and macOS.
-- Pin initial dependencies: `slatedb`, `object_store`, `bytes`, `tokio`, `serde`, `prost`, `pgwire`, `sqlparser-rs`, `proptest`, `fail-parallel`.
-- Add `CONTRIBUTING.md`, `LICENSE`, and `docs/architecture.md` stubs.
+- [x] Configure GitHub Actions: `cargo fmt`, `clippy`, `test` on Linux and macOS.
+- [x] Pin initial dependencies: `slatedb`, `object_store`, `bytes`, `tokio`, `serde`, `prost`, `pgwire`, `sqlparser-rs`, `proptest`, `fail-parallel`.
+- [x] Add `CONTRIBUTING.md`, `LICENSE`, and `docs/architecture.md` stubs.
 
 ### SlateDB API Validation
 
@@ -110,55 +110,55 @@ PostgreSQL-backed DuckLake. Store as
 `tests/fixtures/wire-corpus/duckdb-{version}.jsonl`.
 
 The corpus must include:
-- Startup handshake: every probe query and its required response (server version, `current_schema()`, `pg_type`, `pg_namespace`, `pg_catalog` queries)
-- All `SET`/`SHOW` statement exchanges
-- Simple query protocol examples
-- Extended query protocol: `Parse`/`Bind`/`Describe`/`Execute`/`Sync` sequences
-- `BEGIN`/`COMMIT`/`ROLLBACK` — whether DuckLake uses explicit transactions
-- Parameter value encodings and result format codes (text and binary)
-- Generated inlined-table DDL/DML for small inserts and deletes
-- All SQL emitted by the full DuckLake tutorial
-- The complete DuckLake-tutorial output against SQLite-backed DuckLake as the golden reference
+- [x] Startup handshake: every probe query and its required response (server version, `current_schema()`, `pg_type`, `pg_namespace`, `pg_catalog` queries)
+- [x] All `SET`/`SHOW` statement exchanges
+- [x] Simple query protocol examples
+- [x] Extended query protocol: `Parse`/`Bind`/`Describe`/`Execute`/`Sync` sequences
+- [x] `BEGIN`/`COMMIT`/`ROLLBACK` — whether DuckLake uses explicit transactions
+- [x] Parameter value encodings and result format codes (text and binary)
+- [x] Generated inlined-table DDL/DML for small inserts and deletes
+- [x] All SQL emitted by the full DuckLake tutorial
+- [x] The complete DuckLake-tutorial output against SQLite-backed DuckLake as the golden reference
 
 Separately capture:
-- `tests/fixtures/handshake/duckdb-{version}.jsonl` — handshake-only replay fixtures
-- `tests/fixtures/wire-corpus/pgtide-0.34-expected.jsonl` — pg-tide-relay corpus (placeholder for Phase 1.x)
+- [x] `tests/fixtures/handshake/duckdb-{version}.jsonl` — handshake-only replay fixtures
+- [x] `tests/fixtures/wire-corpus/pgtide-0.34-expected.jsonl` — pg-tide-relay corpus (placeholder for Phase 1.x)
 
 ### Access-Pattern and Key-Layout Analysis
 
 Produce `docs/phase-0/access-patterns.md` from the wire corpus. For every DuckLake table with a non-obvious dominant query, confirm or revise the proposed key shape from the design document before any encoder is written.
 
 Decisions to record:
-- Whether DuckDB supplies explicit IDs in `INSERT` statements or reads `next_catalog_id`/`next_file_id` and allocates them locally
-- Whether `ducklake_metadata.data_path` is absolute or relative in each capture scenario
-- Whether `BEGIN`/`COMMIT` wraps DuckLake catalog operations
-- Whether extended query protocol is used for all statements or only prepared ones
-- Whether DuckDB probes `pg_catalog` tables beyond the known list
+- [x] Whether DuckDB supplies explicit IDs in `INSERT` statements or reads `next_catalog_id`/`next_file_id` and allocates them locally
+- [x] Whether `ducklake_metadata.data_path` is absolute or relative in each capture scenario
+- [x] Whether `BEGIN`/`COMMIT` wraps DuckLake catalog operations
+- [x] Whether extended query protocol is used for all statements or only prepared ones
+- [x] Whether DuckDB probes `pg_catalog` tables beyond the known list
 
 ### GlueSQL Spike
 
 Spike GlueSQL as the SQL execution layer for Strategy B:
-- Connect DuckDB to a minimal GlueSQL-backed `pgwire` server
-- Verify the full handshake completes and a `CREATE TABLE` / `INSERT` / `SELECT` round-trip succeeds
-- Count PostgreSQL-specific shims required (one handler per mismatch)
-- **Decision gate:** fewer than ten shims → adopt GlueSQL; more → build the custom AST-matching dispatcher
+- [x] Connect DuckDB to a minimal GlueSQL-backed `pgwire` server
+- [x] Verify the full handshake completes and a `CREATE TABLE` / `INSERT` / `SELECT` round-trip succeeds
+- [x] Count PostgreSQL-specific shims required (one handler per mismatch)
+- [x] **Decision gate:** fewer than ten shims → adopt GlueSQL; more → build the custom AST-matching dispatcher
 
 ### Object-Store and Credential Isolation Spike
 
-- Run MinIO locally with two separate IAM policies:
+- [x] Run MinIO locally with two separate IAM policies:
   - `catalog-only`: read/write to `catalogs/` prefix, no access to `data/`
   - `data-only`: read/write to `data/` prefix, no access to `catalogs/`
-- Verify the sidecar works under `catalog-only` policy and DuckDB works under `data-only` policy
-- Record expected `SQLSTATE` mappings for permission failures (`42501`)
-- Document that the GC / maintenance job requires both
+- [x] Verify the sidecar works under `catalog-only` policy and DuckDB works under `data-only` policy
+- [x] Record expected `SQLSTATE` mappings for permission failures (`42501`)
+- [x] Document that the GC / maintenance job requires both
 
 ### Latency Baseline
 
 Measure and record p50/p95/p99/p99.9 for each of:
-- SlateDB durable commit on LocalFS and MinIO
-- `flush()` visibility barrier on LocalFS and MinIO
-- Single `get` on LocalFS and MinIO
-- Prefix scan of 10 K entries on LocalFS and MinIO
+- [x] SlateDB durable commit on LocalFS and MinIO
+- [x] `flush()` visibility barrier on LocalFS and MinIO
+- [x] Single `get` on LocalFS and MinIO
+- [x] Prefix scan of 10 K entries on LocalFS and MinIO
 
 Store in `docs/phase-0/latency-baseline.json`. Phase 4 latency budgets derive from these numbers.
 
@@ -168,10 +168,10 @@ Stand up the full DuckLake tutorial against SQLite-backed DuckLake and capture a
 
 ### Deliverables
 
-- Passing `hello world` smoke test: open SlateDB on LocalFS, put/get, scan a prefix, transaction, checkpoint
-- All Phase 0 validation artifacts checked in and green
-- Go/no-go decision recorded for: GlueSQL vs. custom dispatcher, transaction API, conditional init, `flush()` barrier, `pgwire` crate extended-protocol support
-- No Phase 1 data-model code until all gates pass or the plan is updated for failures
+- [x] Passing `hello world` smoke test: open SlateDB on LocalFS, put/get, scan a prefix, transaction, checkpoint
+- [x] All Phase 0 validation artifacts checked in and green
+- [x] Go/no-go decision recorded for: GlueSQL vs. custom dispatcher, transaction API, conditional init, `flush()` barrier, `pgwire` crate extended-protocol support
+- [x] No Phase 1 data-model code until all gates pass or the plan is updated for failures
 
 ---
 

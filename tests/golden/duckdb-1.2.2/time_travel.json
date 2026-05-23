@@ -1,0 +1,1 @@
+{"operation":"SELECT * FROM my_lake.main.test_table AT (SNAPSHOT 2)","snapshot_id":2,"columns":["id","name","value"],"types":["INTEGER","VARCHAR","DOUBLE"],"rows":[]}

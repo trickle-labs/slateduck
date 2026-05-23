@@ -1,0 +1,46 @@
+{"seq":1,"direction":"client_to_server","type":"StartupMessage","payload":{"protocol_version":"3.0","parameters":{"user":"duckdb","database":"ducklake","client_encoding":"UTF8"}}}
+{"seq":2,"direction":"server_to_client","type":"AuthenticationOk","payload":{}}
+{"seq":3,"direction":"server_to_client","type":"ParameterStatus","payload":{"name":"server_version","value":"15.0"}}
+{"seq":4,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":5,"direction":"client_to_server","type":"Query","payload":{"query":"SELECT version()"}}
+{"seq":6,"direction":"server_to_client","type":"DataRow","payload":{"values":["PostgreSQL 15.0"]}}
+{"seq":7,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
+{"seq":8,"direction":"client_to_server","type":"Query","payload":{"query":"BEGIN"}}
+{"seq":9,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"BEGIN"}}
+{"seq":10,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"T"}}
+{"seq":11,"direction":"client_to_server","type":"Parse","payload":{"name":"s1","query":"SELECT value FROM ducklake_metadata WHERE scope = $1 AND key = $2","param_types":[25,25]}}
+{"seq":12,"direction":"server_to_client","type":"ParseComplete","payload":{}}
+{"seq":13,"direction":"client_to_server","type":"Bind","payload":{"portal":"","statement":"s1","params":["global","next_catalog_id"],"format_codes":[0],"result_format_codes":[0]}}
+{"seq":14,"direction":"server_to_client","type":"BindComplete","payload":{}}
+{"seq":15,"direction":"client_to_server","type":"Execute","payload":{"portal":"","max_rows":0}}
+{"seq":16,"direction":"server_to_client","type":"DataRow","payload":{"values":["1"]}}
+{"seq":17,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"SELECT 1"}}
+{"seq":18,"direction":"client_to_server","type":"Sync","payload":{}}
+{"seq":19,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"T"}}
+{"seq":20,"direction":"client_to_server","type":"Parse","payload":{"name":"s2","query":"INSERT INTO ducklake_schema (schema_id, schema_name, begin_snapshot) VALUES ($1, $2, $3)","param_types":[20,25,20]}}
+{"seq":21,"direction":"server_to_client","type":"ParseComplete","payload":{}}
+{"seq":22,"direction":"client_to_server","type":"Bind","payload":{"portal":"","statement":"s2","params":["1","main","1"],"format_codes":[0],"result_format_codes":[]}}
+{"seq":23,"direction":"server_to_client","type":"BindComplete","payload":{}}
+{"seq":24,"direction":"client_to_server","type":"Execute","payload":{"portal":"","max_rows":0}}
+{"seq":25,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"INSERT 0 1"}}
+{"seq":26,"direction":"client_to_server","type":"Sync","payload":{}}
+{"seq":27,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"T"}}
+{"seq":28,"direction":"client_to_server","type":"Parse","payload":{"name":"s3","query":"INSERT INTO ducklake_table (table_id, table_name, schema_id, table_uuid, begin_snapshot) VALUES ($1, $2, $3, $4, $5)","param_types":[20,25,20,2950,20]}}
+{"seq":29,"direction":"server_to_client","type":"ParseComplete","payload":{}}
+{"seq":30,"direction":"client_to_server","type":"Bind","payload":{"portal":"","statement":"s3","params":["1","test_table","1","550e8400-e29b-41d4-a716-446655440000","1"],"format_codes":[0],"result_format_codes":[]}}
+{"seq":31,"direction":"server_to_client","type":"BindComplete","payload":{}}
+{"seq":32,"direction":"client_to_server","type":"Execute","payload":{"portal":"","max_rows":0}}
+{"seq":33,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"INSERT 0 1"}}
+{"seq":34,"direction":"client_to_server","type":"Sync","payload":{}}
+{"seq":35,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"T"}}
+{"seq":36,"direction":"client_to_server","type":"Parse","payload":{"name":"s4","query":"INSERT INTO ducklake_snapshot (snapshot_id, snapshot_time, schema_version) VALUES ($1, $2, $3)","param_types":[20,1184,20]}}
+{"seq":37,"direction":"server_to_client","type":"ParseComplete","payload":{}}
+{"seq":38,"direction":"client_to_server","type":"Bind","payload":{"portal":"","statement":"s4","params":["1","2025-01-15 10:30:00+00","1"],"format_codes":[0],"result_format_codes":[]}}
+{"seq":39,"direction":"server_to_client","type":"BindComplete","payload":{}}
+{"seq":40,"direction":"client_to_server","type":"Execute","payload":{"portal":"","max_rows":0}}
+{"seq":41,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"INSERT 0 1"}}
+{"seq":42,"direction":"client_to_server","type":"Sync","payload":{}}
+{"seq":43,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"T"}}
+{"seq":44,"direction":"client_to_server","type":"Query","payload":{"query":"COMMIT"}}
+{"seq":45,"direction":"server_to_client","type":"CommandComplete","payload":{"tag":"COMMIT"}}
+{"seq":46,"direction":"server_to_client","type":"ReadyForQuery","payload":{"status":"I"}}
