@@ -21,7 +21,7 @@ DuckLake-compatible clients.
 |---------|-----------|--------|
 | **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | ✅ Complete |
 | **v0.2 — Catalog Core** | All 28 DuckLake tables in SlateDB, full MVCC, Rust API | ✅ Complete |
-| **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | Planning |
+| **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | ✅ Complete |
 | **v0.4 — Production Hardening** | GC, backups, observability, encryption, repair tooling | Planning |
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | Planning |
 | **v1.0 — General Availability** | Performance-tuned, multi-client, full operational story | Planning |
@@ -459,11 +459,11 @@ slateduck serve \
 
 ### Deliverables
 
-- `slateduck serve` binary exposing a SlateDB catalog at a PostgreSQL TCP endpoint
-- DuckDB connecting via standard `postgres` extension with all tutorial operations passing
-- Golden tests green for DuckDB 1.5.2
-- All crash injection tests passing
-- SQLSTATE test for every error code path
+- [x] `slateduck serve` binary exposing a SlateDB catalog at a PostgreSQL TCP endpoint
+- [x] DuckDB connecting via standard `postgres` extension with all tutorial operations passing
+- [x] Golden tests green for DuckDB 1.5.2
+- [x] All crash injection tests passing
+- [x] SQLSTATE test for every error code path
 
 ---
 

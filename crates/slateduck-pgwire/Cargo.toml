@@ -7,6 +7,10 @@ repository.workspace = true
 rust-version.workspace = true
 description = "PostgreSQL wire protocol sidecar for SlateDuck"
 
+[[bin]]
+name = "slateduck"
+path = "src/main.rs"
+
 [dependencies]
 slateduck-core = { path = "../slateduck-core" }
 slateduck-catalog = { path = "../slateduck-catalog" }
@@ -15,6 +19,14 @@ pgwire = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+futures = "0.3"
+postgres-types = "0.2"
+serde_json = { workspace = true }
+object_store = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+tempfile = { workspace = true }
+tokio-postgres = "0.7"
