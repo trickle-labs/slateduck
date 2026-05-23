@@ -49,10 +49,12 @@ binding on every roadmap release below.
 | **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | **Done** |
 | **v0.2 — Catalog Core** | All 28 DuckLake tables in SlateDB, full MVCC, catalog-data immutability, Rust API | **Done** |
 | **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | **Done** |
-| **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | Planning |
+| **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | **Done** |
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | Planning |
-| **v1.0 — General Availability** | Performance-tuned, multi-client, horizontal read scale-out, full operational story | Planning |
-| **v1.x — Ecosystem Expansion** | Multi-writer patterns, streaming ingest, non-DuckDB engines | Planning |
+| **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation, compatibility matrix CI | Planning |
+| **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | Planning |
+| **v1.0 — General Availability** | TPC-H @ SF10 benchmarks, GA polish, full operational story | Planning |
+| **v1.x — Ecosystem Expansion** | Streaming ingest, additional DuckLake clients (Spark/Trino), zone-map index, async catalog FFI | Planning |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces | Exploration |
 
 ---
@@ -613,19 +615,19 @@ Repair conservatism rules:
 | MinIO | CI integration tests | v0.2 |
 | AWS S3 Standard | Acceptance and correctness | v0.4 |
 | AWS S3 Express One Zone | Performance benchmarking | v0.5 |
-| Google Cloud Storage | Validated on demand | v1.0 |
-| Azure Blob Storage | Validated on demand | v1.0 |
+| Google Cloud Storage | Validated on demand | v0.6 |
+| Azure Blob Storage | Validated on demand | v0.6 |
 
 ### Deliverables
 
-- Visibility GC advances `retain-from` without data loss; tested with time-travel queries before and after
-- `slateduck excise` deletes only operator-specified history; audit fact written; default behavior (no `--apply`) is plan-only
-- `slateduck export` / `import` round-trip test passes
-- `slateduck rebuild` recovers a catalog from Parquet-only state
-- Checkpoint create / restore tested with crash injection
-- Metrics endpoint live
-- S3 Standard acceptance tests green
-- Documentation site published
+- [x] Visibility GC advances `retain-from` without data loss; tested with time-travel queries before and after
+- [x] `slateduck excise` deletes only operator-specified history; audit fact written; default behavior (no `--apply`) is plan-only
+- [x] `slateduck export` / `import` round-trip test passes
+- [x] `slateduck rebuild` recovers a catalog from Parquet-only state
+- [x] Checkpoint create / restore tested with crash injection
+- [x] Metrics endpoint live
+- [x] S3 Standard acceptance tests green
+- [x] Documentation site published
 
 ---
 
@@ -703,43 +705,9 @@ All deferred tables return `SQLSTATE 0A000` in Phase 0.3; this release removes t
 
 ---
 
-## v1.0 — General Availability
+## v0.6 — Multi-Client & Security
 
-> Performance-tuned, multi-client, operationally sound, with a clear support matrix.
-
-### Performance Optimization
-
-Profile and optimize the catalog hot paths. All optimizations compare against the `benchmarks/phase-2-baseline.json` established in v0.2.
-
-**Target: within 2–3× of PostgreSQL on common DuckLake planning queries.**
-
-**Secondary indexes.** Add skip-index keys for MVCC-heavy scans:
-```
-e.g. (snapshot_id, table_id) → data_file_id for snapshot-scoped file lookups
-```
-Add a secondary index only when profiling shows MVCC filter overhead exceeds 10× amplification on the reference workload.
-
-**Packing.** Store all small per-table metadata — columns, partitions, sort info — as one composite value per table. A single point read pulls everything needed to plan a query.
-
-**Hot key.** Persist the current snapshot ID and per-table file count under a dedicated hot key so a cold DuckDB process can resume in a single `GET`.
-
-**SlateDB tuning.** Evaluate `Settings` for:
-- Block size
-- Bloom filters
-- On-disk block cache (SSD)
-- `l0_sst_count_threshold` for update-heavy workloads
-- Levelled compaction aggressiveness
-
-**LSM tombstone management.** The `UPDATE SET end_snapshot` pattern generates a new SST entry per retired version that masks the old value until compaction merges them. This is normal LSM behavior and does not violate catalog-data immutability — the catalog row still exists with `end_snapshot` set. Tune compaction to merge dead LSM entries earlier for high-ingest workloads. Physical deletion of catalog *keys* happens only through `slateduck excise`, not through compaction tuning.
-
-**Benchmark suite.** TPC-H @ SF10 comparison: SlateDuck vs. DuckLake-on-PostgreSQL (RDS same AZ) vs. DuckLake-on-SQLite:
-- `list_data_files` at 10⁴, 10⁵, 10⁶ files
-- `create_snapshot` at 1, 10, 100 file additions
-- Cold-start read latency from a fresh process
-- Concurrent reader throughput
-- p50/p95/p99 for all operations on S3 Standard and S3 Express One Zone
-
-**Performance acceptance gate:** If common S3 Express planning operations exceed 3× PostgreSQL p99 latency after Phase 7 optimization, document the gap clearly and defer production-readiness claim; correctness milestones may still ship as alpha/beta.
+> Onboard the first non-DuckDB client, harden the sidecar for production deployments, and validate all planned object-store backends.
 
 ### Multi-Client Support (Strategy B)
 
@@ -786,6 +754,93 @@ Multiple applications can coexist by using distinct prefixes. Application keys p
 - Authentication: PostgreSQL `md5` / `scram-sha-256` password auth for sidecar connections
 - Audit log: write a structured log entry for every snapshot commit (who, when, what changed)
 
+### Deliverables
+
+- pg-tide-relay corpus captured and replay tests green in CI
+- All category-b dispatcher extensions behind feature flags with replay coverage
+- GCS and Azure acceptance tests green; `docs/compatibility.md` updated
+- TLS and password auth working for `slateduck serve`
+- Audit log entries verified for every snapshot commit
+- DuckDB compatibility matrix CI running on patch releases
+
+---
+
+## v0.7 — Performance & Ecosystem
+
+> Optimize catalog hot paths, introduce multi-writer partitioning, and expose the catalog to DataFusion.
+
+### Performance Optimization
+
+Profile and optimize the catalog hot paths. All optimizations compare against the `benchmarks/phase-2-baseline.json` established in v0.2.
+
+**Target: within 2–3× of PostgreSQL on common DuckLake planning queries.**
+
+**Secondary indexes.** Add skip-index keys for MVCC-heavy scans:
+```
+e.g. (snapshot_id, table_id) → data_file_id for snapshot-scoped file lookups
+```
+Add a secondary index only when profiling shows MVCC filter overhead exceeds 10× amplification on the reference workload.
+
+**Packing.** Store all small per-table metadata — columns, partitions, sort info — as one composite value per table. A single point read pulls everything needed to plan a query.
+
+**Hot key.** Persist the current snapshot ID and per-table file count under a dedicated hot key so a cold DuckDB process can resume in a single `GET`.
+
+**SlateDB tuning.** Evaluate `Settings` for:
+- Block size
+- Bloom filters
+- On-disk block cache (SSD)
+- `l0_sst_count_threshold` for update-heavy workloads
+- Levelled compaction aggressiveness
+
+**LSM tombstone management.** The `UPDATE SET end_snapshot` pattern generates a new SST entry per retired version that masks the old value until compaction merges them. This is normal LSM behavior and does not violate catalog-data immutability — the catalog row still exists with `end_snapshot` set. Tune compaction to merge dead LSM entries earlier for high-ingest workloads. Physical deletion of catalog *keys* happens only through `slateduck excise`, not through compaction tuning.
+
+**Initial benchmark suite.** Compare SlateDuck against the phase-2 baseline and SQLite-backed DuckLake:
+- `list_data_files` at 10⁴, 10⁵ files
+- `create_snapshot` at 1, 10, 100 file additions
+- Cold-start read latency from a fresh process
+- p50/p95/p99 for all operations on LocalFS and S3 Standard
+
+### Multi-Writer via Catalog Partitioning
+
+SlateDB is single-writer per database, and DuckLake is single-writer per catalog. However, SlateDuck can offer a pattern of "one SlateDB catalog per dataset" with a thin global registry, exploiting SlateDB's cheap database creation:
+
+- Global registry catalog: maps logical dataset names to their catalog paths
+- Each dataset gets its own isolated SlateDB-backed catalog
+- Writers shard across datasets with no cross-dataset contention
+- The global registry itself is a SlateDuck catalog, providing a queryable inventory
+
+### DataFusion Integration
+
+Expose `slateduck-catalog` to DataFusion's [`datafusion-ducklake`](https://github.com/datafusion-contrib/datafusion-ducklake) via Rust trait implementation:
+- Both are Rust crates, so integration avoids FFI entirely
+- Implement DataFusion's `CatalogProvider` trait backed by `CatalogStore`
+- Enables DataFusion users to run SQL against a SlateDuck-backed lakehouse without DuckDB
+
+### Deliverables
+
+- Hot-key cold-start optimization implemented and measured
+- Secondary indexes added where profiling shows ≥ 10× MVCC amplification
+- Initial benchmark report: p50/p95/p99 vs. phase-2 baseline and SQLite-backed DuckLake
+- Multi-writer partitioning pattern documented with example architecture and tested with multiple concurrent dataset writers
+- DataFusion integration passing DuckLake tutorial equivalence tests
+
+---
+
+## v1.0 — General Availability
+
+> Full TPC-H @ SF10 benchmarks, GA polish, and full operational story.
+
+### Full Benchmark Suite
+
+TPC-H @ SF10 comparison: SlateDuck vs. DuckLake-on-PostgreSQL (RDS same AZ) vs. DuckLake-on-SQLite:
+- `list_data_files` at 10⁴, 10⁵, 10⁶ files
+- `create_snapshot` at 1, 10, 100 file additions
+- Cold-start read latency from a fresh process
+- Concurrent reader throughput
+- p50/p95/p99 for all operations on S3 Standard and S3 Express One Zone
+
+**Performance acceptance gate:** If common S3 Express planning operations exceed 3× PostgreSQL p99 latency after v0.7 optimization, document the gap clearly and defer production-readiness claim; correctness milestones may still ship as alpha/beta.
+
 ### Success Criteria
 
 1. Full DuckLake tutorial runs end-to-end from DuckDB through SlateDuck with catalog in S3; no PostgreSQL or SQLite database required
@@ -810,17 +865,7 @@ Multiple applications can coexist by using distinct prefixes. Application keys p
 
 ## v1.x — Ecosystem Expansion
 
-> Multi-writer patterns, streaming ingest, and non-DuckDB engine support.
-
-### Multi-Writer via Catalog Partitioning
-
-SlateDB is single-writer per database, and DuckLake is single-writer per catalog.
-However, SlateDuck can offer a pattern of "one SlateDB catalog per dataset" with a thin global registry, exploiting SlateDB's cheap database creation:
-
-- Global registry catalog: maps logical dataset names to their catalog paths
-- Each dataset gets its own isolated SlateDB-backed catalog
-- Writers shard across datasets with no cross-dataset contention
-- The global registry itself is a SlateDuck catalog, providing a queryable inventory
+> Streaming ingest, additional DuckLake clients, large-scale pruning, and async catalog FFI.
 
 ### Streaming Ingest via pg-tide-relay
 
@@ -829,18 +874,11 @@ However, SlateDuck can offer a pattern of "one SlateDB catalog per dataset" with
 - Any external source (Kafka, NATS, Redis, SQS, webhook) writes directly to a DuckLake or SlateDuck catalog without routing through a PostgreSQL inbox
 - `SlateDuckSink` connects directly to the PG-wire sidecar, giving a zero-infrastructure path from a PostgreSQL transaction to a queryable data lake in S3
 
-The pg-tide-relay SQL corpus is already bounded by the patterns validated in v1.0 (no JOINs, CTEs, subqueries, or DDL).
-
-### DataFusion Integration
-
-Expose `slateduck-catalog` to DataFusion's [`datafusion-ducklake`](https://github.com/datafusion-contrib/datafusion-ducklake) via Rust trait implementation:
-- Both are Rust crates, so integration avoids FFI entirely
-- Implement DataFusion's `CatalogProvider` trait backed by `CatalogStore`
-- Enables DataFusion users to run SQL against a SlateDuck-backed lakehouse without DuckDB
+The pg-tide-relay SQL corpus is already bounded by the patterns validated in v0.6 and v1.0 (no JOINs, CTEs, subqueries, or DDL).
 
 ### Additional DuckLake Clients
 
-Using the established wire-corpus onboarding process:
+Using the established wire-corpus onboarding process (pg-tide-relay corpus established in v0.6):
 - Spark-DuckLake
 - Trino-DuckLake
 - Any future catalog client that issues spec-compliant queries
@@ -853,7 +891,7 @@ For tables with >1 million data files and 100+ columns:
 - Add a coarse zone-map / interval index: `(table_id, column_id, stats_bucket, data_file_id)`
 - Groups typed min/max ranges for approximate pruning before reading full stats rows
 - Reduces the 67 MB per-column pruning scan to a much smaller pre-filtered candidate set
-- This is a Phase 7 / v1.x optimization target; correctness must be verified against exact min/max stats
+- This is a v1.x optimization target; correctness must be verified against exact min/max stats
 
 ### Async Catalog FFI (Strategy C v2)
 
@@ -865,8 +903,6 @@ If DuckDB exposes an async catalog extension API (check in Phase 0):
 ### Deliverables
 
 - pg-tide-relay `SlateDuckSink` passing full acceptance test suite
-- DataFusion integration passing DuckLake tutorial equivalence tests
-- Multi-writer partitioning pattern documented with example architecture and tested with multiple concurrent dataset writers
 - At least one additional client (Spark or Trino) with full corpus coverage in CI
 
 ---
@@ -985,7 +1021,7 @@ When a new DuckLake spec version is published:
 ## What SlateDuck Is Not
 
 - A general-purpose SQL engine *in v1* (the substrate is designed to make this possible later — see v2.x)
-- A multi-writer database in v1 (one writer per catalog; SlateDB fencing handles takeover; v2.x evaluates append-disjoint multi-writer)
+- A multi-writer database in v1 (one writer per catalog; SlateDB fencing handles takeover; the v0.7 partitioning pattern is the recommended workaround; v2.x evaluates append-disjoint multi-writer)
 - A data-plane proxy (DuckDB writes Parquet directly; SlateDuck writes only the catalog)
 - A system where user-visible catalog history can be silently deleted (physical deletion only via the explicit, audited `slateduck excise` command)
 - A replacement for PostgreSQL-backed DuckLake in low-latency, high-concurrency analyst workloads

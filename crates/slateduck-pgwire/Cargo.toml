@@ -12,6 +12,7 @@ path = "src/main.rs"
 slateduck-core = { path = "../slateduck-core" }
 slateduck-catalog = { path = "../slateduck-catalog" }
 slateduck-sql = { path = "../slateduck-sql" }
+slatedb = { workspace = true }
 pgwire = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }

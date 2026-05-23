@@ -28,6 +28,18 @@ pub enum CatalogError {
     TypeCompare(#[from] slateduck_core::types::TypeCompareError),
     #[error("transaction conflict: {0}")]
     TransactionConflict(String),
+    #[error("pinned snapshot {pinned_snapshot} blocks retain-from advancement to {requested_retain_from}")]
+    PinnedSnapshotBlocks {
+        pinned_snapshot: u64,
+        requested_retain_from: u64,
+    },
+    #[error("excision unsafe: retain-from ({retain_from}) has not been advanced past before_snapshot ({before_snapshot})")]
+    ExcisionUnsafe {
+        retain_from: u64,
+        before_snapshot: u64,
+    },
+    #[error("repair refused: {0}")]
+    RepairRefused(String),
 }
 
 impl From<slatedb::Error> for CatalogError {

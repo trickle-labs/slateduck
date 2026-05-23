@@ -11,10 +11,12 @@ object_store = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 futures = "0.3"
+prost = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
