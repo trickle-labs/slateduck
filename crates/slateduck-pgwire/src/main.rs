@@ -111,6 +111,14 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         bind_addr: config.bind_addr,
         max_sessions: config.max_sessions,
         max_active_scans: 25,
+        tls: slateduck_pgwire::server::TlsConfig {
+            cert_path: config.tls_cert,
+            key_path: config.tls_key,
+        },
+        auth: slateduck_pgwire::server::AuthConfig {
+            username: config.auth_username,
+            password: config.auth_password,
+        },
     };
 
     run_server(server_config, catalog).await?;
@@ -122,6 +130,10 @@ struct ServeConfig {
     bind_addr: SocketAddr,
     max_sessions: usize,
     metrics_port: Option<u16>,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
+    auth_username: Option<String>,
+    auth_password: Option<String>,
 }
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
@@ -129,6 +141,10 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     let mut bind_addr: SocketAddr = "0.0.0.0:5432".parse().unwrap();
     let mut max_sessions = 50;
     let mut metrics_port = None;
+    let mut tls_cert = None;
+    let mut tls_key = None;
+    let mut auth_username = None;
+    let mut auth_password = None;
 
     let mut i = 2;
     while i < args.len() {
@@ -163,11 +179,26 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
             }
             "--encryption-key" => {
                 i += 1;
-                // Validated and stored for catalog open
                 let _key = args.get(i).ok_or("--encryption-key requires a value")?;
             }
+            "--tls-cert" => {
+                i += 1;
+                tls_cert = Some(args.get(i).cloned().ok_or("--tls-cert requires a value")?);
+            }
+            "--tls-key" => {
+                i += 1;
+                tls_key = Some(args.get(i).cloned().ok_or("--tls-key requires a value")?);
+            }
+            "--username" => {
+                i += 1;
+                auth_username = Some(args.get(i).cloned().ok_or("--username requires a value")?);
+            }
+            "--password" => {
+                i += 1;
+                auth_password = Some(args.get(i).cloned().ok_or("--password requires a value")?);
+            }
             "--help" | "-h" => {
-                eprintln!("Usage: slateduck serve --catalog <path> [--bind <addr>] [--max-sessions <n>] [--metrics-port <port>]");
+                eprintln!("Usage: slateduck serve --catalog <path> [--bind <addr>] [--max-sessions <n>] [--metrics-port <port>] [--tls-cert <path>] [--tls-key <path>] [--username <user>] [--password <pass>]");
                 std::process::exit(0);
             }
             other => {
@@ -188,6 +219,10 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         bind_addr,
         max_sessions,
         metrics_port,
+        tls_cert,
+        tls_key,
+        auth_username,
+        auth_password,
     })
 }
 

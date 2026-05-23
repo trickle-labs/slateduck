@@ -145,6 +145,50 @@ async fn execute_classified<'a>(
             Ok(vec![make_empty_response()])
         }
 
+        // ─── pg-tide-relay extensions ──────────────────────────────────
+        StatementKind::SelectMaxSnapshotAfter => {
+            let s = store.lock().await;
+            let after_id = params.get_u64(0).unwrap_or(0);
+            let reader = s.read_latest();
+            let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
+            let id = snap.map(|s| s.snapshot_id).unwrap_or(0);
+            if id > after_id {
+                Ok(vec![make_single_int_response("max", id as i64)])
+            } else {
+                Ok(vec![make_null_int_response("max")])
+            }
+        }
+        StatementKind::SelectFirstSnapshot => {
+            let s = store.lock().await;
+            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(1));
+            let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
+            if let Some(snap) = snap {
+                Ok(vec![make_snapshot_row_response(snap)])
+            } else {
+                Ok(vec![make_empty_response()])
+            }
+        }
+        StatementKind::SelectDataFilesWithLimit => {
+            let s = store.lock().await;
+            let table_id = params.get_u64(0).unwrap_or(0);
+            let limit = params.get_u64(1).unwrap_or(u64::MAX);
+            let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
+            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let mut files = reader
+                .list_data_files(table_id)
+                .await
+                .map_err(SlateDuckError::from)?;
+            files.truncate(limit as usize);
+            Ok(vec![make_data_files_response(files)])
+        }
+        StatementKind::SelectGenRandomUuid => {
+            let uuid_val = uuid::Uuid::new_v4().to_string();
+            Ok(vec![make_single_text_response(
+                "gen_random_uuid",
+                &uuid_val,
+            )])
+        }
+
         // ─── Write Operations (buffered in transaction) ────────────────
         StatementKind::InsertSnapshot => {
             let op = BufferedOp::InsertSnapshot {
@@ -601,6 +645,97 @@ fn make_single_int_response<'a>(col_name: &str, value: i64) -> Response<'a> {
     let row = encoder.finish();
     let data_rows = vec![row];
     let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag("SELECT 1");
+    Response::Query(resp)
+}
+
+fn make_null_int_response<'a>(col_name: &str) -> Response<'a> {
+    let schema = Arc::new(vec![FieldInfo::new(
+        col_name.to_string(),
+        None,
+        None,
+        Type::INT8,
+        FieldFormat::Text,
+    )]);
+    let mut encoder = DataRowEncoder::new(schema.clone());
+    encoder
+        .encode_field_with_type_and_format(&None::<String>, &Type::TEXT, FieldFormat::Text)
+        .unwrap();
+    let row = encoder.finish();
+    let data_rows = vec![row];
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag("SELECT 1");
+    Response::Query(resp)
+}
+
+fn make_snapshot_row_response(snap: slateduck_core::rows::SnapshotRow) -> Response<'static> {
+    let schema = Arc::new(vec![
+        FieldInfo::new(
+            "snapshot_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "schema_version".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "snapshot_time".to_string(),
+            None,
+            None,
+            Type::TIMESTAMPTZ,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "author".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "message".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+    ]);
+    let mut encoder = DataRowEncoder::new(schema.clone());
+    encoder
+        .encode_field_with_type_and_format(
+            &Some(snap.snapshot_id.to_string()),
+            &Type::TEXT,
+            FieldFormat::Text,
+        )
+        .unwrap();
+    encoder
+        .encode_field_with_type_and_format(
+            &Some(snap.schema_version.to_string()),
+            &Type::TEXT,
+            FieldFormat::Text,
+        )
+        .unwrap();
+    encoder
+        .encode_field_with_type_and_format(
+            &Some(snap.snapshot_time.clone()),
+            &Type::TEXT,
+            FieldFormat::Text,
+        )
+        .unwrap();
+    encoder
+        .encode_field_with_type_and_format(&snap.author, &Type::TEXT, FieldFormat::Text)
+        .unwrap();
+    encoder
+        .encode_field_with_type_and_format(&snap.message, &Type::TEXT, FieldFormat::Text)
+        .unwrap();
+    let row = encoder.finish();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![row]));
     resp.set_command_tag("SELECT 1");
     Response::Query(resp)
 }

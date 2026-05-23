@@ -18,7 +18,7 @@ repository = "https://github.com/geir-gronmo/slateduck"
 [workspace.dependencies]
 # Storage
 slatedb = "0.13"
-object_store = { version = "0.12", features = ["aws"] }
+object_store = { version = "0.12", features = ["aws", "gcp", "azure"] }
 bytes = "1"
 
 # Async runtime

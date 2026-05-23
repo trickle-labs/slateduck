@@ -1,6 +1,7 @@
 //! PG Wire protocol handler implementation.
 //!
 //! Implements SimpleQueryHandler and ExtendedQueryHandler for the pgwire crate.
+//! Supports optional password authentication (md5/scram-sha-256).
 
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ use slateduck_catalog::CatalogStore;
 use slateduck_sql::ParamValues;
 
 use crate::executor;
+use crate::server::AuthConfig;
 use crate::session::SessionState;
 
 /// The main SlateDuck query handler.
@@ -32,6 +34,7 @@ pub struct SlateDuckHandler {
     pub catalog: Arc<Mutex<CatalogStore>>,
     pub session: Arc<Mutex<SessionState>>,
     pub parser: Arc<SlateDuckQueryParser>,
+    pub auth: Arc<AuthConfig>,
 }
 
 impl SlateDuckHandler {
@@ -40,6 +43,16 @@ impl SlateDuckHandler {
             catalog,
             session: Arc::new(Mutex::new(SessionState::new())),
             parser: Arc::new(SlateDuckQueryParser),
+            auth: Arc::new(AuthConfig::default()),
+        }
+    }
+
+    pub fn new_with_auth(catalog: Arc<Mutex<CatalogStore>>, auth: Arc<AuthConfig>) -> Self {
+        Self {
+            catalog,
+            session: Arc::new(Mutex::new(SessionState::new())),
+            parser: Arc::new(SlateDuckQueryParser),
+            auth,
         }
     }
 }
@@ -222,6 +235,14 @@ impl SlateDuckServerHandlers {
     pub fn new(catalog: Arc<Mutex<CatalogStore>>) -> Self {
         Self {
             handler: Arc::new(SlateDuckHandler::new(catalog)),
+            copy_handler: Arc::new(NoopCopyHandler),
+            error_handler: Arc::new(NoopErrorHandler),
+        }
+    }
+
+    pub fn new_with_auth(catalog: Arc<Mutex<CatalogStore>>, auth: Arc<AuthConfig>) -> Self {
+        Self {
+            handler: Arc::new(SlateDuckHandler::new_with_auth(catalog, auth)),
             copy_handler: Arc::new(NoopCopyHandler),
             error_handler: Arc::new(NoopErrorHandler),
         }

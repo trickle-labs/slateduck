@@ -1,0 +1,52 @@
+name: DuckDB Compatibility Matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly to catch DuckDB patch releases
+    - cron: '0 6 * * 1'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  wire-corpus-replay:
+    name: Wire Corpus Replay (${{ matrix.client }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        client:
+          - duckdb-1.2.2
+          - pgtide-0.34
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify corpus fixture exists
+        run: |
+          test -f tests/fixtures/wire-corpus/${{ matrix.client }}.jsonl
+
+      - name: Run wire-corpus replay tests
+        run: cargo test --package slateduck-pgwire -- --include-ignored corpus
+
+      - name: Run all integration tests
+        run: cargo test --package slateduck-pgwire
+
+  object-store-validation:
+    name: Object Store Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run GCS/Azure builder validation tests
+        run: cargo test --package slateduck-pgwire -- gcs_object_store_config azure_object_store_config
+
+      - name: Run all catalog tests
+        run: cargo test --package slateduck-catalog

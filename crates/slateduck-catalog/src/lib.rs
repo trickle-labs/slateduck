@@ -1,5 +1,6 @@
 //! SlateDuck Catalog: DuckLake catalog operations backed by SlateDB.
 
+pub mod audit;
 pub mod checkpoint;
 pub mod cleanup;
 pub mod encryption;
@@ -16,6 +17,7 @@ pub mod store;
 pub mod verify;
 pub mod writer;
 
+pub use audit::{AuditChange, AuditEntry};
 pub use error::{CatalogError, CatalogResult};
 pub use metrics::CatalogMetrics;
 pub use reader::CatalogReader;

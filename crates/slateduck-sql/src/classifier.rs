@@ -26,18 +26,26 @@ pub enum StatementKind {
 
     // ─── DuckLake Read Operations ──────────────────────────────────────
     SelectMaxSnapshot,
+    /// `SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1`
+    SelectMaxSnapshotAfter,
     SelectSchemas,
     SelectTables,
     SelectColumns,
     SelectDataFiles,
+    /// `SELECT ... FROM ducklake_data_file ... LIMIT $N` (parameterized limit)
+    SelectDataFilesWithLimit,
     SelectDeleteFiles,
     SelectFileColumnStats,
     SelectTableStats,
     SelectMetadata,
     SelectSnapshot,
+    /// `SELECT ... FROM ducklake_snapshot ORDER BY snapshot_id ASC LIMIT 1`
+    SelectFirstSnapshot,
     SelectInlinedData,
     SelectViews,
     SelectMacros,
+    /// `SELECT gen_random_uuid()` — pg-tide-relay generates UUIDs
+    SelectGenRandomUuid,
 
     // ─── DuckLake Write Operations ─────────────────────────────────────
     InsertSnapshot,
@@ -146,7 +154,7 @@ fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
     let body = query.body.as_ref();
     match body {
         SetExpr::Select(select) => {
-            // Check for function calls: version(), current_schema(), current_database()
+            // Check for function calls: version(), current_schema(), current_database(), gen_random_uuid()
             if select.from.is_empty() {
                 return classify_no_from_select(select);
             }
@@ -155,7 +163,7 @@ fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
             if let Some(from) = select.from.first() {
                 let table_name = extract_table_name(&from.relation);
                 if let Some(name) = table_name {
-                    return classify_table_select(&name);
+                    return classify_table_select_with_query(&name, query, select);
                 }
             }
 
@@ -175,6 +183,7 @@ fn classify_no_from_select(select: &sqlparser::ast::Select) -> StatementKind {
                 "version" => return StatementKind::SelectVersion,
                 "current_schema" => return StatementKind::SelectCurrentSchema,
                 "current_database" => return StatementKind::SelectCurrentDatabase,
+                "gen_random_uuid" => return StatementKind::SelectGenRandomUuid,
                 _ => {}
             }
         }
@@ -182,14 +191,19 @@ fn classify_no_from_select(select: &sqlparser::ast::Select) -> StatementKind {
     StatementKind::Unsupported("SELECT without FROM".to_string())
 }
 
-fn classify_table_select(table_name: &str) -> StatementKind {
+/// Classify a SELECT from a known table, considering ORDER BY / LIMIT / WHERE patterns.
+fn classify_table_select_with_query(
+    table_name: &str,
+    query: &sqlparser::ast::Query,
+    select: &sqlparser::ast::Select,
+) -> StatementKind {
     let lower = table_name.to_lowercase();
     match lower.as_str() {
-        "ducklake_snapshot" => StatementKind::SelectMaxSnapshot,
+        "ducklake_snapshot" => classify_snapshot_select(query, select),
         "ducklake_schema" => StatementKind::SelectSchemas,
         "ducklake_table" => StatementKind::SelectTables,
         "ducklake_column" => StatementKind::SelectColumns,
-        "ducklake_data_file" => StatementKind::SelectDataFiles,
+        "ducklake_data_file" => classify_data_file_select(query),
         "ducklake_delete_file" => StatementKind::SelectDeleteFiles,
         "ducklake_file_column_stats" => StatementKind::SelectFileColumnStats,
         "ducklake_table_stats" => StatementKind::SelectTableStats,
@@ -201,6 +215,67 @@ fn classify_table_select(table_name: &str) -> StatementKind {
         s if s.starts_with("ducklake_inlined_") => StatementKind::SelectInlinedRows,
         _ => StatementKind::Unsupported(format!("SELECT from {table_name}")),
     }
+}
+
+/// Classify SELECT on ducklake_snapshot — detect ASC LIMIT 1 and WHERE snapshot_id > $1 patterns.
+fn classify_snapshot_select(
+    query: &sqlparser::ast::Query,
+    select: &sqlparser::ast::Select,
+) -> StatementKind {
+    // Check for ORDER BY snapshot_id ASC LIMIT 1 → SelectFirstSnapshot
+    if has_order_by_asc_limit_1(query) {
+        return StatementKind::SelectFirstSnapshot;
+    }
+
+    // Check for max(snapshot_id) ... WHERE snapshot_id > $1 → SelectMaxSnapshotAfter
+    if has_where_snapshot_gt(select) {
+        return StatementKind::SelectMaxSnapshotAfter;
+    }
+
+    StatementKind::SelectMaxSnapshot
+}
+
+/// Classify SELECT on ducklake_data_file — detect parameterized LIMIT.
+fn classify_data_file_select(query: &sqlparser::ast::Query) -> StatementKind {
+    if has_parameterized_limit(query) {
+        return StatementKind::SelectDataFilesWithLimit;
+    }
+    StatementKind::SelectDataFiles
+}
+
+/// Check if query has ORDER BY ... ASC LIMIT 1.
+fn has_order_by_asc_limit_1(query: &sqlparser::ast::Query) -> bool {
+    if query.order_by.is_some() {
+        if let Some(ref limit) = query.limit {
+            let limit_str = limit.to_string();
+            if limit_str == "1" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if the SELECT has a WHERE clause with `snapshot_id > $N`.
+fn has_where_snapshot_gt(select: &sqlparser::ast::Select) -> bool {
+    if let Some(ref selection) = select.selection {
+        let sel_str = selection.to_string().to_lowercase();
+        if sel_str.contains("snapshot_id") && sel_str.contains(">") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if query has a parameterized LIMIT ($N).
+fn has_parameterized_limit(query: &sqlparser::ast::Query) -> bool {
+    if let Some(ref limit) = query.limit {
+        let limit_str = limit.to_string();
+        if limit_str.starts_with('$') {
+            return true;
+        }
+    }
+    false
 }
 
 fn classify_insert(table_name: &ObjectName) -> StatementKind {
@@ -359,5 +434,55 @@ mod tests {
         )
         .unwrap();
         assert_eq!(kind, StatementKind::SelectFileColumnStats);
+    }
+
+    // ─── pg-tide-relay extension patterns ──────────────────────────────
+
+    #[test]
+    fn test_classify_select_first_snapshot() {
+        let kind =
+            classify_statement("SELECT * FROM ducklake_snapshot ORDER BY snapshot_id ASC LIMIT 1")
+                .unwrap();
+        assert_eq!(kind, StatementKind::SelectFirstSnapshot);
+    }
+
+    #[test]
+    fn test_classify_select_max_snapshot_after() {
+        let kind = classify_statement(
+            "SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1",
+        )
+        .unwrap();
+        assert_eq!(kind, StatementKind::SelectMaxSnapshotAfter);
+    }
+
+    #[test]
+    fn test_classify_select_data_files_with_limit() {
+        let kind =
+            classify_statement("SELECT * FROM ducklake_data_file WHERE table_id = $1 LIMIT $2")
+                .unwrap();
+        assert_eq!(kind, StatementKind::SelectDataFilesWithLimit);
+    }
+
+    #[test]
+    fn test_classify_gen_random_uuid() {
+        let kind = classify_statement("SELECT gen_random_uuid()").unwrap();
+        assert_eq!(kind, StatementKind::SelectGenRandomUuid);
+    }
+
+    #[test]
+    fn test_classify_insert_metadata() {
+        let kind = classify_statement(
+            "INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)",
+        )
+        .unwrap();
+        assert_eq!(kind, StatementKind::InsertMetadata);
+    }
+
+    #[test]
+    fn test_classify_select_metadata() {
+        let kind =
+            classify_statement("SELECT value FROM ducklake_metadata WHERE metadata_key = $1")
+                .unwrap();
+        assert_eq!(kind, StatementKind::SelectMetadata);
     }
 }

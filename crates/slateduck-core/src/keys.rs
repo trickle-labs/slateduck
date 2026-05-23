@@ -404,6 +404,24 @@ pub fn key_system(suffix: &[u8]) -> Vec<u8> {
     buf
 }
 
+/// Build an audit log key: `0xFF | "audit" | snapshot_id(u64)`.
+pub fn key_audit(snapshot_id: u64) -> Vec<u8> {
+    let prefix = b"audit";
+    let mut buf = Vec::with_capacity(1 + prefix.len() + 8);
+    buf.push(TAG_SYSTEM);
+    buf.extend_from_slice(prefix);
+    buf.extend_from_slice(&encode_u64(snapshot_id));
+    buf
+}
+
+/// Build the scan prefix for all audit log entries: `0xFF | "audit"`.
+pub fn audit_prefix() -> Vec<u8> {
+    let mut buf = Vec::with_capacity(6);
+    buf.push(TAG_SYSTEM);
+    buf.extend_from_slice(b"audit");
+    buf
+}
+
 // ─── Prefix Helpers ────────────────────────────────────────────────────────
 
 /// Build a scan prefix for all entries of a given table tag.

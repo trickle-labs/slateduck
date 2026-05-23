@@ -11,4 +11,4 @@ pub mod session;
 pub mod types;
 
 pub use error::SlateDuckError;
-pub use server::ServerConfig;
+pub use server::{AuthConfig, ServerConfig, TlsConfig};

@@ -2,7 +2,7 @@
 
 **A DuckLake catalog on SlateDB — your entire lakehouse in a single S3 bucket, no database server required.**
 
-[![CI](https://github.com/geir-gronmo/slateduck/actions/workflows/ci.yml/badge.svg)](https://github.com/geir-gronmo/slateduck/actions)
+[![CI](https://github.com/trickle-labs/slateduck/actions/workflows/ci.yml/badge.svg)](https://github.com/trickle-labs/slateduck/actions)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 
@@ -12,7 +12,7 @@
 
 Modern data teams are drowning in infrastructure. You want a lakehouse — fast analytical queries over Parquet files in object storage — but every existing solution demands a running database server to hold the catalog: a managed PostgreSQL, a Hive Metastore, a Glue catalog, something that needs to be provisioned, patched, monitored, scaled, and backed up. SlateDuck makes that server disappear.
 
-SlateDuck is a production-ready catalog backend for [DuckLake](https://ducklake.select/), the elegant open-source lakehouse format from the DuckDB team. Instead of routing catalog metadata through an external database, SlateDuck stores it directly in [SlateDB](https://slatedb.io/) — a battle-hardened, LSM-based embedded key-value store that runs entirely inside object storage. The result is a lakehouse where **both your Parquet data files and your catalog live in the same S3 bucket**, connected to DuckDB over the standard PostgreSQL wire protocol, requiring absolutely no servers beyond a lightweight stateless sidecar. Point at a bucket, start the sidecar, and you are querying within seconds.
+SlateDuck is a catalog backend for [DuckLake](https://ducklake.select/), the elegant open-source lakehouse format from the DuckDB team. Instead of routing catalog metadata through an external database, SlateDuck stores it directly in [SlateDB](https://slatedb.io/) — a battle-hardened, LSM-based embedded key-value store that runs entirely inside object storage. The result is a lakehouse where **both your Parquet data files and your catalog live in the same S3 bucket**, connected to DuckDB over the standard PostgreSQL wire protocol, requiring absolutely no servers beyond a lightweight stateless sidecar. Point at a bucket, start the sidecar, and you are querying within seconds.
 
 ---
 
@@ -133,23 +133,6 @@ SlateDuck is a Cargo workspace of focused crates, each with a clear responsibili
 | `slateduck-pgwire` | PostgreSQL wire protocol sidecar binary (startup, simple query, extended query) |
 | `slateduck-sqlite-vfs` | SQLite VFS layer (planned: Strategy C embedded extension path) |
 | `slateduck-ffi` | C/C++ FFI bindings (planned: native DuckDB extension) |
-
----
-
-## Release Status
-
-The core catalog engine, MVCC layer, and PostgreSQL wire sidecar are complete and passing end-to-end tests against DuckDB's `ducklake` extension. Active development is on the production-hardening and native-extension path; multi-client support, performance optimization, and multi-writer partitioning are staged in v0.6 and v0.7 before the v1.0 GA release.
-
-| Release | Milestone | Status |
-|---|---|---|
-| **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | Done |
-| **v0.2 — Catalog Core** | All 28 DuckLake tables, full MVCC, immutability guarantees, Rust API | Done |
-| **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar, DuckDB end-to-end | Done |
-| **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | In Progress |
-| **v0.5 — Native Extension (Beta)** | Embedded DuckDB extension via FFI, no sidecar required | Planned |
-| **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation | Planned |
-| **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, multi-writer partitioning, DataFusion integration | Planned |
-| **v1.0 — General Availability** | TPC-H @ SF10 benchmarks, GA polish, full operational story | Planned |
 
 ---
 

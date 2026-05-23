@@ -51,7 +51,7 @@ binding on every roadmap release below.
 | **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | **Done** |
 | **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | **Done** |
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | **Done** |
-| **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation, compatibility matrix CI | Planning |
+| **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation, compatibility matrix CI | **Done** |
 | **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | Planning |
 | **v0.8 — Documentation** | MkDocs Material site, GitHub Pages, full conceptual, operational, and reference coverage | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10 benchmarks, GA polish, full operational story | Planning |
@@ -714,11 +714,11 @@ All deferred tables return `SQLSTATE 0A000` in Phase 0.3; this release removes t
 
 Formalize the client onboarding process for non-DuckDB DuckLake clients:
 
-1. Capture client's full SQL corpus as `tests/fixtures/wire-corpus/{client}-{version}.jsonl`
-2. Classify each statement: already supported / trivial extension / new pattern requiring dispatcher work
-3. Add category-b statements behind a feature flag gated on the client corpus
-4. Category-c statements evaluated case-by-case; dispatcher will not grow into a general SQL engine
-5. Replay tests run in CI alongside DuckDB's
+1. [x] Capture client's full SQL corpus as `tests/fixtures/wire-corpus/{client}-{version}.jsonl`
+2. [x] Classify each statement: already supported / trivial extension / new pattern requiring dispatcher work
+3. [x] Add category-b statements behind a feature flag gated on the client corpus
+4. [x] Category-c statements evaluated case-by-case; dispatcher will not grow into a general SQL engine
+5. [x] Replay tests run in CI alongside DuckDB's
 
 **First planned non-DuckDB client: pg-tide-relay**
 
@@ -738,31 +738,31 @@ Multiple applications can coexist by using distinct prefixes. Application keys p
 
 ### GCS and Azure Validation
 
-- Run full acceptance test suite against Google Cloud Storage and Azure Blob Storage
-- Verify writer fencing, manifest updates, and conditional initialization on each backend
-- Add to `docs/compatibility.md`
+- [x] Run full acceptance test suite against Google Cloud Storage and Azure Blob Storage
+- [x] Verify writer fencing, manifest updates, and conditional initialization on each backend
+- [x] Add to `docs/compatibility.md`
 
 ### DuckDB Compatibility Matrix Maintenance
 
-- CI runs wire-corpus replay on every DuckDB patch release
-- Minor version bumps: new corpus capture + sign-off before version added to matrix
-- Major version bumps: full re-capture, new corpus fixture, explicit compatibility review
+- [x] CI runs wire-corpus replay on every DuckDB patch release
+- [x] Minor version bumps: new corpus capture + sign-off before version added to matrix
+- [x] Major version bumps: full re-capture, new corpus fixture, explicit compatibility review
 
 ### Security Hardening
 
-- IAM separation tests: catalog-only role vs. data-only role; verify expected `SQLSTATE 42501` failures
-- TLS support for `slateduck serve` (`--tls-cert`, `--tls-key`)
-- Authentication: PostgreSQL `md5` / `scram-sha-256` password auth for sidecar connections
-- Audit log: write a structured log entry for every snapshot commit (who, when, what changed)
+- [x] IAM separation tests: catalog-only role vs. data-only role; verify expected `SQLSTATE 42501` failures
+- [x] TLS support for `slateduck serve` (`--tls-cert`, `--tls-key`)
+- [x] Authentication: PostgreSQL `md5` / `scram-sha-256` password auth for sidecar connections
+- [x] Audit log: write a structured log entry for every snapshot commit (who, when, what changed)
 
 ### Deliverables
 
-- pg-tide-relay corpus captured and replay tests green in CI
-- All category-b dispatcher extensions behind feature flags with replay coverage
-- GCS and Azure acceptance tests green; `docs/compatibility.md` updated
-- TLS and password auth working for `slateduck serve`
-- Audit log entries verified for every snapshot commit
-- DuckDB compatibility matrix CI running on patch releases
+- [x] pg-tide-relay corpus captured and replay tests green in CI
+- [x] All category-b dispatcher extensions behind feature flags with replay coverage
+- [x] GCS and Azure acceptance tests green; `docs/compatibility.md` updated
+- [x] TLS and password auth working for `slateduck serve`
+- [x] Audit log entries verified for every snapshot commit
+- [x] DuckDB compatibility matrix CI running on patch releases
 
 ---
 
@@ -829,30 +829,27 @@ Expose `slateduck-catalog` to DataFusion's [`datafusion-ducklake`](https://githu
 
 ## v0.8 — Documentation
 
-> Publish a complete, production-quality documentation site that explains every aspect of SlateDuck — architecture, design decisions, trade-offs, deployment, operations, and integration — to the same standard as the engineering.
+> Publish a complete documentation site that explains every aspect of SlateDuck — architecture, design decisions, trade-offs, deployment, operations, and integration — to the same standard as the engineering.
 
-The full specification for this release is in [plans/documentation-1.md](plans/documentation-1.md). This section is a binding summary of the scope, deliverables, and phased implementation plan.
+The full specification for this release is in [plans/documentation-1.md](plans/documentation-1.md). That document contains the complete `mkdocs.yml` configuration, the GitHub Actions workflow, rich per-page content plans for all 80 pages, the writing style guide, and the quality gates. This section is the binding roadmap summary: scope, rationale, and deliverables.
+
+A project that handles production data — data that operators have stored in S3, annotated with schemas, and exposed to DuckDB for business queries — owes its users documentation that is accurate, complete, and honest. Operators who encounter a limitation undocumented will stop trusting the documentation. Engineers evaluating SlateDuck for adoption will look first at the Design Decisions section to understand what trade-offs were made and why; if that section is thin or evasive, the evaluation ends. Contributors who want to improve the codebase need an accurate map of the architecture before they can make safe changes. v0.8 provides all of this. It is not a stretch goal or a nice-to-have: without documentation, the software is incomplete.
 
 ### Technology Stack
 
-- **Framework:** [MkDocs](https://www.mkdocs.org/) with [Material for MkDocs](https://squidfundinglab.github.io/mkdocs-material/) theme
-- **Deployment:** GitHub Actions CI/CD building on every push to `main`; published to GitHub Pages
-- **Plugins:** `search`, `minify`, `git-revision-date-localized`, `social` (Open Graph cards), `glightbox`, `redirects`
-- **Extensions:** `pymdownx.superfences` (Mermaid diagrams), `pymdownx.tabbed` (multi-cloud configs), `pymdownx.details`, `pymdownx.highlight`, `admonition`, `toc`
-- **Dependency file:** `requirements-docs.txt` pinning all documentation dependencies for reproducible builds
+The documentation site is built with [MkDocs](https://www.mkdocs.org/) and the [Material for MkDocs](https://squidfundinglab.github.io/mkdocs-material/) theme. Material was chosen over alternatives (Docusaurus, Hugo, Sphinx) because it is maintained by a team that treats technical documentation as a first-class product, offers the best support for multi-cloud tabbed configurations and Mermaid diagrams, and ships a polished search experience that works entirely in the browser without a backend. The theme's dark-mode support and mobile responsiveness are production-grade and require no custom CSS to work correctly.
 
-The full `mkdocs.yml` configuration — including the navigation tree, theme palette, plugin list, and Markdown extension settings — is defined in `plans/documentation-1.md` and is used verbatim.
+The plugin set is chosen for specific needs: `git-revision-date-localized` surfaces a "last updated" timestamp on every page so readers can see at a glance whether content is current; `social` generates Open Graph preview cards for GitHub and social sharing with no manual effort; `glightbox` makes architecture diagrams lightbox-expandable so readers can study the detail without leaving the page; `redirects` enables stable external links even when internal page paths change between minor documentation reorganizations; `minify` reduces page weight for readers on mobile connections. All plugins are pinned in `requirements-docs.txt` so CI builds are reproducible and upgrades are intentional. The complete `mkdocs.yml` including the full navigation tree, all extension settings, and the palette configuration is in `plans/documentation-1.md` and is used verbatim.
 
 ### GitHub Actions Workflow
 
-A dedicated `.github/workflows/docs.yml` workflow:
-- **Build job:** runs on every push to `main` (path filter: `docs/**`, `mkdocs.yml`) and on every PR (build only, no deploy). Uses `mkdocs build --strict` so any broken link or misconfigured extension fails the build.
-- **Deploy job:** runs only on push to `main`; deploys the built `site/` artifact to GitHub Pages via `actions/deploy-pages`.
-- **Concurrency:** cancels in-progress builds on the same branch to avoid redundant deploys.
+A dedicated `.github/workflows/docs.yml` workflow handles both build verification and deployment. The build job runs on every push to `main` (path-filtered to `docs/**` and `mkdocs.yml`) and on every pull request, using `mkdocs build --strict` which turns broken internal links, missing navigation entries, and malformed extension directives into hard failures rather than warnings. This means a PR that introduces a broken cross-reference cannot be merged without fixing it — documentation quality is a CI gate, not a post-merge cleanup task.
+
+The deploy job runs only on push to `main` after the build job succeeds. It uploads the built `site/` directory as a GitHub Actions artifact and deploys it to GitHub Pages via `actions/deploy-pages`. Concurrency is set to cancel in-progress runs on the same branch, so a rapid sequence of commits does not queue up redundant deploys. The full workflow YAML is in `plans/documentation-1.md`.
 
 ### Documentation Structure
 
-Eighty content pages organized into 13 top-level sections, each with a defined audience and purpose:
+Eighty content pages organized into 13 top-level sections, each serving a distinct audience with a distinct purpose. The structure reflects the reality that a documentation site has several types of readers who arrive with different questions: new users who want to get something running; evaluators who want to understand the design well enough to make an adoption decision; operators who need practical deployment and operational guidance; engineers who want to contribute or extend the system.
 
 | Section | Pages | Audience |
 |---------|-------|----------|
@@ -872,33 +869,31 @@ Eighty content pages organized into 13 top-level sections, each with a defined a
 
 ### Content Requirements
 
-Every section must meet the following bar before the release is considered complete:
+Every section must meet a defined content bar before the release is considered complete. The bar varies by section type: conceptual pages require flowing prose and honest argument; reference pages require complete coverage and scannability; operational pages require working examples that have been run against the actual binary.
 
-**Getting Started and Concepts** are written as flowing technical essays — longer paragraphs that build intuition, not bullet-list summaries. Every claim links to the deeper documentation that substantiates it. Trade-offs are stated honestly: both what SlateDuck does well and where it falls short.
+**Getting Started and Concepts** are written as flowing technical essays — longer paragraphs that develop ideas fully and build intuition, not bullet-list summaries that defer the reader to another source. Every claim links to the deeper material that substantiates it. Trade-offs are stated honestly from the first page: a reader who reaches the Concepts section to understand MVCC or the single-writer constraint should come away with a complete picture of both the benefits and the costs, not a sales pitch followed by fine print.
 
-**Architecture** pages include Mermaid sequence diagrams for both the read path and write path, a Mermaid dependency graph of the crate workspace, and annotated code references pointing into the source where relevant.
+**Architecture** pages include Mermaid sequence diagrams for both the read path and the write path, a dependency graph of the six crates, and annotated source references pointing into the codebase where relevant. The goal is to let a contributor who has just cloned the repository understand how a DuckDB query flows from `ATTACH` through the pg-wire sidecar, into the SQL dispatcher, through `slateduck-catalog`, into `slateduck-core`, and down to SlateDB — without having to trace the code cold.
 
-**Deployment** pages are self-contained: a reader following one cloud-provider page should need nothing outside that page to stand up a working deployment. Each page includes IAM/permissions templates, a sample `slateduck serve` invocation, and a DuckDB connection snippet. Tabbed content is used for multi-provider comparisons.
+**Deployment** pages are self-contained: a reader following any single cloud-provider page should need nothing outside that page to stand up a working deployment. Each page includes IAM permission templates, a working `slateduck serve` invocation, a DuckDB `ATTACH` snippet, and a verification query. Tabbed sections present the AWS, GCS, and Azure variants side-by-side so operators can compare object-storage provider requirements without jumping between pages. MinIO is documented as a first-class local/on-prem deployment path alongside the major cloud providers.
 
-**Design Decisions** pages are the most important pages in the site. Each presents both sides of a design choice — what was chosen, what was rejected, and the full reasoning — written as an honest engineering assessment, not a sales document. These pages address: why SlateDB over PostgreSQL/SQLite; why Strategy B before Strategy C; why bounded SQL over a general engine; why Protobuf; the full costs and benefits of immutability; the single-writer constraint and its workarounds; key-layout rationale for all 28 tables; and an explicit "What SlateDuck Is Not" page.
+**Design Decisions** is the most important section in the site. Each of the eight pages addresses a major architectural choice — why SlateDB over PostgreSQL or SQLite; why Strategy B (pg-wire sidecar) precedes Strategy C (native extension); why bounded SQL over a general query engine; why Protobuf for value encoding; the full cost-benefit analysis of catalog immutability; the single-writer model and its practical workarounds; the rationale behind the key layout for all 28 catalog tables; and an explicit "What SlateDuck Is Not" page that articulates the workloads and use cases for which SlateDuck is the wrong choice. These pages require the most care because they must present both sides honestly: what was chosen, what was rejected, and the real reasons — not a post-hoc rationalization of decisions that were made for simpler reasons. Readers who disagree with a design decision should be able to look at this section, understand the full reasoning, and form an informed opinion. That requires honesty about costs, not just advocacy for the choice made.
 
-**Performance** pages publish the real benchmark numbers from `benchmarks/phase-2-baseline.json` and subsequent runs, with methodology documented. The "vs. Alternatives" page provides a direct, honest comparison table against PostgreSQL-backed and SQLite-backed DuckLake.
+**Performance** pages publish the real benchmark numbers from `benchmarks/phase-2-baseline.json` and subsequent runs, with methodology clearly documented. The "vs. Alternatives" page provides a direct, honest comparison table against PostgreSQL-backed and SQLite-backed DuckLake, including the conditions under which SlateDuck is slower (cold-start read latency from S3 is higher than PostgreSQL in the same region) and the conditions under which it is faster or equivalent (write throughput under high fan-out ingest; zero-config deployment cost).
 
-**Reference** pages are scannable lookup tables: all 28 catalog tables documented in tabular form; every supported SQL shape with parameter types; every SQLSTATE code with its triggering condition and resolution; every exported Prometheus metric; all environment variables.
+**Reference** pages are scannable lookup tables: all 28 catalog tables documented in tabular form with column types and semantics; every supported SQL shape with parameter types and return types; every SQLSTATE code with its triggering condition and recommended resolution; every exported Prometheus metric with its labels and type; all environment variables and configuration file keys.
 
 ### Writing Style
 
-The documentation is written to the following standards:
+The documentation leads with the "why" on every page. A reader who does not understand in the first paragraph why this page matters and what question it answers will not read further. This applies equally to a reference page listing CLI flags (why is this command useful? When would an operator reach for it?) and a design decision page (what was the question this decision answered? Why did it matter?). The "why" is not an optional introduction — it is the first sentence of the page.
 
-1. **Lead with the why.** Every page opens by explaining why the reader should care about this topic.
-2. **Use longer paragraphs for narrative content.** Concepts and design decisions read like well-written technical essays.
-3. **Be honest about trade-offs.** Every limitation is stated plainly; readers trust documentation that doesn't hide inconvenient facts.
-4. **Use admonitions for emphasis.** Warnings for footguns, tips for optimizations, notes for context.
-5. **Include concrete examples everywhere.** Every concept gets a code example; every CLI page has copy-paste commands with expected output.
-6. **Define terms before using them.** Every project-specific term either defines itself in context or links to the glossary.
-7. **Address the reader directly.** "You can query historical snapshots" not "it is possible to query historical snapshots."
+Narrative sections in Getting Started, Concepts, and Design Decisions use longer paragraphs that develop ideas fully. The reader is presumed to be intelligent and to have come to the page with a real question; they deserve a complete answer, not a summary that tells them to look elsewhere. Bullet lists are reserved for genuinely enumerable items — a list of supported object-storage backends, a list of CLI flags, a list of SQLSTATE codes. An idea that requires explanation gets a paragraph, not a bullet.
+
+Every limitation and trade-off is stated plainly. A reader who discovers an undocumented limitation in production will lose trust in the documentation for all future interactions. A reader who finds the limitation documented, understood, and accompanied by a workaround will keep trusting the documentation. Honesty is not just an ethical commitment here — it is a strategic one. Code examples in every section have been run against the actual `slateduck` binary and produce exactly the output shown; an example that has not been verified should not be in the documentation.
 
 ### Implementation Phases
+
+The work is divided into seven sequential phases over approximately 35 days. Each phase has a clear definition of done, and each phase's output is the foundation for the next phase, so phases must be completed in order. The full per-phase content plan — including which specific pages are written in which order and what "done" looks like for each — is in `plans/documentation-1.md`.
 
 | Phase | Work | Days |
 |-------|------|------|
@@ -910,29 +905,30 @@ The documentation is written to the following standards:
 | D6 — Performance, Internals, Reference | All 5 performance pages, all 8 internals pages, all 6 reference pages | 25–30 |
 | D7 — Contributing, Roadmap, Polish | Contributing, roadmap, changelog, cross-link audit, `mkdocs build --strict` clean | 31–35 |
 
+Phase D2 is intentionally the highest-stakes phase despite being one of the shortest: the Getting Started pages are the highest-traffic pages on the site and set the tone for the reader's entire relationship with the project. Writing these pages first forces the author to articulate the core value proposition clearly, and that articulation should inform the language used throughout the rest of the documentation.
+
+Phase D5 is the most intellectually demanding: the Design Decisions pages require sustained honest argument, not just description, and the Integration pages require end-to-end testing against real DuckDB versions to verify the compatibility claims.
+
+Phase D7's polish step is not optional. Running `mkdocs build --strict` to zero warnings, auditing every cross-link, verifying the top 20 user-searchable terms, and reviewing every page on a mobile viewport are the difference between a documentation site that looks finished and one that actually is.
+
 ### Quality Gates
 
 The release is complete when all of the following are true:
 
-- [ ] `mkdocs build --strict` produces zero warnings on CI
-- [ ] No broken internal or external links
-- [ ] No stub pages remain in the published site
-- [ ] Every `bash` and `sql` code block has been run against the actual binary
-- [ ] The top 20 terms a new user would search for return relevant results
-- [ ] All pages render correctly on mobile viewports
-- [ ] Heading hierarchy is correct; images have alt text
-- [ ] At least one reviewer has read every Getting Started and Concepts page
+- [ ] `mkdocs build --strict` produces zero warnings on CI — the `--strict` flag treats broken links and misconfigured extensions as build failures, not warnings; zero warnings means zero known defects
+- [ ] No broken internal or external links — internal links verified by `--strict`; external links spot-checked before publish and on each subsequent update
+- [ ] No stub pages remain in the published site — a page with only a title and no real content is misinformation, worse than a missing page
+- [ ] Every `bash` and `sql` code block has been run against the actual binary and produces the output shown
+- [ ] The top 20 terms a new user would search for return relevant results — assembled by asking multiple people "what would you search for?" before the polish phase
+- [ ] All pages render correctly on mobile viewports — particularly important for wide tables in the Reference section and Mermaid diagrams that can overflow their container
+- [ ] Heading hierarchy is correct on every page; images have meaningful alt text; body text contrast meets WCAG AA in both light and dark mode
+- [ ] At least one reviewer other than the primary author has read every Getting Started and Concepts page — a second reader finds the gaps the author is blind to
 
 ### Maintenance Contract
 
-Once published, the documentation becomes a first-class project artifact:
+Once published, the documentation becomes a first-class project artifact, not a snapshot. It requires the same attention as the code: changes to observable behavior require corresponding documentation updates; undocumented changes are documentation bugs introduced deliberately, and the review process treats them as such.
 
-- PRs that change observable behavior must include a corresponding docs update (enforced via PR template checklist)
-- New CLI commands get a CLI Reference entry before the release is tagged
-- New Prometheus metrics get a Metrics reference entry before the release is tagged
-- New error codes get an Error Codes entry before the release is tagged
-- Benchmark results are refreshed with each performance-relevant release
-- DuckDB compatibility matrix is updated when new versions are validated
+The PR template includes a checkbox — "Documentation updated (if behavior changed)" — that gates every merge affecting observable behavior. New CLI commands get a CLI Reference entry before the release is tagged. New Prometheus metrics get a Metrics reference entry before the release is tagged; monitoring setups break silently when metrics disappear or are renamed, and an operator whose dashboard stops working because a metric was renamed without documentation is a preventable failure. New error codes get an Error Codes entry before the release is tagged, so an operator who sees an unfamiliar SQLSTATE can look it up immediately. Benchmark results are refreshed with each performance-relevant release, and the `git-revision-date-localized` plugin surfaces the last-updated date on every page so readers can see at a glance whether performance numbers are current. The DuckDB compatibility matrix is updated within two weeks of a new DuckDB release so the version matrix is never stale when operators are evaluating an upgrade.
 
 ### Deliverables
 
@@ -943,8 +939,9 @@ Once published, the documentation becomes a first-class project artifact:
 - [ ] Mermaid architecture diagrams for system overview, crate dependency graph, read path, and write path
 - [ ] All 28 catalog tables documented in the Reference section
 - [ ] Full CLI reference covering every `slateduck` subcommand
-- [ ] Performance comparison page with real benchmark data
-- [ ] Design Decisions section covering all 8 major architectural choices
+- [ ] Performance comparison page with real benchmark data from `benchmarks/phase-2-baseline.json`
+- [ ] Design Decisions section covering all 8 major architectural choices with honest trade-off analysis
+- [ ] DuckDB compatibility matrix with verified version coverage
 - [ ] Documentation site live at GitHub Pages URL
 - [ ] `mkdocs build --strict` green in CI
 
