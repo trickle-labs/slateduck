@@ -462,3 +462,49 @@ pub struct ExcisionRecord {
     #[prost(string, optional, tag = "4")]
     pub operator: Option<String>,
 }
+
+/// Hot-key value: persists current snapshot ID and per-table file counts
+/// under a single system key for cold-start optimization.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct HotKeyValue {
+    #[prost(uint64, tag = "1")]
+    pub current_snapshot_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub table_file_counts: Vec<TableFileCount>,
+}
+
+/// Per-table file count entry for hot-key.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct TableFileCount {
+    #[prost(uint64, tag = "1")]
+    pub table_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub file_count: u64,
+}
+
+/// Packed table metadata: all per-table metadata in one composite value.
+/// Enables single-read planning queries.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct PackedTableMetadata {
+    #[prost(uint64, tag = "1")]
+    pub table_id: u64,
+    #[prost(message, repeated, tag = "2")]
+    pub columns: Vec<ColumnRow>,
+    #[prost(message, repeated, tag = "3")]
+    pub partition_info: Vec<PartitionInfoRow>,
+    #[prost(message, repeated, tag = "4")]
+    pub sort_info: Vec<SortInfoRow>,
+    #[prost(message, optional, tag = "5")]
+    pub table_stats: Option<TableStatsRow>,
+    #[prost(uint64, tag = "6")]
+    pub schema_version: u64,
+}
+
+/// Secondary index entry value (minimal; the key carries the semantics).
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct SecondaryIndexEntry {
+    #[prost(uint64, tag = "1")]
+    pub data_file_id: u64,
+    #[prost(string, tag = "2")]
+    pub path: String,
+}

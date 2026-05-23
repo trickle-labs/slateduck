@@ -536,6 +536,50 @@ pub fn extract_tag(key: &[u8]) -> Result<u8, KeyError> {
     Ok(tag)
 }
 
+// ─── Hot Key ───────────────────────────────────────────────────────────────
+
+/// Build the hot-key system key: `0xFF | "hot-key"`.
+/// Stores current snapshot ID and per-table file counts for cold-start optimization.
+pub fn key_hot() -> Vec<u8> {
+    key_system(SYSTEM_HOT_KEY)
+}
+
+// ─── Secondary Index Keys ──────────────────────────────────────────────────
+
+/// Build a secondary index key for snapshot-scoped file lookups:
+/// `0xFC | snapshot_id(u64) | table_id(u64) | data_file_id(u64)`.
+pub fn key_secondary_index(snapshot_id: u64, table_id: u64, data_file_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(25);
+    buf.push(TAG_SECONDARY_INDEX);
+    buf.extend_from_slice(&encode_u64(snapshot_id));
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf.extend_from_slice(&encode_u64(data_file_id));
+    buf
+}
+
+/// Build a scan prefix for all secondary index entries of a given snapshot and table:
+/// `0xFC | snapshot_id(u64) | table_id(u64)`.
+pub fn prefix_secondary_index(snapshot_id: u64, table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(17);
+    buf.push(TAG_SECONDARY_INDEX);
+    buf.extend_from_slice(&encode_u64(snapshot_id));
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
+// ─── Packed Table Metadata Key ─────────────────────────────────────────────
+
+/// Build a key for packed table metadata: `0xFF | "packed-meta" | table_id(u64)`.
+/// Stores all per-table metadata (columns, partitions, sort info) as one composite value.
+pub fn key_packed_table_metadata(table_id: u64) -> Vec<u8> {
+    let prefix = b"packed-meta";
+    let mut buf = Vec::with_capacity(1 + prefix.len() + 8);
+    buf.push(TAG_SYSTEM);
+    buf.extend_from_slice(prefix);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

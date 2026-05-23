@@ -114,6 +114,13 @@ pub const SYSTEM_ENDPOINT: &[u8] = b"endpoint";
 pub const SYSTEM_RETAIN_FROM: &[u8] = b"retain-from";
 pub const SYSTEM_CATALOG_FORMAT_VERSION: &[u8] = b"catalog-format-version";
 pub const SYSTEM_EXCISED_PREFIX: &[u8] = b"excised";
+pub const SYSTEM_HOT_KEY: &[u8] = b"hot-key";
+
+// ─── Secondary Index Tag ───────────────────────────────────────────────────
+
+/// Secondary index tag: skip-index for snapshot-scoped file lookups.
+/// Key shape: `0xFC | snapshot_id(u64) | table_id(u64) | data_file_id(u64)`
+pub const TAG_SECONDARY_INDEX: u8 = 0xFC;
 
 /// Current catalog format version. Mismatch on open → refuse.
 pub const CATALOG_FORMAT_VERSION: u32 = 1;
@@ -369,6 +376,14 @@ pub static ALL_TAGS: &[TagDescriptor] = &[
         unique_guard: UniqueGuard::NotNeeded,
         status: TagStatus::Live,
     },
+    TagDescriptor {
+        tag: TAG_SECONDARY_INDEX,
+        name: "slateduck_secondary_index",
+        key_shape: "snapshot_id | table_id | data_file_id",
+        mvcc: MvccBehavior::AppendOnly,
+        unique_guard: UniqueGuard::NotNeeded,
+        status: TagStatus::Live,
+    },
 ];
 
 /// Look up a tag descriptor by tag byte. Returns `None` for unknown tags.
@@ -400,8 +415,8 @@ mod tests {
 
     #[test]
     fn all_ducklake_tags_allocated() {
-        // 28 DuckLake tables (0x01..=0x1C) + 3 system tags (0xFD, 0xFE, 0xFF)
-        assert_eq!(ALL_TAGS.len(), 31);
+        // 28 DuckLake tables (0x01..=0x1C) + 3 system tags (0xFD, 0xFE, 0xFF) + 1 secondary index (0xFC)
+        assert_eq!(ALL_TAGS.len(), 32);
     }
 
     #[test]

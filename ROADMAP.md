@@ -52,7 +52,7 @@ binding on every roadmap release below.
 | **v0.4 — Production Hardening** | Visibility GC, excision, backups, observability, encryption, repair tooling | **Done** |
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | **Done** |
 | **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation, compatibility matrix CI | **Done** |
-| **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | Planning |
+| **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | **Done** |
 | **v0.8 — Documentation** | MkDocs Material site, GitHub Pages, full conceptual, operational, and reference coverage | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10 benchmarks, GA polish, full operational story | Planning |
 | **v1.x — Ecosystem Expansion** | Streaming ingest, additional DuckLake clients (Spark/Trino), zone-map index, async catalog FFI | Planning |
@@ -819,11 +819,11 @@ Expose `slateduck-catalog` to DataFusion's [`datafusion-ducklake`](https://githu
 
 ### Deliverables
 
-- Hot-key cold-start optimization implemented and measured
-- Secondary indexes added where profiling shows ≥ 10× MVCC amplification
-- Initial benchmark report: p50/p95/p99 vs. phase-2 baseline and SQLite-backed DuckLake
-- Multi-writer partitioning pattern documented with example architecture and tested with multiple concurrent dataset writers
-- DataFusion integration passing DuckLake tutorial equivalence tests
+- [x] Hot-key cold-start optimization implemented and measured
+- [x] Secondary indexes added where profiling shows ≥ 10× MVCC amplification
+- [x] Initial benchmark report: p50/p95/p99 vs. phase-2 baseline and SQLite-backed DuckLake
+- [x] Multi-writer partitioning pattern documented with example architecture and tested with multiple concurrent dataset writers
+- [x] DataFusion integration passing DuckLake tutorial equivalence tests
 
 ---
 

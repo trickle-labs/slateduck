@@ -6,6 +6,7 @@ members = [
     "crates/slateduck-sqlite-vfs",
     "crates/slateduck-pgwire",
     "crates/slateduck-ffi",
+    "crates/slateduck-datafusion",
 ]
 resolver = "2"
 
@@ -48,3 +49,6 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 futures = "0.3"
 tokio-postgres = "0.7"
+
+# DataFusion
+datafusion = "45"
