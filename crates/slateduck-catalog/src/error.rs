@@ -40,6 +40,8 @@ pub enum CatalogError {
     },
     #[error("repair refused: {0}")]
     RepairRefused(String),
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl From<slatedb::Error> for CatalogError {

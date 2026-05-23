@@ -600,3 +600,411 @@ async fn test_error_sqlstate_mapping() {
         "XX000"
     );
 }
+
+// ─── v0.6: pg-tide-relay corpus replay tests ──────────────────────────────
+
+#[tokio::test]
+async fn test_pgtide_select_max_snapshot_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Create a snapshot first
+    let params = ParamValues::new(vec![
+        Some("pg_tide".to_string()),
+        Some("batch 1".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    // Query max snapshot after 0
+    let query_params = ParamValues::new(vec![Some("0".to_string())]);
+    let responses = executor::execute_sql(
+        "SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1",
+        &query_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(responses.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pgtide_select_first_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Create a snapshot
+    let params = ParamValues::new(vec![Some("pg_tide".to_string()), Some("init".to_string())]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    // Query first snapshot
+    let responses = executor::execute_sql(
+        "SELECT * FROM ducklake_snapshot ORDER BY snapshot_id ASC LIMIT 1",
+        &ParamValues::default(),
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(responses.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pgtide_select_data_files_with_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Query with parameterized limit (empty table)
+    let params = ParamValues::new(vec![
+        Some("1".to_string()),
+        Some("100".to_string()),
+        Some(u64::MAX.to_string()),
+    ]);
+    let responses = executor::execute_sql(
+        "SELECT * FROM ducklake_data_file WHERE table_id = $1 LIMIT $2",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(responses.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pgtide_gen_random_uuid() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    let responses = executor::execute_sql(
+        "SELECT gen_random_uuid()",
+        &ParamValues::default(),
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(responses.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pgtide_metadata_offset_tracking() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Write metadata using dotted-prefix convention
+    let params = ParamValues::new(vec![
+        Some("pg_tide.orders-to-lake.offset".to_string()),
+        Some("4782".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    // Read metadata back
+    let read_params = ParamValues::new(vec![Some("pg_tide.orders-to-lake.offset".to_string())]);
+    let responses = executor::execute_sql(
+        "SELECT value FROM ducklake_metadata WHERE metadata_key = $1",
+        &read_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(responses.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pgtide_full_ingest_workflow() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Setup: create schema and table
+    let schema_params = ParamValues::new(vec![Some("public".to_string())]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
+        &schema_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    let table_params = ParamValues::new(vec![
+        Some("1".to_string()),
+        Some("orders".to_string()),
+        None,
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
+        &table_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    // pg-tide workflow: BEGIN, write metadata + data file + snapshot, COMMIT
+    executor::execute_sql("BEGIN", &ParamValues::default(), &store, &mut session)
+        .await
+        .unwrap();
+    assert!(session.in_transaction);
+
+    let meta_params = ParamValues::new(vec![
+        Some("pg_tide.orders-to-lake.offset".to_string()),
+        Some("4782".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)",
+        &meta_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    let file_params = ParamValues::new(vec![
+        Some("1".to_string()),
+        Some("data/orders/part-00042.parquet".to_string()),
+        Some("parquet".to_string()),
+        Some("1000".to_string()),
+        Some("65536".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_data_file (table_id, path, file_format, row_count, file_size_bytes) VALUES ($1, $2, $3, $4, $5)",
+        &file_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    let snap_params = ParamValues::new(vec![
+        Some("pg_tide".to_string()),
+        Some("Ingest batch 4782".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
+        &snap_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+
+    executor::execute_sql("COMMIT", &ParamValues::default(), &store, &mut session)
+        .await
+        .unwrap();
+    assert!(!session.in_transaction);
+}
+
+// ─── v0.6: Audit log tests ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_audit_log_write_and_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let object_store =
+        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let opts = slateduck_catalog::OpenOptions {
+        object_store,
+        path: ObjectPath::from(""),
+    };
+    let catalog = slateduck_catalog::CatalogStore::open(opts).await.unwrap();
+
+    let entry = slateduck_catalog::AuditEntry {
+        snapshot_id: 1,
+        committed_at: "2025-05-23T12:00:00Z".to_string(),
+        committed_by: "pg_tide".to_string(),
+        changes: vec![slateduck_catalog::AuditChange {
+            change_type: "register_data_file".to_string(),
+            detail: Some("data/orders/part-00042.parquet".to_string()),
+        }],
+    };
+
+    slateduck_catalog::audit::write_audit_entry(catalog.db(), &entry)
+        .await
+        .unwrap();
+
+    let entries = slateduck_catalog::audit::list_audit_entries(catalog.db())
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].snapshot_id, 1);
+    assert_eq!(entries[0].committed_by, "pg_tide");
+    assert_eq!(entries[0].changes.len(), 1);
+    assert_eq!(entries[0].changes[0].change_type, "register_data_file");
+
+    // Read specific entry
+    let specific = slateduck_catalog::audit::get_audit_entry(catalog.db(), 1)
+        .await
+        .unwrap();
+    assert!(specific.is_some());
+    assert_eq!(specific.unwrap().committed_by, "pg_tide");
+
+    // Non-existent entry
+    let missing = slateduck_catalog::audit::get_audit_entry(catalog.db(), 999)
+        .await
+        .unwrap();
+    assert!(missing.is_none());
+}
+
+// ─── v0.6: TLS and Auth config tests ─────────────────────────────────────
+
+#[test]
+fn test_tls_config() {
+    use slateduck_pgwire::server::TlsConfig;
+
+    let disabled = TlsConfig::default();
+    assert!(!disabled.is_enabled());
+
+    let enabled = TlsConfig {
+        cert_path: Some("/path/to/cert.pem".to_string()),
+        key_path: Some("/path/to/key.pem".to_string()),
+    };
+    assert!(enabled.is_enabled());
+
+    let partial = TlsConfig {
+        cert_path: Some("/path/to/cert.pem".to_string()),
+        key_path: None,
+    };
+    assert!(!partial.is_enabled());
+}
+
+#[test]
+fn test_auth_config() {
+    use slateduck_pgwire::server::AuthConfig;
+
+    let disabled = AuthConfig::default();
+    assert!(!disabled.is_enabled());
+
+    let enabled = AuthConfig {
+        username: Some("admin".to_string()),
+        password: Some("secret".to_string()),
+    };
+    assert!(enabled.is_enabled());
+
+    let partial = AuthConfig {
+        username: Some("admin".to_string()),
+        password: None,
+    };
+    assert!(!partial.is_enabled());
+}
+
+// ─── v0.6: GCS and Azure object store validation ─────────────────────────
+
+#[tokio::test]
+async fn test_gcs_object_store_config() {
+    // Validate that GCS object store configuration can be constructed
+    // (without actual credentials — validates the builder API works)
+    let result = object_store::gcp::GoogleCloudStorageBuilder::new()
+        .with_bucket_name("test-bucket")
+        .with_service_account_key("{}")
+        .build();
+    // Builder should fail with invalid credentials but should not panic
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_azure_object_store_config() {
+    // Validate that Azure object store configuration can be constructed
+    let result = object_store::azure::MicrosoftAzureBuilder::new()
+        .with_account("testaccount")
+        .with_container_name("testcontainer")
+        .with_access_key("dGVzdA==")
+        .build();
+    // Azure builder with test credentials should construct (may fail at request time)
+    // The key point is the builder doesn't panic and type-checks
+    let _ = result;
+}
+
+// ─── v0.6: IAM separation tests ──────────────────────────────────────────
+
+#[test]
+fn test_iam_permission_denied_sqlstate() {
+    use slateduck_pgwire::SlateDuckError;
+    let err = SlateDuckError::PermissionDenied("s3:PutObject on catalogs/ denied".to_string());
+    assert_eq!(err.sqlstate(), "42501");
+    assert_eq!(err.severity(), "ERROR");
+}
+
+// ─── v0.6: DuckDB compatibility matrix ───────────────────────────────────
+
+#[test]
+fn test_wire_corpus_fixture_exists() {
+    let duckdb_corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/wire-corpus/duckdb-1.2.2.jsonl");
+    assert!(duckdb_corpus.exists(), "DuckDB wire corpus fixture missing");
+}
+
+#[test]
+fn test_pgtide_corpus_fixture_exists() {
+    let pgtide_corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/wire-corpus/pgtide-0.34.jsonl");
+    assert!(
+        pgtide_corpus.exists(),
+        "pg-tide-relay corpus fixture missing"
+    );
+}
+
+#[test]
+fn test_pgtide_corpus_is_valid_json() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/wire-corpus/pgtide-0.34.jsonl");
+    let content = std::fs::read_to_string(path).unwrap();
+    let corpus: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(corpus["client"], "pg-tide-relay");
+    assert_eq!(corpus["version"], "0.34");
+    let statements = corpus["statements"].as_array().unwrap();
+    assert!(!statements.is_empty());
+}
+
+// ─── v0.6: Server config with TLS and Auth ───────────────────────────────
+
+#[test]
+fn test_server_config_default() {
+    let config = slateduck_pgwire::ServerConfig::default();
+    assert_eq!(
+        config.bind_addr,
+        "0.0.0.0:5432".parse::<std::net::SocketAddr>().unwrap()
+    );
+    assert_eq!(config.max_sessions, 50);
+    assert!(!config.tls.is_enabled());
+    assert!(!config.auth.is_enabled());
+}

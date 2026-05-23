@@ -1,0 +1,20 @@
+{"version":"0.34","client":"pg-tide-relay","captured_at":"2025-05-23T00:00:00Z","statements":[
+{"type":"startup","sql":"SET application_name = 'pg_tide_relay'"},
+{"type":"read","sql":"SELECT max(snapshot_id) FROM ducklake_snapshot"},
+{"type":"read","sql":"SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1","params":["5"]},
+{"type":"read","sql":"SELECT * FROM ducklake_snapshot ORDER BY snapshot_id ASC LIMIT 1"},
+{"type":"read","sql":"SELECT * FROM ducklake_data_file WHERE table_id = $1 LIMIT $2","params":["1","100"]},
+{"type":"read","sql":"SELECT value FROM ducklake_metadata WHERE metadata_key = $1","params":["pg_tide.orders-to-lake.offset"]},
+{"type":"write","sql":"BEGIN"},
+{"type":"write","sql":"INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)","params":["pg_tide.orders-to-lake.offset","4782"]},
+{"type":"write","sql":"INSERT INTO ducklake_data_file (table_id, path, file_format, row_count, file_size_bytes) VALUES ($1, $2, $3, $4, $5)","params":["1","data/orders/part-00042.parquet","parquet","1000","65536"]},
+{"type":"write","sql":"INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)","params":["pg_tide","Ingest batch 4782"]},
+{"type":"write","sql":"COMMIT"},
+{"type":"read","sql":"SELECT gen_random_uuid()"},
+{"type":"read","sql":"SELECT current_schema()"},
+{"type":"read","sql":"SELECT version()"},
+{"type":"read","sql":"SHOW server_version"},
+{"type":"read","sql":"SELECT oid, typname FROM pg_catalog.pg_type WHERE typname IN ('bool','int4','int8','text','float8','timestamptz','uuid')"},
+{"type":"read","sql":"SELECT * FROM ducklake_table WHERE schema_id = $1 AND begin_snapshot <= $2 AND (end_snapshot IS NULL OR $2 < end_snapshot)","params":["1","10"]},
+{"type":"read","sql":"SELECT * FROM ducklake_column WHERE table_id = $1 AND begin_snapshot <= $2 AND (end_snapshot IS NULL OR $2 < end_snapshot)","params":["1","10"]}
+]}

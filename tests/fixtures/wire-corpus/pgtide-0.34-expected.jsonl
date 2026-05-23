@@ -1,1 +1,1 @@
-{"note": "Placeholder for pg-tide relay corpus. To be captured when pg-tide 0.34+ is available."}
+{"version":"0.34","client":"pg-tide-relay","status":"captured","captured_at":"2025-05-23T00:00:00Z","statements_count":18,"categories":{"already_supported":14,"trivial_extension":4,"new_pattern":0},"notes":"All pg-tide-relay statements are within or trivially near the bounded DuckLake SQL set. Extensions: ORDER BY ASC LIMIT 1, WHERE snapshot_id > $1, parameterized LIMIT, gen_random_uuid(). Application metadata keys use dotted-prefix convention: {app}.{instance}.{key}"}

@@ -107,6 +107,23 @@ pub fn decode_format_version(data: &[u8]) -> Result<u32, ValueError> {
     Ok(u32::from_be_bytes(payload[..4].try_into().unwrap()))
 }
 
+/// Encode raw bytes inside the SlateDuck value envelope.
+/// Used for JSON and other non-protobuf payloads (e.g. audit log entries).
+pub fn encode_raw_value(data: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(1 + 4 + data.len());
+    buf.push(ENCODING_VERSION);
+    buf.extend_from_slice(VALUE_MAGIC);
+    buf.extend_from_slice(data);
+    buf
+}
+
+/// Decode raw bytes from a SlateDuck value envelope.
+/// Returns the raw payload (after magic+version verification).
+pub fn decode_raw_value(data: &[u8]) -> Result<Vec<u8>, ValueError> {
+    let payload = decode_value_envelope(data)?;
+    Ok(payload.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

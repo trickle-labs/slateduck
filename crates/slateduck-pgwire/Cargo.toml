@@ -26,8 +26,12 @@ uuid = { workspace = true }
 object_store = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
 
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
+serde_json = { workspace = true }
+object_store = { workspace = true }
