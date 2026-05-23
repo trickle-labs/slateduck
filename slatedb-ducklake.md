@@ -46,6 +46,33 @@ is *truly* zero-infrastructure for cloud deployments — a real "lakehouse in a
 bucket". Strategy B still has a small stateless service; Strategy C removes
 that service.
 
+**A second, deeper goal shapes every storage decision in this plan: committed
+catalog facts are *never physically deleted* by normal operation and are
+always readable at the `dl_snapshot_id` at which they were written.** Physical
+deletion exists only via an explicit, audited excision command. This buys three
+things that matter for the long term:
+
+1. **Horizontal read scale-out.** Because catalog-data keys are stable once
+   written, any number of readers anywhere can serve a query at any historical
+   `dl_snapshot_id` without coordinating with a writer or even with each other.
+   The catalog becomes a content-addressable log plus derived indexes; replicas
+   are pure caches.
+2. **Time as a first-class dimension.** Time travel stops being a feature
+   layered on top of MVCC and becomes the natural read mode. The "current"
+   view is just "as of the largest committed `dl_snapshot_id`".
+3. **A path to a general fact store.** DuckLake is the first schema SlateDuck
+   ships, but the same storage substrate — append-only keys scoped by
+   `dl_snapshot_id`, rebuildable from object storage, queryable at any
+   historical point — can host other relational schemas in future releases.
+   See section 1.4 and the v2.x ecosystem entry in the roadmap.
+
+This principle is binding at the *catalog-data layer*: the rows that record
+tables, columns, snapshots, and data files are never overwritten outside their
+bounded lifecycle, and are never physically deleted outside explicit excision.
+Internal infrastructure state (counters, leadership, `retain-from`) is managed
+with simple transactional writes, which are correct and safe because SlateDB
+enforces a single-writer constraint.
+
 ---
 
 ## 1. Background and Reference Material
@@ -134,6 +161,96 @@ oracle. Strategy A should not block Phase 4.
 - Keep the data plane and catalog plane separate: DuckDB writes Parquet files
   directly, while SlateDuck writes only the catalog.
 
+### 1.4 Architectural Principle: Catalog-Data Immutability
+
+SlateDuck's durability commitment is: **every catalog fact committed at
+`dl_snapshot_id = N` is always readable at N via time travel, and can only be
+physically removed via the explicit, audited `slateduck excise` command.** This
+is the hard constraint. Everything else in this section derives from it.
+
+#### Two categories of storage state
+
+| Category | Examples | Immutability rule |
+| --- | --- | --- |
+| **Catalog-data facts** | Rows in any of the 28 DuckLake tables; inlined-data rows under `0xFD` | Never physically deleted outside excision. Each logical version occupies a distinct key (via `begin_snapshot` in the key); the value is written once on creation, then updated at most once when `end_snapshot` is set at drop/alter time. That single terminal update is permitted because it preserves all original row data and only marks the row invisible to future snapshots — time travel to the row's `begin_snapshot` still works correctly. |
+| **Infrastructure state** | Counters (`0xFE`), writer epoch, endpoint, `retain-from`, catalog-format-version (`0xFF`) | Managed with simple transactional writes. Safe because SlateDB enforces a single writer; no concurrent update races exist. |
+
+The distinction is deliberate. Applying the strictest "append new key for every
+change" discipline to infrastructure state — counters, leadership records,
+`retain-from` — would require O(N-snapshots) keys per counter and a
+scan-to-max on every writer startup, with no user-visible correctness benefit.
+It would also contradict how LSMs work: SlateDB already implements every value
+update as an SST append that masks the old version; there is no meaningful
+difference between "new key" and "new value at existing key" at the storage
+layer. The right boundary is the application-semantic one: user-visible history
+is preserved forever; implementation-private housekeeping keys are
+transactionally updated.
+
+#### What this means concretely
+
+| DuckLake-level concept | Naive (rejected) | SlateDuck |
+| --- | --- | --- |
+| `UPDATE … SET end_snapshot = N` | Delete the old row or treat as general mutation | Write `end_snapshot` into the version's value in one SlateDB transaction; this is the only permitted update in the version's lifetime, bounded because `end_snapshot` can be set at most once |
+| Counter increment (`next_catalog_id += 1`) | Separate counter write and row write | Transactional read-modify-write of the counter key, committed atomically with the row that consumes the ID; safe because there is exactly one writer |
+| Writer epoch / leader handoff | Allow two concurrent writers | Transactional write of new epoch and endpoint under `0xFF`; SlateDB's writer fencing makes this race-free |
+| Catalog GC of dropped rows | Physical `delete(key)` during background GC | Refuse by default; gated behind the explicit, audited `slateduck excise` command |
+| `retain-from` advancement | Silently delete rows below the floor | Advance the `retain-from` key transactionally (visibility only, no byte deletion); separate `slateduck excise` command handles physical deletion |
+
+#### Why SlateDB's LSM reinforces this
+
+SlateDB is an LSM tree. All writes — whether to a fresh key or an update to an
+existing key — are SST appends. Historical versions of a key survive in
+lower-level SSTs until compaction discards them. A `DbSnapshot` or `DbReader`
+opened before a `put(key, new_value)` still sees the old value; one opened
+after sees the new value. The catalog-data rule ("each version row has a
+distinct key via `begin_snapshot`") means the history of user-visible data is
+preserved in the key space itself, not relying on LSM multi-versioning. The
+infrastructure-key rule ("transactional updates are fine") relies on LSM
+multi-versioning being correct, which SlateDB guarantees.
+
+#### Reader scale-out
+
+Because catalog-data keys are never overwritten, a reader at `dl_snapshot_id = N`
+sees a stable set of facts. New writes at N+1, N+2, … insert new keys; they
+cannot alter the reader's view. This means:
+
+- Stateless reader replicas can serve any historical `dl_snapshot_id` with
+  read-only access to the catalog prefix, no coordination with the writer, and
+  no coordination with each other.
+- A reader can be a Lambda function, a worker pod, a CDN edge cache, or an
+  embedded process.
+- Read replicas need no consistency protocol beyond "open a SlateDB reader at
+  a known checkpoint or manifest generation".
+
+#### Excision: the only path to physical deletion
+
+Two legitimate reasons exist to physically remove bytes from object storage:
+legal/compliance erasure (GDPR right-to-be-forgotten, court orders) and
+bounded-retention deployments where operators opt into a finite history window.
+Both go through `slateduck excise`:
+
+- Default physical retention is **infinite**. `slateduck gc` only advances
+  `retain-from` (query-visibility floor); it never calls `object_store.delete`.
+- Physical deletion requires `slateduck excise --before <snapshot> --apply`,
+  with a recorded operator identity and reason. The excision event is itself
+  persisted as an immutable audit fact under `0xFF` so the audit trail survives
+  after the bytes are gone.
+- Orphaned Parquet files (section 5.3) are an exception: they were never
+  committed to any snapshot and are not part of the catalog fact set; the
+  orphan-file sweep may delete them after the configurable grace period without
+  invoking excision.
+
+#### The long-term vision: a general fact store
+
+The key tag space, the scope-by-snapshot indexing, and the Protobuf-with-
+version-header value format together describe a generic **fact log over object
+storage**. The DuckLake schema is one application of this substrate.
+
+Future versions can expose the same substrate under additional schemas — a
+user-defined relational schema, a Datalog query interface, an event-sourced
+application store — without changing the storage engine. This is tracked as
+the v2.x "general fact store" roadmap item.
+
 ---
 
 ## 2. Goals and Non-Goals
@@ -143,17 +260,31 @@ oracle. Strategy A should not block Phase 4.
   standard DuckDB `ducklake` extension.
 - Catalog data and Parquet data live in the **same** object-storage
   bucket.
+- **Catalog-data immutability** (section 1.4). Catalog facts are never
+  physically deleted by normal operation; each version occupies a distinct key
+  and is updated at most once (the terminal `end_snapshot` write). Infrastructure
+  keys (counters, writer epoch, retain-from) use simple transactional updates
+  because they carry no user-visible history.
+- **Unbounded horizontal read scale-out**: any number of stateless reader
+  replicas can serve queries at any historical `dl_snapshot_id` with no
+  coordination.
 - Correct MVCC semantics: snapshot reads, time travel, atomic snapshot
   creation.
 - Writer fencing: a zombie writer cannot corrupt the catalog.
 - Demonstrated end-to-end on local FS, MinIO, and S3.
+- A storage substrate that is not DuckLake-specific and that can host
+  additional schemas (general fact store, alternative relational catalogs)
+  in future releases without changes to the storage engine.
 
 ### Non-Goals (initial)
 - Multi-writer support beyond what SlateDB natively provides (one writer
-  per database, plus fencing on takeover).
+  per database, plus fencing on takeover). The immutability model makes
+  multi-writer *eventually* feasible (writers append disjoint facts; conflicts
+  resolve at commit by `dl_snapshot_id` ordering), but v1 does not pursue it.
 - SQL features beyond what DuckLake's spec queries and generated inlined-data
   table DDL/DML require.
-- A general-purpose KV-backed SQL engine.
+- A general-purpose KV-backed SQL engine *in v1*. The substrate is designed to
+  make this possible later (section 1.4); v1 ships only the DuckLake schema.
 - Bindings for languages other than Rust and (eventually) C++ FFI for
   DuckDB.
 
@@ -295,8 +426,16 @@ tag │ table / namespace                         │ dominant key payload
 1C  │ ducklake_schema_versions                  │ table_id | begin_snapshot
 FD  │ dynamic inlined row/delete storage        │ subtype | table_id | (schema_version or data_file_id) | row_id
 FE  │ SlateDuck counters                        │ counter_id
-FF  │ SlateDuck system keys                     │ writer epoch / endpoint / retain-from
+FF  │ SlateDuck system keys                     │ writer epoch / endpoint / retain-from / catalog-format-version
 ```
+
+The `0xFE` counter keys and `0xFF` system keys are managed with simple
+transactional writes (section 1.4). Infrastructure state is safe to update
+because there is exactly one writer; no concurrent-update races exist. The
+`0xFF | catalog-format-version` key is written once at init and never updated;
+a version mismatch on open returns `SQLSTATE 0A000`. Excision audit records
+are appended under a dedicated `0xFF | "excised"` prefix so the audit trail
+accumulates across excision runs.
 
 `0xFD` is reserved for DuckLake-generated inlined data/delete tables rather
 than a fixed spec table. Subtype `0x01` stores inlined insert rows keyed by
@@ -330,10 +469,14 @@ DuckLake tables intentionally omit SQL primary keys because operations such as
 `ALTER TABLE` create a new version with the same logical ID and a later
 `begin_snapshot`. For those tables, include `begin_snapshot` in the SlateDB key
 after the stable parent/logical ID fields so historical versions cannot be
-overwritten. Updating `end_snapshot` is a read-modify-write of the exact version
-key; creating a new version inserts a distinct key with the same logical ID and
-a higher `begin_snapshot`. (Phase 7 will revisit whether to add per-snapshot
-secondary indexes.)
+overwritten. `end_snapshot` is stored in the version's value and is set by a
+single in-place update when the version is retired (`DROP`/`ALTER`). This is
+the *only* permitted update in a version row's lifetime — bounded because
+`end_snapshot` can be set at most once — and it preserves all original row data
+while only marking the row invisible to future snapshots, so time travel to
+the version's `begin_snapshot` still works correctly. Creating a new version
+inserts a distinct key with the same logical ID and a higher `begin_snapshot`.
+(Phase 7 will revisit whether to add per-snapshot secondary indexes.)
 
 Some dominant scan keys differ from DuckLake's SQL primary keys. For example,
 `ducklake_data_file` is globally identified by `data_file_id`, but the hot read
@@ -353,10 +496,15 @@ transaction so externally supplied IDs cannot collide silently.
 #### 1.3 Counter / ID allocation
 
 `ducklake_snapshot` exposes `next_catalog_id` and `next_file_id`. In
-SlateDB we keep them as dedicated keys, updated transactionally in the
-same atomic SlateDB transaction as the snapshot row itself.
+SlateDB these are stored as dedicated counter keys under `0xFE`, updated
+transactionally in the same atomic SlateDB transaction as the snapshot row
+itself. With a single writer there are no concurrent-update races; the
+transactional read-modify-write is both safe and sufficient. The in-memory
+value of each counter is cached after the initial read on writer startup; every
+allocating transaction reads from the cache, writes the new counter value and
+the consuming row in one `DbTransaction`, then updates the cache on commit.
 
-#### 1.4 Module surface (`slateduck-core`)
+#### 1.5 Module surface (`slateduck-core`)
 
 ```rust
 pub struct CatalogStore { db: slatedb::Db, /* … */ }
@@ -408,11 +556,11 @@ actor gives us a single serial write order, once Phase 0 has validated
 the exact conflict-detection and durability semantics.
 
 Also implement **multi-process fencing** as defense in depth: store a
-SlateDuck writer-epoch token in a dedicated key and require every sidecar
-writer to prove it still owns that epoch before accepting writes. This does
-not replace SlateDB's own zombie-writer fencing; it gives SlateDuck a
-catalog-level role marker that can also publish the writer endpoint and
-produce PostgreSQL-compatible failover errors.
+SlateDuck writer-epoch token in a dedicated `0xFF | "writer-epoch"` key and
+require every sidecar writer to prove it still owns that epoch before accepting
+writes. This does not replace SlateDB's own zombie-writer fencing; it gives
+SlateDuck a catalog-level role marker that can also publish the writer endpoint
+and produce PostgreSQL-compatible failover errors.
 
 **Deliverable:** End-to-end tests that perform the spec's example
 sequence (snapshot → schema → table → insert → delete → time travel)
@@ -640,16 +788,18 @@ lake;` Just Works in a vanilla DuckDB.
 
 ### Phase 6 — Operational hardening
 
-- **Garbage collection of catalog rows.** DuckLake's `DROP TABLE` only
-  marks rows with `end_snapshot`. Add a background compactor that, once
-  a snapshot is older than a retention threshold, physically removes
-  dead rows from SlateDB. (Use SlateDB's
-  [`CompactorBuilder`](https://docs.rs/slatedb/latest/slatedb/compactor/struct.CompactorBuilder.html)
-  hooks plus our own tombstoning.)
+- **Catalog visibility GC and excision.** DuckLake's `DROP TABLE` only
+  marks rows with `end_snapshot`. Implement two distinct operations:
+  (1) `slateduck gc` advances the `retain-from` visibility floor (no
+  physical deletion); (2) `slateduck excise` physically removes catalog
+  rows and Parquet files older than the floor when explicitly invoked by
+  an operator. Default behavior is visibility-only; physical deletion
+  requires explicit `--apply` and records an audit fact under `0xFF`.
 - **Parquet data-file garbage collection.** Walk
   `ducklake_files_scheduled_for_deletion` and delete from object
-  storage. (DuckLake-side responsibility, but we own the catalog so we
-  must implement it.)
+  storage only when no retained snapshot references the file.
+  Additionally, scan for orphaned Parquet files (never committed to any
+  snapshot) and delete after the configurable grace period.
 - **Checkpoints / backups.** Expose `slateduck checkpoint create` and
   `slateduck checkpoint restore` thin wrappers around SlateDB's
   `Checkpoint` API for trivial point-in-time backups of the catalog.
@@ -1312,9 +1462,8 @@ Duplicate IDs or reused IDs do not fail loudly — they cause silently wrong
 query results, where rows appear in the wrong snapshot's view or file
 registrations shadow each other.
 
-**Counter storage.** In a single-writer system, the simplest correct
-approach is a small set of persistent counters stored in the catalog itself
-under the `0xFE` system-counters prefix:
+**Counter storage.** In a single-writer system, counters are stored as
+dedicated keys under `0xFE`, one key per counter domain:
 
 ```
 0xFE | 0x01  →  u64 next_snapshot_id
@@ -1419,84 +1568,97 @@ functions are in use across multiple crates requires touching every call site.
 
 ---
 
-### 5.14 Time Travel and GC Retention Policy
+### 5.14 Time Travel and Retention Policy
 
 DuckLake supports time travel: `SELECT * FROM my_table AT (SNAPSHOT 42)`.
-This requires that catalog rows and Parquet files from snapshot 42 remain
-readable indefinitely — or for a configurable retention window. The GC
-pass must never delete anything still within the retention window.
+Because catalog-data facts (section 1.4) are never physically deleted by
+default, every committed fact remains addressable indefinitely. Time travel
+works for *any* historical `dl_snapshot_id` by construction, not by virtue of
+a retention policy that happens not to have purged the relevant rows yet.
 
-This needs a concrete design before Phase 1 because it affects two
-fundamental aspects of the catalog implementation.
+This changes the role of the "GC" pass compared with a mutable design.
+There are two distinct operations:
 
-#### What gets physically deleted vs. logically tombstoned
+1. **Retention advancement (default, safe).** A `retain-from` value is the
+   *query-visibility floor*: snapshots below it may not be requested through
+   the normal client API. Advancing `retain-from` is a transactional update of
+   the `0xFF | "retain-from"` key (section 1.4, infrastructure state).
+   No bytes are deleted from object storage.
+2. **Excision (rare, audited).** Physical deletion of historical facts. This
+   exists only for legal/compliance erasure or for operators who explicitly opt
+   into a bounded storage footprint, and it is invoked through the dedicated
+   `slateduck excise` command described in section 1.4 and section 5.28. It is
+   *not* part of the normal write path or the normal GC sweep.
 
-A DuckLake `UPDATE` sets `end_snapshot` on an old row and inserts a new
-row with a higher `begin_snapshot`. A `DROP TABLE` sets `end_snapshot` on
-the table row and all relevant versioned table-owned catalog rows. **Neither
-operation deletes the SlateDB key.** Physical deletion only happens during the
-GC pass.
+#### What gets physically deleted vs. logically retracted
 
-The GC pass may delete a key when:
+A DuckLake `UPDATE` appends a new row with a higher `begin_snapshot`. A
+`DROP TABLE` sets `end_snapshot` on every affected versioned row (the single
+terminal update described in section 1.4). **Neither operation deletes any
+SlateDB key.** Physical deletion only happens via `slateduck excise` and only
+outside the retain-from window.
+
+The excision tool may delete a key when:
 ```
-row.end_snapshot IS NOT NULL
-  AND row.end_snapshot <= oldest_retained_snapshot
+fact.end_snapshot IS NOT NULL
+  AND fact.end_snapshot <= oldest_retained_snapshot
+  AND operator explicitly invokes `slateduck excise --apply`
 ```
 
-This rule applies to ordinary catalog rows and inlined insert rows. Inlined
-delete markers do not have `end_snapshot`; their eligibility is derived from
-the target data file and table lifecycle as described in section 5.2.
-
-If GC runs without checking this condition — for example, deleting any
-row with a non-null `end_snapshot` — time travel to any snapshot older
-than the most recent one silently returns wrong results. There is no
-error, just missing rows.
+This rule applies to ordinary catalog facts and inlined insert facts. Inlined
+delete markers do not have `end_snapshot`; their excision eligibility is
+derived from the target data file and table lifecycle as described in section
+5.2. The default `slateduck gc` command never runs the excision step.
 
 #### Oldest retained snapshot tracking
 
-The GC pass needs a single well-known value: the oldest snapshot that any
-active session or retention policy still requires. Store this under the
-`0xFF` system prefix (alongside the writer epoch and endpoint):
+`retain-from` is stored as a single key under the `0xFF` system prefix and is
+updated by a transactional write (safe because there is exactly one writer):
 
 ```
 0xFF | "retain-from"  →  u64 oldest_retained_snapshot_id
 ```
 
 This value is updated by two paths:
-1. **Automatic TTL.** A background task scans `ducklake_snapshot` for snapshots whose `snapshot_time` is older than the configured retention period (e.g., 7 days) and advances `retain-from` to the oldest still-within-window snapshot.
-2. **Explicit operator pin.** An operator can call
-   `catalog.pin_snapshot(id)` to prevent GC from advancing past a given
-   snapshot ID (useful for long-running reports, disaster recovery
-   checkpoints, etc.).
+1. **Automatic TTL (opt-in).** When `--retention-days N` is configured, a
+   background task scans `ducklake_snapshot` for snapshots whose
+   `snapshot_time` is older than the configured retention period and advances
+   `retain-from` to the oldest still-within-window snapshot. With the default
+   infinite retention, this task is a no-op.
+2. **Explicit operator pin.** `catalog.pin_snapshot(id)` prevents the TTL task
+   from advancing `retain-from` past a given snapshot ID (useful for long-
+   running reports, disaster-recovery checkpoints, etc.).
 
 #### Parquet file retention
 
-A Parquet file registered in `ducklake_data_file` must not be deleted
-from object storage while any snapshot in the retention window references
-it (i.e., `data_file.begin_snapshot <= oldest_retained_snapshot` AND
-`data_file.end_snapshot > oldest_retained_snapshot`). The GC pass for
-Parquet files must compute this condition before issuing
-`object_store.delete(path)`.
+Parquet files referenced by retained snapshots must not be deleted from object
+storage. Only `slateduck excise --apply` may delete Parquet files, and only
+when no in-window snapshot references them.
 
 #### Default retention
 
-Use **7 days** as the v1 default retention window. Expose
-`--retention-days` as a configuration option from Phase 0 so all tests run
-with a known, explicit retention value rather than a hard-coded constant.
-Setting the flag to `0` should mean "retain forever" and disable physical
-catalog/data-file deletion while still allowing `slateduck gc plan` to report
-what would be eligible under a finite policy.
+The v1 default retention is **infinite** in both dimensions: the query-
+visibility floor (`retain-from`) never advances unless the operator passes
+`--retention-days N`, and `slateduck gc` never deletes bytes. This means time
+travel works for any historical `dl_snapshot_id` by default, matching the
+commitment in section 1.4. Operators may opt into bounded visibility by
+configuring `--retention-days`, and may opt into bounded storage by running
+`slateduck excise --before <snapshot> --apply` on a schedule with a recorded
+retention policy. A separate `--excise-days` flag, off by default, controls
+automatic physical excision scheduling. Tests may set both explicitly.
 
-#### GC execution mode
+#### Execution mode
 
-Implement GC in two modes. The CLI path (`slateduck gc plan` and `slateduck gc
-apply --dry-run/--apply`) is required before beta and is the default operational
-path. The sidecar may also run GC as an optional background task behind
-`--enable-gc` and `--gc-interval-minutes`, but background GC should remain off
-by default until acceptance tests prove it does not compete with foreground
-catalog commits. If object-store deletion fails, record the failure and skip the
-file/key for that pass; do not retry aggressively inside the foreground request
-path.
+Implement the visibility and excision tools as separate CLI verbs. The CLI
+path (`slateduck gc plan` / `slateduck gc apply` for visibility,
+`slateduck excise plan` / `slateduck excise apply` for physical deletion) is
+required before beta and is the default operational path. The sidecar may
+also run the *visibility* advancement task as an optional background process
+behind `--enable-gc` and `--gc-interval-minutes`; it must never run excision
+in the background. Excision always requires a foreground operator invocation
+with `--apply`. If object-store deletion fails inside an excision run, record
+the failure and skip the file/key for that pass; do not retry aggressively
+inside any request path.
 
 ---
 
@@ -1621,61 +1783,46 @@ committing to Strategy C timelines.
 
 ---
 
-### 5.17 UPDATE-Heavy Workload and LSM Tombstone Accumulation
+### 5.17 UPDATE-Heavy Workload and LSM Behavior
 
 DuckLake's most frequent write operation is `UPDATE ... SET end_snapshot = ?`.
-In an LSM tree, an update is a new write; the old version is not deleted — it
-accumulates as dead data until compaction merges the levels and discards it.
-For a long-running catalog with many snapshot commits (registering files,
-dropping tables, altering columns), the LSM levels will contain a growing
-number of obsolete versions of the same logical rows.
+In an LSM tree, an update is a new SST append; the old version is masked and
+eventually discarded during compaction. This is the workload LSMs are built
+for, and the catalog-data immutability principle (section 1.4) aligns well with
+it: each version row occupies a unique key (via `begin_snapshot` in the key),
+and the single terminal `end_snapshot` update is an in-place value update at
+that key. No read-amplification from dead duplicate keys arises.
 
-This has two concrete consequences:
+What does warrant monitoring:
 
-**Read amplification.** User-visible scans should return only the latest merged
-value for a key, but the storage engine may still need to traverse or merge
-older LSM entries until compaction has cleaned them up. The MVCC filter is
-cheap in CPU; the hidden I/O cost of carrying stale versions is the concern,
-especially for tables with a long history of file additions and deletions.
+- **Historical-version amplification.** Even with one physical key per
+  logical version, MVCC scans traverse all versions in a prefix and filter by
+  `begin_snapshot`/`end_snapshot`. For a table with many `ALTER TABLE`
+  operations, a `describe_table` scan touches all historical column versions.
+  Phase 2 benchmarks must record versions-scanned vs. live-rows-returned for
+  `list_data_files`, `describe_table`, and file pruning. If the amplification
+  exceeds 10× on the reference workload before beta, add a secondary index or
+  pack per-table metadata into a single composite value (Phase 7).
 
-**Storage amplification.** Dead versions consume S3 storage until compaction
-removes them. For a high-throughput ingest workload — hundreds of file
-registrations per minute — this can be significant.
+- **Compaction tuning.** The `end_snapshot` update generates one dead SST
+  entry per retired version. Tune `l0_sst_count_threshold` to trigger
+  compaction earlier for update-heavy workloads so dead entries are merged
+  quickly. Aggressive levelled compaction is the right mode for a catalog with
+  frequent schema changes.
 
-**Mitigations to evaluate before writing the key layout:**
+- **Physical deletes in excision.** When `slateduck excise` runs, it issues
+  SlateDB `delete(key)` calls for keys past the retention floor. These
+  tombstones propagate downward through compaction normally, reclaiming
+  storage. Without excision, retired versions accumulate indefinitely; this is
+  by design (default infinite retention) and acceptable for most deployments.
 
-- **Keep `end_snapshot` inside the value, not in the key.** An `UPDATE` then
-  rewrites the value at the same key rather than inserting a new key. This does
-  not reduce LSM write amplification (it is still a new SST entry) but it keeps
-  the key space clean and avoids the MVCC scan needing to iterate over multiple
-  distinct keys for the same logical row.
-
-- **Tune compaction for update-heavy access.** SlateDB's default compaction
-  settings are tuned for append-heavy workloads. For a catalog with
-  high-frequency updates, reduce `l0_sst_count_threshold` (triggers compaction
-  earlier) and consider aggressive levelled compaction to merge dead versions
-  quickly at the cost of higher write I/O.
-
-- **Use physical deletes in GC.** For rows whose `end_snapshot ≤ retain-from`
-  (section 5.14), issue SlateDB `delete(key)` calls rather than leaving the
-  value in place. SlateDB compaction propagates these tombstones downward,
-  eventually reclaiming storage. Without explicit deletes, dead catalog rows
-  persist indefinitely even if their `end_snapshot` is long past the retention
-  window.
-
-**Key layout implication:** `end_snapshot` lives in the value in the Phase 1
-layout. Putting it in the key would enable efficient range scans over live-only
-rows but would increase key churn and complicate updates. The current
+**Key layout note:** `end_snapshot` lives in the value of the version key, not
+in a separate retraction key. Putting it in the key would enable efficient
+range scans over live-only rows but would require inserting a new key on every
+drop/alter and would double the key-space size for versioned tables. The
 value-encoded design is the decision for v1; future contributors should add a
-secondary index if live-row scans become too expensive, not move MVCC fields
-into primary keys.
-
-**Measurement gate:** Phase 2 benchmarks must record the historical-version
-amplification factor for realistic append/delete workloads: keys scanned vs.
-live rows returned for `list_data_files`, `describe_table`, and file pruning.
-If the factor exceeds 10x on the reference workload before beta, add a
-secondary index or packing strategy before declaring the PG-wire path
-production-ready.
+secondary index if MVCC filter overhead is proven to dominate, not change the
+primary key shape.
 
 ---
 
@@ -2534,8 +2681,7 @@ tries the next. **No proxy, no labels, no external service.**
 #### Option B — Writer self-publishes in the SlateDB catalog (most elegant)
 
 When a pod acquires the writer role it writes its own address into two
-well-known keys in the same atomic SlateDB transaction or write batch as the
-fencing epoch:
+well-known keys in the same atomic SlateDB transaction as the fencing epoch:
 
 ```
 0xFF | "writer-epoch"    → u64 epoch
@@ -2544,9 +2690,9 @@ fencing epoch:
 
 These are always consistent because they are written atomically. Any
 replica that receives a write request does a single `get("writer-endpoint")`
-and forwards the connection. Caches the address until a write fails,
-then re-reads. **Zero external dependencies; the catalog is its own
-service directory.**
+and forwards the connection. Caches the address until a write fails (e.g. a
+`57P04` fencing error), then re-reads. **Zero external dependencies; the
+catalog is its own service directory.**
 
 #### Option C — Kubernetes label selector
 
