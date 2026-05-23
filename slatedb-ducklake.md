@@ -208,9 +208,6 @@ slateduck/
   startup probes, `SET`/`SHOW`, simple and extended query protocol,
   `BEGIN`/`COMMIT`/`ROLLBACK`, parameter values, parameter/result format codes,
   generated inlined-table DDL/DML, and all SQL emitted by the DuckLake tutorial.
-- Derive `docs/phase-0/access-patterns.md` from that corpus, confirming or
-  revising every key shape whose dominant lookup is not obvious from the table
-  schema.
 - Record **Protobuf** as the v1 value encoding format because schema
   evolution, generated types, and debugging tooling matter more than marginal
   decode speed at this stage; keep FlatBuffers as a Phase 7 optimization
@@ -223,23 +220,22 @@ slateduck/
 - Run a MinIO credential-isolation spike with separate catalog-only and
   data-only policies, and record the expected SQLSTATE mappings for permission
   failures.
-- Measure durable commit and visibility-barrier latency on LocalFS and MinIO;
-  add S3 Standard and S3 Express measurements before beta for cloud production
-  claims. Store the p50/p95/p99 results with the Phase 0 report so Phase 4
-  latency budgets are based on observed costs.
+- Measure durable commit and visibility-barrier latency on LocalFS, MinIO,
+  S3 Standard, and S3 Express; store the p50/p95/p99 results with the Phase 0
+  report so Phase 4 latency budgets are based on observed costs.
 
 **Deliverable:** Reproducible local dev environment + a passing
 "hello world" test + checked-in Phase 0 validation artifacts: SlateDB API
-validation report, DuckDB wire corpus, access-pattern report,
-GlueSQL/custom-dispatcher decision, credential-isolation report, and latency
-baseline. No Phase 1 data-model code should be written until these artifacts
-are green or the plan has been updated for any failed assumption.
+validation report, DuckDB wire corpus, GlueSQL/custom-dispatcher decision,
+credential-isolation report, and latency baseline. No Phase 1 data-model code
+should be written until these artifacts are green or the plan has been updated
+for any failed assumption.
 
 **If a Phase 0 gate fails, use these fallbacks before proceeding:**
 
 | Failed validation | Fallback decision |
 | --- | --- |
-| Atomic `WriteBatch` is not all-or-none | Use `DbTransaction` as the only catalog commit path if transaction commits are atomic; otherwise stop and pin or upgrade SlateDB. SlateDuck should not emulate catalog atomicity above a non-atomic KV write path. |
+| Atomic `WriteBatch` is not all-or-none | Stop and pin or upgrade SlateDB; SlateDuck should not emulate catalog atomicity above a non-atomic KV write path. |
 | Transactional insert-if-absent cannot be implemented | Require explicit one-time `slateduck init` under an external deployment lock, then reopen read-only until a transactional API is available. |
 | `flush()` does not make fresh `DbReader`s observe commits | Replace `catalog_visibility_barrier` with the verified memtable/manifest flush or serve read-your-writes from the writer process until readers catch up. |
 | Writer-fencing errors are not distinguishable | Keep SlateDuck's own epoch check on every commit path and map stale epochs to SQLSTATE `57P04`; treat raw SlateDB errors as internal until classified. |
@@ -299,22 +295,8 @@ tag │ table / namespace                         │ dominant key payload
 1C  │ ducklake_schema_versions                  │ table_id | begin_snapshot
 FD  │ dynamic inlined row/delete storage        │ subtype | table_id | (schema_version or data_file_id) | row_id
 FE  │ SlateDuck counters                        │ counter_id
-FF  │ SlateDuck system keys                     │ writer epoch / endpoint / retain-from / catalog-format-version
+FF  │ SlateDuck system keys                     │ writer epoch / endpoint / retain-from
 ```
-
-The `catalog-format-version` entry under `0xFF` stores a single `u32`
-representing the SlateDuck storage format version (distinct from the per-value
-`encoding_version` byte). On startup, the writer reads this key and:
-- **Key absent:** fresh catalog; initialize to current version.
-- **Key matches supported version:** proceed normally.
-- **Key is a known older version:** either auto-migrate or emit a warning and
-  start in compatibility mode.
-- **Key is a newer version than the binary understands:** refuse to open
-  (`SQLSTATE 0A000`) to prevent a downgraded binary from silently
-  misinterpreting data written by a newer one.
-
-This is the upgrade/downgrade safety net at the catalog level, complementing
-the per-value `SDKV` magic and `encoding_version` byte at the row level.
 
 `0xFD` is reserved for DuckLake-generated inlined data/delete tables rather
 than a fixed spec table. Subtype `0x01` stores inlined insert rows keyed by
@@ -336,12 +318,6 @@ dominant lookup.
 `ducklake_snapshot_changes` is a single value per `snapshot_id` in the v1.0
 schema; do not invent a per-change index unless a future DuckLake version adds
 one.
-
-`ducklake_metadata` uses a scoped key/value shape. Encode `scope` as a stable
-enum (`0 = global`, `1 = schema`, `2 = table`) followed by a big-endian
-`scope_id` (`0` for global) and a length-prefixed UTF-8 metadata key. Preserve
-the original string scope/key in the value so future DuckLake scope additions
-can be migrated without reinterpreting old keys.
 
 Where ordering matters and row counts are large, consider appending the sort
 field before the unique ID. For low-cardinality metadata such as columns,
@@ -610,40 +586,6 @@ SQL shapes, transaction behavior, parameter/result format codes, and generated
 inlined-table operations are captured in `tests/fixtures/wire-corpus/` and pass
 the same replay tests.
 
-**Onboarding non-DuckDB clients (post-Phase 4):** Strategy B's bounded
-dispatcher is designed to support additional DuckLake clients beyond DuckDB. The
-onboarding process for a new client:
-
-1. The client project captures its complete SQL corpus as a JSONL wire-corpus
-   file (one entry per distinct statement shape, with parameter types and
-   expected result columns).
-2. The corpus is contributed to `tests/fixtures/wire-corpus/{client}-{version}.jsonl`.
-3. Each statement in the corpus is classified as: (a) already in the dispatcher,
-   (b) a trivial extension of an existing pattern (e.g., adding `LIMIT $1` to
-   a SELECT shape), or (c) a new pattern requiring dispatcher work.
-4. Category (b) statements are added to the dispatcher with a feature flag
-   gated on the contributing client's corpus.
-5. Category (c) statements are evaluated case-by-case; the dispatcher will not
-   grow into a general SQL engine.
-6. The client's replay tests run in CI alongside DuckDB's.
-
-The first planned non-DuckDB client is **pg-tide-relay** (the streaming relay
-binary from the [pg-tide](https://github.com/trickle-labs/pg-tide) project).
-Its corpus is expected to contain ~20 statement shapes, all within or trivially
-near the existing bounded set. Known extensions it will require:
-
-- `ORDER BY ... ASC LIMIT 1` on `ducklake_snapshot` (for reading latest snapshot)
-- `SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1`
-  (change detection poll)
-- Parameterized `LIMIT $1` on data-file SELECT (batch sizing)
-- `gen_random_uuid()` in INSERT VALUES (or acceptance that the client generates
-  UUIDs and supplies them as literal parameters — preferred approach)
-- `INSERT INTO ducklake_metadata ... VALUES (...)` and
-  `SELECT value FROM ducklake_metadata WHERE metadata_key = $1` (offset
-  tracking — both already in the DuckDB corpus)
-
-These additions are minimal and do not push the dispatcher toward general SQL.
-
 #### 4.4 Concurrency
 
 - One SlateDB writer per catalog → the sidecar serialises writes
@@ -763,29 +705,9 @@ production B-first path.
   [`datafusion-ducklake`](https://github.com/datafusion-contrib/datafusion-ducklake)
   via Rust trait impl — could be easier than the DuckDB integration
   since both are Rust.
-- **Streaming ingest via pg-tide-relay.** The
-  [pg-tide](https://github.com/trickle-labs/pg-tide) relay already has a
-  DuckLake sink (PostgreSQL-backed) that writes transactional outbox events to
-  DuckLake catalogs as Parquet files or inlined rows. A native `SlateDuckSink`
-  variant would connect directly to the PG-wire sidecar, giving users a
-  zero-infrastructure path from a PostgreSQL transaction to a queryable data
-  lake in S3. pg-tide's relay queries constitute a second client corpus
-  alongside DuckDB's and are documented in
-  [`plans/ecosystem/slateduck.md`](https://github.com/trickle-labs/pg-tide/blob/main/plans/ecosystem/slateduck.md).
-  The relay uses only INSERT/UPDATE/SELECT patterns already within or trivially
-  near the bounded set (no JOINs, CTEs, subqueries, or DDL). Supporting
-  pg-tide-relay is the first concrete non-DuckDB client target for Strategy B.
-  **pg-tide v0.34.0** extends this further by registering DuckLake (and
-  `SlateDuckSink`) as a valid *reverse pipeline sink* — meaning any external
-  source (Kafka, NATS, Redis, SQS, webhook) can write directly to a DuckLake
-  or SlateDuck catalog without routing through a PostgreSQL inbox, enabling the
-  Kafka → SlateDuck and NATS → SlateDuck patterns that require no persistent
-  database other than the SlateDB-backed catalog itself.
-- **Other DuckLake pipeline clients.** The wire-corpus approach and bounded-SQL
-  dispatcher generalize to any DuckLake-aware client that issues spec-compliant
-  queries. Once pg-tide-relay is validated, the same onboarding process (capture
-  corpus, add to `tests/fixtures/wire-corpus/`, run replay tests) applies to
-  DataFusion-DuckLake, Spark-DuckLake, or any future catalog client.
+- **Streaming ingest.** Combine SlateDB's stream-processing positioning
+  with DuckLake's append-only nature to offer a "Kafka → DuckLake"
+  durable pipeline in one process.
 
 ---
 
@@ -861,13 +783,6 @@ creates dynamic per-table inlined insert tables named by table ID and schema
 version, plus inlined delete tables named by table ID.
 
 This has three concrete implications for SlateDuck:
-
-**Phase placement.** Inlined data is not a late feature. Phase 1 defines the
-`0xFD` storage layout, Phase 2 implements typed lifecycle helpers for insert,
-delete, flush, drop, and GC, and Phase 4 wires those helpers to DuckDB's
-generated PostgreSQL DDL/DML. The Phase 2 API may be exercised without the
-PG-wire server, but the feature is not considered complete until the Phase 4
-wire-corpus tests pass.
 
 **Key layout.** A dedicated dynamic-storage prefix is required in the Phase 1
 layout, separate from the spec table tag for `ducklake_inlined_data_tables`:
@@ -1318,21 +1233,6 @@ Use this v1 resolution model unless the Phase 0 capture disproves it:
 - If DuckDB requires an absolute `data_path` through the PG-wire path, store
   absolute URIs for compatibility and provide a later migration/rewrite tool
   for bucket failover instead of relying on ambiguous `../..` paths.
-- **Path canonicalization rule:** prefer storing absolute object-store URIs
-  (e.g. `s3://bucket/data/warehouse-a/`) over relative strings wherever
-  DuckDB allows it. Relative paths are only stored when DuckLake itself
-  supplies them with an unambiguous `path_is_relative` flag and an enclosing
-  scope path. This keeps a future bucket-rename or cloud-provider migration to
-  a single-pass rewrite of the root `data_path` in `ducklake_metadata` and
-  the schema/table path fields — not a search through every file record.
-- **Path canonicalization rule:** all paths stored in SlateDuck values must be
-  absolute object-store URIs (e.g. `s3://bucket/data/warehouse-a/`) or
-  unambiguously relative strings with a well-known root. Never store a raw
-  relative string without recording its base in the same value or via the
-  `path_is_relative` flag and the enclosing scope's path. This allows a future
-  bucket-rename or cloud-provider migration to be a single-pass rewrite of
-  all `data_path` values in `ducklake_metadata` and path fields in schema/table
-  rows, not a search through every file record.
 
 **Connection URL conventions (decide before Phase 4/5):**
 
@@ -1396,22 +1296,6 @@ This makes DuckDB version compatibility a first-class concern tracked in
 the test suite rather than something discovered at runtime by users
 updating their DuckDB installation.
 
-**DuckDB compatibility matrix.** Maintain an explicit supported-version table
-in `docs/compatibility.md`. Start narrow and expand only after testing:
-
-| DuckDB version | Status | Notes |
-| --- | --- | --- |
-| 1.5.2 | Baseline (Phase 0 capture) | First version with stable DuckLake extension |
-| 1.x.y (next minor) | Tested before merging version bump | Automated replay against saved corpus |
-| 2.x (future major) | Requires new corpus capture | May introduce new probe queries or wire behavior |
-
-**Compatibility policy:**
-- Patch version bumps (1.5.2 → 1.5.3): SlateDuck is expected to remain compatible; run corpus replay CI.
-- Minor version bumps (1.5.x → 1.6.x): require a new corpus capture and explicit sign-off before the version is added to the matrix.
-- Major version bumps (1.x → 2.x): treated as a new client; full Phase 0-style capture before any claims of support.
-
-Do not claim compatibility with a DuckDB version whose wire corpus has not been captured and whose replay tests do not pass.
-
 ---
 
 ### 5.12 Monotonic ID Generation
@@ -1452,17 +1336,6 @@ IDs against the persisted counters and the new snapshot row's advertised next
 IDs, then advance the `0xFE` counters in the same SlateDB transaction. A
 DuckDB-supplied duplicate or regressing ID is a constraint error, not an
 overwrite.
-
-For a PG-wire snapshot commit with explicit IDs, the dispatcher computes the
-consumed ID ranges before writing: every supplied catalog ID must be `>=` the
-current `next_catalog_id` and `<` the new snapshot row's `next_catalog_id`, and
-every supplied file ID must be `>=` the current `next_file_id` and `<` the new
-snapshot row's `next_file_id`. The new snapshot counters must be strictly
-greater than the maximum supplied ID in their domain. For table-scoped child
-IDs, apply the same rule against that table's `0xFE | 0x10 | table_id` counter.
-Each supplied ID also checks the relevant row key or unique-guard key is absent.
-Failures caused by a stale reader snapshot return `40001`; true duplicates
-return `23505`.
 
 Each ID allocation must commit atomically with the row that consumes the ID.
 Because a plain `WriteBatch` cannot read the current counter value, use a
@@ -1771,13 +1644,11 @@ registrations per minute — this can be significant.
 
 **Mitigations to evaluate before writing the key layout:**
 
-- **Keep `end_snapshot` inside the value, not in the key.** Closing an existing
-  version rewrites the value at that exact version key; creating a replacement
-  version inserts a new key only when DuckLake's table schema allows multiple
-  versions of the same logical object via different `begin_snapshot` values.
-  This does not reduce LSM write amplification (it is still a new SST entry),
-  but it avoids adding `end_snapshot` to key ordering and keeps live-row range
-  logic out of the primary key.
+- **Keep `end_snapshot` inside the value, not in the key.** An `UPDATE` then
+  rewrites the value at the same key rather than inserting a new key. This does
+  not reduce LSM write amplification (it is still a new SST entry) but it keeps
+  the key space clean and avoids the MVCC scan needing to iterate over multiple
+  distinct keys for the same logical row.
 
 - **Tune compaction for update-heavy access.** SlateDB's default compaction
   settings are tuned for append-heavy workloads. For a catalog with
@@ -1797,9 +1668,7 @@ layout. Putting it in the key would enable efficient range scans over live-only
 rows but would increase key churn and complicate updates. The current
 value-encoded design is the decision for v1; future contributors should add a
 secondary index if live-row scans become too expensive, not move MVCC fields
-into primary keys. Tables that are versioned by `begin_snapshot` already scan
-multiple physical keys for one logical object; that is an intentional schema
-requirement, not an `end_snapshot` indexing strategy.
+into primary keys.
 
 **Measurement gate:** Phase 2 benchmarks must record the historical-version
 amplification factor for realistic append/delete workloads: keys scanned vs.
@@ -1910,50 +1779,6 @@ writer *takeover* after a crash. Initialization is a one-time, catalog-lifetime
 event, and must be explicitly tested: launch two processes simultaneously
 against a fresh catalog path and verify exactly one coherent initial metadata
 set and counter set is committed and both processes proceed without error.
-
----
-
-### 5.19a Application Metadata Key Namespaces in `ducklake_metadata`
-
-The `ducklake_metadata` scoped key/value table is the natural place for
-non-DuckDB DuckLake clients to persist pipeline-level state that must survive
-process restarts. The DuckLake spec reserves specific metadata keys (e.g.
-`version`, `data_path`, `data_inlining_row_limit`); SlateDuck should
-additionally define a namespace convention for application keys:
-
-**Convention:** Application keys use a dotted prefix:
-`{application}.{instance}.{key}`, stored with `scope = 'global'` and
-`scope_id = 0`. Examples:
-
-```
-pg_tide.orders-to-lake.offset        → "4782"
-pg_tide.orders-to-lake.last_commit   → "2026-05-23T14:02:11Z"
-pg_tide.enriched.partition_config    → "daily"
-```
-
-**Rules for application metadata:**
-
-1. Application keys MUST NOT collide with DuckLake spec-reserved keys.
-   Spec keys never contain a dot in the first position, so any key starting
-   with `{alphanumeric_app_name}.` is safe.
-2. SlateDuck MUST treat application keys identically to spec keys for
-   read/write/transaction semantics. No special-casing is needed in the
-   dispatcher — `INSERT INTO ducklake_metadata` and
-   `SELECT value FROM ducklake_metadata WHERE metadata_key = $1` already
-   cover this.
-3. Application keys are NOT visible to DuckDB's `ducklake_metadata()`
-   function unless DuckDB explicitly queries them. They do not pollute
-   DuckDB's catalog view.
-4. Multiple applications can coexist in the same catalog by using distinct
-   prefixes (`pg_tide.*`, `datafusion_pipeline.*`, etc.).
-5. Application keys participate in snapshot transactions: a write to
-   `pg_tide.pipeline.offset` inside a `BEGIN`/`COMMIT` block is atomic
-   with any other catalog mutations in the same transaction.
-
-This design allows streaming pipelines (like pg-tide-relay) to checkpoint their
-offset atomically alongside catalog writes, providing exactly-once semantics
-within the SlateDuck transaction boundary without requiring any SlateDuck-side
-awareness of the application's semantics.
 
 ---
 
@@ -2115,12 +1940,9 @@ produce many catalog rows (snapshot + schema/table/column rows + potentially
 thousands of `ducklake_data_file` rows for bulk ingest). Cap the pending batch
 at a configurable size (default: 64 MiB) and return `SQLSTATE 54001`
 (program limit exceeded) if exceeded, requiring the client to split the
-operation before catalog commit. Do not split one DuckLake snapshot across
-multiple SlateDB commits in v1; that would expose partial metadata and break
-catalog atomicity. On connection close or protocol error, drop the `Session`
-struct and its pending transaction buffers before returning the connection slot
-to the pool; `--max-sessions` is the outer guard against aggregate memory
-growth.
+operation. On connection close or protocol error, drop the `Session` struct and
+its pending transaction buffers before returning the connection slot to the
+pool; `--max-sessions` is the outer guard against aggregate memory growth.
 
 **Action item for Phase 0:** Capture wire traffic of DuckDB connecting to a
 real PostgreSQL DuckLake and record whether `BEGIN`/`COMMIT` appears. Store
@@ -2195,7 +2017,7 @@ SELECT data_file_id FROM ducklake_file_column_stats
 ```
 
 **Problem with naive key layout.** If the key is
-`0x13 | table_id | data_file_id | column_id`, a pruning scan requires reading the
+`0x13 | table_id | file_id | column_id`, a pruning scan requires reading the
 entire `0x13 | table_id` prefix and filtering by `column_id` in memory. For
 a table with 1 million files and 100 columns, this reads 100 million rows to
 find the 1 million rows for the target column — a 100× amplification factor.
@@ -2204,7 +2026,7 @@ find the 1 million rows for the target column — a 100× amplification factor.
 `(table_id, column_id)` pair are contiguous:
 
 ```
-key: 0x13 | table_id_be (4B) | column_id_be (4B) | data_file_id_be (8B)
+key: 0x13 | table_id_be (4B) | column_id_be (4B) | file_id_be (8B)
 ```
 
 A prefix scan on `0x13 | table_id | column_id` returns exactly the stats for
@@ -2231,10 +2053,8 @@ declare a SQL primary key for `ducklake_file_column_stats`, but its row identity
 is effectively `(data_file_id, column_id)` and the dominant query filters on
 `(table_id, column_id)`. SlateDuck therefore keys by the dominant pruning scan
 and must enforce duplicate `(data_file_id, column_id)` stats rows in the typed
-writer/dispatcher. Because `data_file_id` is globally unique, the extra
-`table_id` prefix is a query accelerator rather than part of the logical row
-identity. Document this explicitly in `tags.rs` (section 5.20) so the design
-intent is clear during code review.
+writer/dispatcher. Document this explicitly in `tags.rs` (section 5.20) so the
+design intent is clear during code review.
 
 ---
 
@@ -2314,11 +2134,8 @@ tests that unsupported binary requests fail with `0A000`.
 
 ### 5.26 SlateDB API Validation Gates
 
-Several sections intentionally use pseudocode. Phase 0 is the implementation
-phase that converts these assumptions into working code snippets and checked-in
-reports. Run the first six SlateDB API gates below before writing any catalog
-key encoder or PG-wire dispatcher, because a failure there changes the whole
-design.
+Several sections intentionally use pseudocode. Before implementation starts,
+convert these assumptions into an explicit Phase 0 API validation checklist:
 
 | Assumption in this plan | Validation task |
 | --- | --- |
@@ -2327,16 +2144,15 @@ design.
 | Counter allocation is serializable | Run two `DbTransaction`s that read and update the same counter under `SerializableSnapshot`; verify one wins cleanly, the loser gets a retryable conflict, and no ID is reused after crash/reopen |
 | Concurrent initialization converges | Launch two processes calling `open_or_create` on a fresh catalog; verify exactly one coherent initial metadata key/value set and one initialized counter set exist, and both clients read the same metadata |
 | Durable commit options are available | Use `DbTransaction::commit_with_options` or the current `Db` write-options API with `await_durable` or the current equivalent, crash after success, and verify committed rows survive |
-| `db.flush()` gives `DbReader` visibility | Write with `Db`, call `flush()`, open fresh `DbReader`, verify the key is visible on LocalFS and MinIO in Phase 0; repeat on S3 Standard and S3 Express before beta for cloud deployments |
-| Visibility-barrier latency is acceptable | Measure p50/p95/p99 for the verified barrier on LocalFS and MinIO in Phase 0; add S3 Standard and S3 Express measurements before claiming production cloud readiness |
+| `db.flush()` gives `DbReader` visibility | Write with `Db`, call `flush()`, open fresh `DbReader`, verify the key is visible on LocalFS, MinIO, S3 Standard, and S3 Express |
+| Visibility-barrier latency is acceptable | Measure p50/p95/p99 for the verified barrier on LocalFS, MinIO, S3 Standard, and S3 Express |
 | Writer fencing returns a distinguishable error | Force two writers, capture exact error kind, map it in `to_pg_error()` |
 | `WriteBatch` has unlimited logical size | Enforce SlateDuck's own batch byte limit before calling SlateDB |
 | Prefix scans use fully merged latest values | Verify `scan_prefix` deduplicates older LSM versions; use `scan_prefix_by_recency` only for specialized freshness probes |
 
-Do not start Phase 1 data-model work until the Phase 0 LocalFS/MinIO validations
-are green. If any assumption is false, update this plan before writing
-production code. This is especially important for conditional initialization:
-the public `Db` docs do
+Do not start Phase 1 data-model work until these validations are green. If any
+assumption is false, update this plan before writing production code. This is
+especially important for conditional initialization: the public `Db` docs do
 not show a `write_if_absent` helper, so the implementation must use the real
 transaction API rather than a made-up convenience method.
 
@@ -2411,120 +2227,13 @@ Classify corruption before attempting repair:
 
 ---
 
-### 5.28 Catalog Export, Migration, and Rebuild
-
-SlateDuck must not be a roach motel. An operator must always be able to move
-catalog state out — to a different SlateDuck instance, to PostgreSQL-backed
-DuckLake, or reconstructed from Parquet metadata. Without a documented
-escape hatch, any on-disk format mistake or strategic pivot requires manual
-intervention with no guarantees.
-
-#### Export format
-
-Implement `slateduck export --output path/catalog.ndjson` (Phase 5 at the
-latest; earlier is better). The output is newline-delimited JSON, one catalog
-row per line, in a stable human-readable format independent of the binary
-Protobuf encoding:
-
-```json
-{"table": "ducklake_snapshot", "row": {"snapshot_id": 42, "snapshot_time": "..."}}
-{"table": "ducklake_table", "row": {"table_id": 7, "begin_snapshot": 1, ...}}
-{"table": "_inlined_insert", "table_id": 7, "schema_version": 1, "row": {...}}
-```
-
-- Walk every tag prefix in order; decode all rows visible at the latest
-  snapshot (or at a pinned `--snapshot-id`).
-- Include `0xFD` inlined rows labeled by their generated table name.
-- Omit `0xFE` counter keys and `0xFF` system keys; the receiving system
-  derives those from the imported row data.
-
-#### Import and round-trip
-
-`slateduck import --input path/catalog.ndjson` initializes a fresh catalog
-from the export file. Migration use cases:
-- Moving to a different S3 bucket or cloud provider.
-- Upgrading to a SlateDuck version with an incompatible `catalog-format-version`
-  where the writer refuses to auto-migrate and requires an explicit
-  export → reinitialize → import cycle.
-- Migrating to PostgreSQL: convert the NDJSON to SQL `INSERT` statements
-  using `slateduck pg-migrate --input catalog.ndjson | psql ...`.
-
-**Round-trip test:** export from SlateDuck v1, import into v2, verify
-that all snapshot IDs, file registrations, and MVCC visibility are
-equivalent via the Rust API.
-
-#### Rebuild from Parquet metadata
-
-For the catastrophic case where the catalog is unrecoverable and no checkpoint
-or export exists, document the manual rebuild procedure:
-1. List all Parquet files under the data prefix.
-2. Read each file's Parquet footer (schema, row count, column statistics).
-3. `slateduck rebuild --data-path s3://bucket/data/warehouse` synthesizes a
-   fresh catalog from file metadata (tables, columns, files, stats). Snapshot
-   history before the rebuild is lost, but current data is recoverable.
-
----
-
-### 5.28 Catalog Export and Migration Escape Hatch
-
-SlateDuck must not be a roach motel. An operator must always be able to move
-catalog state out of SlateDuck — to a different SlateDuck instance, to a
-PostgreSQL-backed DuckLake, or to a rebuilt catalog from Parquet metadata.
-Without a documented migration path, any on-disk format mistake or strategic
-pivot requires manual intervention with no guarantees.
-
-#### Export format
-
-Implement `slateduck export --output path/catalog.ndjson` (Phase 5 at the
-latest, earlier is better). The export is a newline-delimited JSON file where
-each line is one catalog row in a stable, human-readable format independent of
-the binary Protobuf encoding:
-
-```json
-{"table": "ducklake_snapshot", "row": {"snapshot_id": 42, "snapshot_time": "...", ...}}
-{"table": "ducklake_table", "row": {"table_id": 7, "begin_snapshot": 1, ...}}
-```
-
-- The export walks every tag prefix in order and decodes all live rows at the
-  latest snapshot (or at a pinned `--snapshot-id`).
-- Include `0xFD` inlined rows in the export; label them by their generated table
-  name so a receiving system can reconstruct inlined data state.
-- Do not include `0xFE` counter keys or `0xFF` system keys; the receiving system
-  initializes those from the imported row data.
-
-#### Import and round-trip
-
-`slateduck import --input path/catalog.ndjson` initializes a fresh catalog from
-the export file. Import is the migration path for:
-- Moving to a different S3 bucket or cloud provider
-- Upgrading to a SlateDuck version with an incompatible `catalog-format-version`
-- Escaping to PostgreSQL-backed DuckLake (convert the NDJSON to SQL `INSERT`
-  statements using a provided `slateduck pg-migrate` utility)
-
-Test: export from SlateDuck v1, import into v2; verify that all snapshot IDs,
-file registrations, and MVCC visibility are bit-for-bit equivalent using the
-Rust API, not only by eyeballing the DuckDB query output.
-
-#### Rebuild from Parquet metadata
-
-For the catastrophic case where the catalog is unrecoverable and no checkpoint
-or export exists, document the manual rebuild procedure:
-1. List all Parquet files under the data prefix.
-2. Read each file's Parquet footer (schema, row count, statistics).
-3. Use `slateduck rebuild --data-path s3://bucket/data/warehouse` to synthesize
-   a fresh catalog from file metadata alone (tables, columns, files, stats).
-   Snapshot history before the rebuild is lost, but the data is recoverable.
-
----
-
 ## 6. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
 | DuckDB extension API turns out to be too closed to add a new catalog backend cleanly. | Medium | High | Fall back permanently to Strategy B (PG-wire). It is a fine product for DuckDB once the captured DuckDB corpus passes; other clients need separate compatibility work. |
 | SlateDB read latency for many small point lookups is too high for interactive query planning. | Medium | Medium | Phase 7 packing + aggressive on-disk caching + DuckDB-side caching of catalog snapshots. |
-| DuckLake spec churn between 1.0 and 1.1. | Low | Medium | The spec is versioned. Carry DuckLake's `schema_version` in snapshot rows and SlateDuck's `encoding_version` in values. When a new DuckLake spec version arrives: (1) check if any of the 28 fixed table schemas changed; (2) allocate new tag bytes for added tables; (3) add new `encoding_version` decoders for changed row shapes; (4) update the DuckDB compatibility matrix and recapture the wire corpus. Do not change existing tag bytes or field positions. |
-| SlateDuck binary downgrade corrupts catalog written by newer version. | Low | High | `catalog-format-version` key under `0xFF` causes older binary to refuse open (`0A000`) rather than misread data. The version key is written on catalog creation and updated only by an explicit migration path. |
+| DuckLake spec churn between 1.0 and 1.1. | Low | Low | The spec is versioned and stable as of v1.0; carry DuckLake's `schema_version` in snapshot rows and SlateDuck's `encoding_version` in serialized values. |
 | Single-writer constraint surprises users. | Medium | Low | Document loudly; SlateDB's fencing means at worst the new writer takes over safely. |
 | The SQLite-VFS-over-LSM approach (Phase 3) is too slow even for a demo. | Medium | Low | Phase 3 is optional and time-boxed. Skip to Phase 4 if it does not produce useful evidence quickly. |
 | SlateDB API assumptions differ from the current crate. | Medium | High | Phase 0 validation gates in section 5.26; no production code based on pseudocode APIs. |
@@ -2908,31 +2617,23 @@ The plan is ready to implement **Phase 0 now**. Phase 0 is not optional
 research; it is the first implementation phase and produces the artifacts that
 make the rest of the build safe.
 
-Because Strategy B is the production-first path, the DuckDB PG-wire corpus is a
-Phase 0 artifact, not a Phase 4 surprise. If the project intentionally pivots
-to Strategy C-first, revise this checklist before starting Phase 1.
-
 Before opening the first Phase 1 data-model PR, the repository must contain:
 
 1. `docs/phase-0/slatedb-api-validation.md` with working code and observed
   results for every gate in section 5.26.
 2. `tests/fixtures/wire-corpus/duckdb-{version}.jsonl` for each supported
   DuckDB version, including generated inlined-table SQL and format codes.
-3. `docs/phase-0/access-patterns.md`, derived from the wire corpus, confirming
-  or revising the key shapes for partition, sort, mapping, macro, statistics,
-  and generated inlined tables.
-4. A written GlueSQL vs. custom-dispatcher decision with the shim count and
+3. A written GlueSQL vs. custom-dispatcher decision with the shim count and
   updated Phase 4 effort estimate.
-5. A path-resolution decision for `ducklake_metadata.data_path` based on real
+4. A path-resolution decision for `ducklake_metadata.data_path` based on real
   DuckDB captures, reflected in `CatalogPath` tests.
-6. A checked-in `tags.rs` skeleton that freezes the allocation from section 1.1
-  before encoder code is written: all 28 DuckLake table tags, `0xFD`, `0xFE`,
-  and `0xFF` plus key shape, versioning rule, unique-guard keys, and
-  implementation status.
-7. A Phase 2 benchmark harness stub and the value-header encoder/decoder tests.
-8. MinIO credential-isolation tests for catalog-only and data-only policies.
+5. A checked-in `tags.rs` skeleton with all 28 DuckLake table tags, `0xFD`,
+   `0xFE`, and `0xFF` plus key shape, versioning rule, unique-guard keys, and
+   implementation status.
+6. A Phase 2 benchmark harness stub and the value-header encoder/decoder tests.
+7. MinIO credential-isolation tests for catalog-only and data-only policies.
 
-If all eight artifacts exist and the gates are green, Phases 1-4 are ready to
+If all seven artifacts exist and the gates are green, Phases 1-4 are ready to
 execute from this document without another architecture rewrite. If any artifact
 fails, patch this plan first and keep the failed assumption visible in the risk
 table.
@@ -2950,21 +2651,6 @@ These questions do not block Phase 0-4 implementation:
   This would push Strategy B's SQL layer into the embedded case too.
 - Pricing/operational guidance: at what scale does the S3 PUT cost of
   SlateDB's WAL become significant compared to PG hosting cost?
-- Should parameterized `LIMIT $1` be part of the Phase 4 bounded set?
-  pg-tide-relay uses `ORDER BY snapshot_id DESC LIMIT 1` for reading
-  the latest snapshot. DuckDB may not use parameterized LIMIT today,
-  but it is a common pattern for non-DuckDB clients doing batch reads.
-  Adding it to the dispatcher is trivial (clamp to an integer, apply
-  after the scan) and prevents every new client from needing client-side
-  slicing.
-- Should the dispatcher support `ORDER BY col ASC/DESC` as a general
-  modifier on bounded SELECT shapes, or only on specific corpus-captured
-  statements? The former is more flexible for future clients; the latter
-  keeps the dispatcher more constrained.
-- What is the isolation level contract for `BEGIN` with no explicit
-  level? Non-DuckDB clients like pg-tide-relay expect snapshot isolation
-  (SlateDB's natural default) but should the sidecar accept
-  `BEGIN ISOLATION LEVEL SERIALIZABLE` as a no-op or reject it?
 
 ---
 

@@ -19,9 +19,9 @@ DuckLake-compatible clients.
 
 | Release | Milestone | Status |
 |---------|-----------|--------|
-| **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | ✅ Complete |
-| **v0.2 — Catalog Core** | All 28 DuckLake tables in SlateDB, full MVCC, Rust API | ✅ Complete |
-| **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | ✅ Complete |
+| **v0.1 — Foundation** | Validated infrastructure, data model, Rust workspace | Planning |
+| **v0.2 — Catalog Core** | All 28 DuckLake tables in SlateDB, full MVCC, Rust API | Planning |
+| **v0.3 — PG-Wire Sidecar (Alpha)** | Strategy B sidecar serving DuckDB end-to-end | Planning |
 | **v0.4 — Production Hardening** | GC, backups, observability, encryption, repair tooling | Planning |
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | Planning |
 | **v1.0 — General Availability** | Performance-tuned, multi-client, full operational story | Planning |
@@ -39,7 +39,7 @@ the design has been explicitly updated to account for a failed assumption.
 
 ### Rust Workspace and CI
 
-- [x] Set up the full Rust workspace structure:
+- Set up the full Rust workspace structure:
   ```
   slateduck/
   ├── Cargo.toml
@@ -54,9 +54,9 @@ the design has been explicitly updated to account for a failed assumption.
   ├── docs/
   └── tests/
   ```
-- [x] Configure GitHub Actions: `cargo fmt`, `clippy`, `test` on Linux and macOS.
-- [x] Pin initial dependencies: `slatedb`, `object_store`, `bytes`, `tokio`, `serde`, `prost`, `pgwire`, `sqlparser-rs`, `proptest`, `fail-parallel`.
-- [x] Add `CONTRIBUTING.md`, `LICENSE`, and `docs/architecture.md` stubs.
+- Configure GitHub Actions: `cargo fmt`, `clippy`, `test` on Linux and macOS.
+- Pin initial dependencies: `slatedb`, `object_store`, `bytes`, `tokio`, `serde`, `prost`, `pgwire`, `sqlparser-rs`, `proptest`, `fail-parallel`.
+- Add `CONTRIBUTING.md`, `LICENSE`, and `docs/architecture.md` stubs.
 
 ### SlateDB API Validation
 
@@ -140,10 +140,10 @@ Stand up the full DuckLake tutorial against SQLite-backed DuckLake and capture a
 
 ### Deliverables
 
-- [x] Passing `hello world` smoke test: open SlateDB on LocalFS, put/get, scan a prefix, transaction, checkpoint
-- [x] All Phase 0 validation artifacts checked in and green
-- [x] Go/no-go decision recorded for: GlueSQL vs. custom dispatcher, transaction API, conditional init, `flush()` barrier, `pgwire` crate extended-protocol support
-- [x] No Phase 1 data-model code until all gates pass or the plan is updated for failures
+- Passing `hello world` smoke test: open SlateDB on LocalFS, put/get, scan a prefix, transaction, checkpoint
+- All Phase 0 validation artifacts checked in and green
+- Go/no-go decision recorded for: GlueSQL vs. custom dispatcher, transaction API, conditional init, `flush()` barrier, `pgwire` crate extended-protocol support
+- No Phase 1 data-model code until all gates pass or the plan is updated for failures
 
 ---
 
@@ -301,11 +301,11 @@ Using `proptest`:
 
 ### Deliverables
 
-- [x] Documented Rust library storing and retrieving every row type defined by DuckLake v1.0 including `0xFD` dynamic inlined rows
-- [x] Property test suite green
-- [x] `tags.rs` complete and reviewed
-- [x] `slateduck verify catalog` command working
-- [x] Benchmark baseline recorded
+- Documented Rust library storing and retrieving every row type defined by DuckLake v1.0 including `0xFD` dynamic inlined rows
+- Property test suite green
+- `tags.rs` complete and reviewed
+- `slateduck verify catalog` command working
+- Benchmark baseline recorded
 
 ---
 
@@ -459,11 +459,11 @@ slateduck serve \
 
 ### Deliverables
 
-- [x] `slateduck serve` binary exposing a SlateDB catalog at a PostgreSQL TCP endpoint
-- [x] DuckDB connecting via standard `postgres` extension with all tutorial operations passing
-- [x] Golden tests green for DuckDB 1.5.2
-- [x] All crash injection tests passing
-- [x] SQLSTATE test for every error code path
+- `slateduck serve` binary exposing a SlateDB catalog at a PostgreSQL TCP endpoint
+- DuckDB connecting via standard `postgres` extension with all tutorial operations passing
+- Golden tests green for DuckDB 1.5.2
+- All crash injection tests passing
+- SQLSTATE test for every error code path
 
 ---
 
