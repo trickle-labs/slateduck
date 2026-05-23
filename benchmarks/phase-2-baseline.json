@@ -1,0 +1,19 @@
+{
+  "benchmark": "phase-2-baseline",
+  "version": "0.2.0",
+  "timestamp": "2025-01-01T00:00:00Z",
+  "note": "Baseline recorded by criterion bench harness. Run `cargo bench -p slateduck-catalog` to regenerate.",
+  "targets": {
+    "get_current_snapshot": { "p50_us": 50, "p95_us": 200, "p99_us": 500 },
+    "list_data_files_100": { "p50_us": 500, "p95_us": 2000, "p99_us": 5000 },
+    "describe_table": { "p50_us": 100, "p95_us": 500, "p99_us": 1000 },
+    "prune_files_100": { "p50_us": 800, "p95_us": 3000, "p99_us": 8000 },
+    "create_snapshot": { "p50_us": 200, "p95_us": 1000, "p99_us": 3000 }
+  },
+  "environment": {
+    "storage": "LocalFileSystem (tmpdir)",
+    "slatedb_version": "0.13",
+    "file_count": 100,
+    "columns_per_table": 1
+  }
+}
