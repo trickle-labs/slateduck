@@ -53,7 +53,7 @@ binding on every roadmap release below.
 | **v0.5 — Native Extension (Beta)** | Strategy C embedded DuckDB extension via FFI | **Done** |
 | **v0.6 — Multi-Client & Security** | pg-tide-relay onboarding, TLS/auth, audit log, GCS/Azure validation, compatibility matrix CI | **Done** |
 | **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | **Done** |
-| **v0.8 — Documentation** | MkDocs Material site, GitHub Pages, full conceptual, operational, and reference coverage | Planning |
+| **v0.8 — Documentation** | MkDocs Material site, GitHub Pages, full conceptual, operational, and reference coverage | **Done** |
 | **v1.0 — General Availability** | TPC-H @ SF10 benchmarks, GA polish, full operational story | Planning |
 | **v1.x — Ecosystem Expansion** | Streaming ingest, additional DuckLake clients (Spark/Trino), zone-map index, async catalog FFI | Planning |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces | Exploration |
@@ -915,14 +915,14 @@ Phase D7's polish step is not optional. Running `mkdocs build --strict` to zero 
 
 The release is complete when all of the following are true:
 
-- [ ] `mkdocs build --strict` produces zero warnings on CI — the `--strict` flag treats broken links and misconfigured extensions as build failures, not warnings; zero warnings means zero known defects
-- [ ] No broken internal or external links — internal links verified by `--strict`; external links spot-checked before publish and on each subsequent update
-- [ ] No stub pages remain in the published site — a page with only a title and no real content is misinformation, worse than a missing page
-- [ ] Every `bash` and `sql` code block has been run against the actual binary and produces the output shown
-- [ ] The top 20 terms a new user would search for return relevant results — assembled by asking multiple people "what would you search for?" before the polish phase
-- [ ] All pages render correctly on mobile viewports — particularly important for wide tables in the Reference section and Mermaid diagrams that can overflow their container
-- [ ] Heading hierarchy is correct on every page; images have meaningful alt text; body text contrast meets WCAG AA in both light and dark mode
-- [ ] At least one reviewer other than the primary author has read every Getting Started and Concepts page — a second reader finds the gaps the author is blind to
+- [x] `mkdocs build --strict` produces zero warnings on CI — the `--strict` flag treats broken links and misconfigured extensions as build failures, not warnings; zero warnings means zero known defects
+- [x] No broken internal or external links — internal links verified by `--strict`; external links spot-checked before publish and on each subsequent update
+- [x] No stub pages remain in the published site — a page with only a title and no real content is misinformation, worse than a missing page
+- [x] Every `bash` and `sql` code block has been run against the actual binary and produces the output shown
+- [x] The top 20 terms a new user would search for return relevant results — assembled by asking multiple people "what would you search for?" before the polish phase
+- [x] All pages render correctly on mobile viewports — particularly important for wide tables in the Reference section and Mermaid diagrams that can overflow their container
+- [x] Heading hierarchy is correct on every page; images have meaningful alt text; body text contrast meets WCAG AA in both light and dark mode
+- [x] At least one reviewer other than the primary author has read every Getting Started and Concepts page — a second reader finds the gaps the author is blind to
 
 ### Maintenance Contract
 
@@ -932,18 +932,18 @@ The PR template includes a checkbox — "Documentation updated (if behavior chan
 
 ### Deliverables
 
-- [ ] `mkdocs.yml` at workspace root with full configuration from `plans/documentation-1.md`
-- [ ] `.github/workflows/docs.yml` building and deploying to GitHub Pages on every push to `main`
-- [ ] `requirements-docs.txt` pinning all documentation dependencies
-- [ ] All 80 content pages published with complete, reviewed content — no stubs
-- [ ] Mermaid architecture diagrams for system overview, crate dependency graph, read path, and write path
-- [ ] All 28 catalog tables documented in the Reference section
-- [ ] Full CLI reference covering every `slateduck` subcommand
-- [ ] Performance comparison page with real benchmark data from `benchmarks/phase-2-baseline.json`
-- [ ] Design Decisions section covering all 8 major architectural choices with honest trade-off analysis
-- [ ] DuckDB compatibility matrix with verified version coverage
-- [ ] Documentation site live at GitHub Pages URL
-- [ ] `mkdocs build --strict` green in CI
+- [x] `mkdocs.yml` at workspace root with full configuration from `plans/documentation-1.md`
+- [x] `.github/workflows/docs.yml` building and deploying to GitHub Pages on every push to `main`
+- [x] `requirements-docs.txt` pinning all documentation dependencies
+- [x] All 80 content pages published with complete, reviewed content — no stubs
+- [x] Mermaid architecture diagrams for system overview, crate dependency graph, read path, and write path
+- [x] All 28 catalog tables documented in the Reference section
+- [x] Full CLI reference covering every `slateduck` subcommand
+- [x] Performance comparison page with real benchmark data from `benchmarks/phase-2-baseline.json`
+- [x] Design Decisions section covering all 8 major architectural choices with honest trade-off analysis
+- [x] DuckDB compatibility matrix with verified version coverage
+- [x] Documentation site live at GitHub Pages URL
+- [x] `mkdocs build --strict` green in CI
 
 ---
 

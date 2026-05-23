@@ -1,0 +1,229 @@
+site_name: SlateDuck Documentation
+site_url: https://geir-gronmo.github.io/slateduck/
+site_description: >-
+  A DuckLake catalog on SlateDB — your entire lakehouse in a single S3 bucket,
+  no database server required.
+repo_name: geir-gronmo/slateduck
+repo_url: https://github.com/geir-gronmo/slateduck
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+    - toc.follow
+    - announce.dismiss
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/database-outline
+  custom_dir: docs/overrides
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+  - git-revision-date-localized:
+      enable_creation_date: false
+      fallback_to_build_date: true
+      type: timeago
+  - glightbox
+  - redirects:
+      redirect_maps:
+        quickstart.md: getting-started/quickstart.md
+        architecture.md: architecture/index.md
+        compatibility.md: integration/duckdb-compatibility.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/geir-gronmo/slateduck
+  generator: false
+  status:
+    new: Recently added
+    deprecated: Deprecated
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+validation:
+  nav:
+    omitted_files: info
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - What is SlateDuck?: getting-started/what-is-slateduck.md
+    - Quickstart (Local): getting-started/quickstart.md
+    - Quickstart (Cloud): getting-started/quickstart-cloud.md
+    - Your First Lakehouse: getting-started/first-lakehouse.md
+  - Concepts:
+    - concepts/index.md
+    - Bounded SQL: concepts/bounded-sql.md
+    - Catalog vs Data: concepts/catalog-vs-data.md
+    - Immutability: concepts/immutability.md
+    - Key-Value Mapping: concepts/key-value-mapping.md
+    - MVCC: concepts/mvcc.md
+    - Object Store Durability: concepts/object-store-durability.md
+    - Single Writer, Many Readers: concepts/single-writer-many-readers.md
+    - Snapshots: concepts/snapshots.md
+  - Architecture:
+    - architecture/index.md
+    - Overview: architecture/overview.md
+    - Crate Structure: architecture/crate-structure.md
+    - Key Layout: architecture/key-layout.md
+    - Value Encoding: architecture/value-encoding.md
+    - SQL Dispatcher: architecture/sql-dispatcher.md
+    - PG-Wire Protocol: architecture/pg-wire-protocol.md
+    - Transaction Model: architecture/transaction-model.md
+    - MVCC Implementation: architecture/mvcc-implementation.md
+  - Deployment:
+    - deployment/index.md
+    - Binary: deployment/binary.md
+    - Configuration: deployment/configuration.md
+    - Docker: deployment/docker.md
+    - Fly.io: deployment/fly-io.md
+    - High Availability: deployment/high-availability.md
+    - Kubernetes: deployment/kubernetes.md
+    - Lambda / Serverless: deployment/lambda.md
+    - Multi-Region: deployment/multi-region.md
+    - Networking: deployment/networking.md
+    - TLS: deployment/tls.md
+  - Operations:
+    - operations/index.md
+    - Backup & Restore: operations/backup-restore.md
+    - Excision: operations/excision.md
+    - Export: operations/export.md
+    - Garbage Collection: operations/garbage-collection.md
+    - Health Checks: operations/health-checks.md
+    - Inspect: operations/inspect.md
+    - Logging: operations/logging.md
+    - Monitoring: operations/monitoring.md
+    - Troubleshooting: operations/troubleshooting.md
+    - Upgrades: operations/upgrades.md
+    - Verify & Repair: operations/verify-repair.md
+  - Integration:
+    - integration/index.md
+    - DuckDB: integration/duckdb.md
+    - DuckDB Compatibility: integration/duckdb-compatibility.md
+    - pg-tide-relay: integration/pg-tide-relay.md
+    - DataFusion: integration/datafusion.md
+    - Native Extension: integration/native-extension.md
+    - Custom Clients: integration/custom-clients.md
+  - Design Decisions:
+    - design-decisions/index.md
+    - Why SlateDB?: design-decisions/why-slatedb.md
+    - Strategy B First: design-decisions/strategy-b-first.md
+    - Bounded SQL: design-decisions/bounded-sql.md
+    - Protobuf Encoding: design-decisions/protobuf-encoding.md
+    - Immutability Trade-offs: design-decisions/immutability-tradeoffs.md
+    - Single-Writer Model: design-decisions/single-writer.md
+    - Key Design Rationale: design-decisions/key-design-rationale.md
+    - What SlateDuck Is Not: design-decisions/what-slateduck-is-not.md
+  - Performance:
+    - performance/index.md
+    - Latency Model: performance/latency-model.md
+    - Benchmarks: performance/benchmarks.md
+    - Tuning: performance/tuning.md
+    - When to Use SlateDuck: performance/when-to-use.md
+    - vs. Alternatives: performance/vs-alternatives.md
+  - Internals:
+    - internals/index.md
+    - Tag Allocation: internals/tag-allocation.md
+    - MVCC Filter: internals/mvcc-filter.md
+    - Inlined Data: internals/inlined-data.md
+    - Schema Version: internals/schema-version.md
+    - Type-Aware Stats: internals/type-aware-stats.md
+    - SQLSTATE Mapping: internals/sqlstate-mapping.md
+    - Wire Corpus: internals/wire-corpus.md
+    - Crash Safety: internals/crash-safety.md
+  - Contributing:
+    - contributing/index.md
+    - Development Setup: contributing/development-setup.md
+    - Testing: contributing/testing.md
+    - Code Style: contributing/code-style.md
+    - Architecture Guide: contributing/architecture-guide.md
+    - Release Process: contributing/release-process.md
+  - Reference:
+    - reference/index.md
+    - Catalog Tables: reference/catalog-tables.md
+    - Supported SQL: reference/sql-supported.md
+    - Error Codes: reference/error-codes.md
+    - Metrics: reference/metrics.md
+    - Environment Variables: reference/environment-vars.md
+    - Glossary: reference/glossary.md
+  - Roadmap:
+    - roadmap/index.md
+    - Changelog: roadmap/changelog.md
