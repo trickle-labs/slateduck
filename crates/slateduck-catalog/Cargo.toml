@@ -27,6 +27,8 @@ tracing-subscriber = { workspace = true }
 proptest = { workspace = true }
 criterion = { workspace = true }
 slateduck-ffi = { path = "../slateduck-ffi" }
+slateduck-datafusion = { path = "../slateduck-datafusion" }
+datafusion = "45"
 
 [[bench]]
 name = "catalog_bench"

@@ -58,6 +58,9 @@ pub enum SlateDuckError {
 
     #[error("pgwire error: {0}")]
     PgWire(String),
+
+    #[error("missing required parameter '{name}' (SQLSTATE 22023)")]
+    MissingParam { name: String },
 }
 
 impl SlateDuckError {
@@ -66,6 +69,7 @@ impl SlateDuckError {
         match self {
             Self::WriterFenced => "57P04",
             Self::SnapshotOutOfRetention => "22023",
+            Self::MissingParam { .. } => "22023",
             Self::ObjectStore(_) => "08006",
             Self::NotFound(_) => "02000",
             Self::ValueDecode(_) => "22P02",

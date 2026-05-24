@@ -45,7 +45,7 @@ async fn read_at_below_retain_from_returns_error() {
 
     // read_at(3) should fail with SnapshotOutOfRetention
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let result = store.read_at(SnapshotId::new(3)).await;
+    let result = store.read_at(SnapshotId::new(3));
     assert!(
         result.is_err(),
         "read_at below retain-from must return an error"
@@ -73,7 +73,7 @@ async fn read_at_at_retain_from_succeeds() {
 
     // read_at(1) == retain_from should succeed
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let result = store.read_at(SnapshotId::new(1)).await;
+    let result = store.read_at(SnapshotId::new(1));
     assert!(
         result.is_ok(),
         "read_at at exactly retain-from must succeed"
@@ -92,7 +92,7 @@ async fn read_at_before_any_gc_apply_succeeds() {
 
     // No gc_apply → retain_from == 0 → all reads allowed
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let result = store.read_at(SnapshotId::new(1)).await;
+    let result = store.read_at(SnapshotId::new(1));
     assert!(
         result.is_ok(),
         "read_at with no retain-from set must succeed"
@@ -181,10 +181,7 @@ async fn checkpoint_restore_hides_post_checkpoint_facts() {
 
     // After restore: reading at checkpoint snapshot should see pre-checkpoint schema only
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let reader = store
-        .read_at(SnapshotId::new(cp.snapshot_id))
-        .await
-        .unwrap();
+    let reader = store.read_at(SnapshotId::new(cp.snapshot_id)).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     let names: Vec<_> = schemas.iter().map(|s| s.schema_name.as_str()).collect();
     assert!(
@@ -233,7 +230,7 @@ async fn checkpoint_restore_new_writes_visible() {
     writer.create_schema("post_restore").await.unwrap();
     let new_snap = writer.create_snapshot(None, None).await.unwrap();
     store.commit_writer(&writer);
-    let reader = store.read_at(new_snap).await.unwrap();
+    let reader = store.read_at(new_snap).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     let names: Vec<_> = schemas.iter().map(|s| s.schema_name.as_str()).collect();
     assert!(
@@ -314,7 +311,7 @@ async fn rebuild_catalog_produces_queryable_catalog() {
 
     // Open as store and verify we can query schemas, tables, and data files
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
+    let reader = store.read_at(SnapshotId::new(1)).unwrap();
 
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1, "rebuild must create exactly one schema");

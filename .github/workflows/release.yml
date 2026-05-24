@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  # Run the full quality gate before building release artifacts.
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features
+
+      - name: Test
+        run: cargo test --all
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Security audit
+        run: cargo audit
+
+  # Build release binaries for each target platform.
+  build:
+    name: Build (${{ matrix.target }})
+    needs: quality-gate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            artifact: slateduck-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            artifact: slateduck-linux-aarch64
+            cross: true
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            artifact: slateduck-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross (for aarch64 Linux)
+        if: matrix.cross == true
+        run: cargo install cross --locked
+
+      - name: Build release binary (native)
+        if: matrix.cross != true
+        run: |
+          cargo build -p slateduck-pgwire --bin slateduck --release --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/slateduck ${{ matrix.artifact }}
+
+      - name: Build release binary (cross)
+        if: matrix.cross == true
+        run: |
+          cross build -p slateduck-pgwire --bin slateduck --release --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/slateduck ${{ matrix.artifact }}
+
+      - name: Generate checksum
+        run: sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  # Create a GitHub Release with all binaries and checksums.
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SlateDuck ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: |
+            artifacts/slateduck-*
+          generate_release_notes: true
+          body: |
+            ## SlateDuck ${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            Download the binary for your platform, verify the checksum, and make it executable:
+
+            ```bash
+            # Linux x86-64
+            curl -LO https://github.com/trickle-labs/slateduck/releases/download/${{ steps.version.outputs.version }}/slateduck-linux-x86_64
+            sha256sum -c slateduck-linux-x86_64.sha256
+            chmod +x slateduck-linux-x86_64
+            mv slateduck-linux-x86_64 /usr/local/bin/slateduck
+            ```
+
+            See [CHANGELOG.md](https://github.com/trickle-labs/slateduck/blob/main/CHANGELOG.md) for full release notes.

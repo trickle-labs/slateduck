@@ -78,6 +78,7 @@ pub async fn repair_plan(db: &Db) -> CatalogResult<RepairPlan> {
 }
 
 /// Apply a repair plan.
+#[tracing::instrument(skip(db, plan))]
 pub async fn repair_apply(db: &Db, plan: &RepairPlan) -> CatalogResult<RepairResult> {
     if plan.has_unrecoverable() {
         return Err(CatalogError::RepairRefused(

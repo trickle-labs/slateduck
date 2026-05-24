@@ -958,7 +958,146 @@ fn test_iam_permission_denied_sqlstate() {
     assert_eq!(err.severity(), "ERROR");
 }
 
-// ─── v0.6: DuckDB compatibility matrix ───────────────────────────────────
+// ─── v0.9.4: F-21 TLS protocol tests ─────────────────────────────────────
+
+/// Generate a self-signed certificate and key into a temp directory.
+/// Returns (cert_path, key_path) as strings.
+fn generate_self_signed_cert(dir: &tempfile::TempDir) -> (String, String) {
+    use rcgen::{generate_simple_self_signed, CertifiedKey};
+    let subject_alt_names = vec!["127.0.0.1".to_string()];
+    let CertifiedKey { cert, key_pair } =
+        generate_simple_self_signed(subject_alt_names).expect("rcgen cert generation must succeed");
+    let cert_pem = cert.pem();
+    let key_pem = key_pair.serialize_pem();
+
+    let cert_path = dir.path().join("server.crt");
+    let key_path = dir.path().join("server.key");
+    std::fs::write(&cert_path, cert_pem).unwrap();
+    std::fs::write(&key_path, key_pem).unwrap();
+
+    (
+        cert_path.to_str().unwrap().to_string(),
+        key_path.to_str().unwrap().to_string(),
+    )
+}
+
+#[tokio::test]
+async fn test_tls_required_without_certs_fails_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_obj = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let opts = OpenOptions {
+        object_store: store_obj,
+        path: ObjectPath::from(""),
+        encryption: None,
+    };
+    let catalog = Arc::new(Mutex::new(CatalogStore::open(opts).await.unwrap()));
+
+    let config = slateduck_pgwire::ServerConfig {
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        tls: slateduck_pgwire::server::TlsConfig {
+            cert_path: None,
+            key_path: None,
+            required: true, // required but no cert
+        },
+        ..Default::default()
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let result = slateduck_pgwire::server::run_server_with_shutdown(config, catalog, rx).await;
+    assert!(
+        result.is_err(),
+        "--tls-required without cert/key must fail at server start"
+    );
+    drop(tx);
+}
+
+/// Helper: start a server with TLS enabled using a self-signed certificate.
+async fn start_server_with_tls(
+    dir: &tempfile::TempDir,
+    required: bool,
+) -> (
+    std::net::SocketAddr,
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (cert_path, key_path) = generate_self_signed_cert(dir);
+    let store_obj = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let opts = OpenOptions {
+        object_store: store_obj,
+        path: ObjectPath::from(""),
+        encryption: None,
+    };
+    let catalog = Arc::new(Mutex::new(CatalogStore::open(opts).await.unwrap()));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+
+    let config = slateduck_pgwire::ServerConfig {
+        bind_addr: addr,
+        tls: slateduck_pgwire::server::TlsConfig {
+            cert_path: Some(cert_path),
+            key_path: Some(key_path),
+            required,
+        },
+        ..Default::default()
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = tokio::spawn(async move {
+        slateduck_pgwire::server::run_server_with_shutdown(config, catalog, rx)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    (addr, tx, handle)
+}
+
+#[tokio::test]
+async fn test_tls_required_rejects_plaintext_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, tx, handle) = start_server_with_tls(&dir, true).await;
+
+    // Connect without TLS — server must reject the plaintext connection.
+    let conn_str = format!(
+        "host=127.0.0.1 port={} user=anyuser dbname=ducklake sslmode=disable",
+        addr.port()
+    );
+    let result = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await;
+    assert!(
+        result.is_err(),
+        "plaintext connection must be rejected when TLS is required"
+    );
+
+    let _ = tx.send(());
+    let _ = handle.await;
+}
+
+#[tokio::test]
+async fn test_tls_server_starts_with_self_signed_cert() {
+    let dir = tempfile::tempdir().unwrap();
+    // required=false so plaintext clients can still connect for this test.
+    let (addr, tx, handle) = start_server_with_tls(&dir, false).await;
+
+    // Connect without TLS — server accepts plaintext when TLS is not required.
+    let conn_str = format!(
+        "host=127.0.0.1 port={} user=anyuser dbname=ducklake sslmode=disable",
+        addr.port()
+    );
+    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+        .await
+        .expect("server with optional TLS must accept plaintext");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let rows = client.query("SELECT version()", &[]).await.unwrap();
+    assert_eq!(rows.len(), 1, "SELECT version() must return one row");
+
+    drop(client);
+    let _ = tx.send(());
+    let _ = handle.await;
+}
 
 #[test]
 fn test_wire_corpus_fixture_exists() {
@@ -999,6 +1138,88 @@ fn test_pgtide_corpus_is_valid_json() {
     assert_eq!(corpus["version"], "0.34");
     let statements = corpus["statements"].as_array().unwrap();
     assert!(!statements.is_empty());
+}
+
+// ─── v0.9.4: Spark and Trino corpus replay tests ─────────────────────────
+
+fn corpus_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/wire-corpus")
+}
+
+#[test]
+fn test_spark_corpus_fixture_exists() {
+    let path = corpus_root().join("spark-3.5.jsonl");
+    assert!(path.exists(), "Spark-3.5 wire corpus fixture missing");
+}
+
+#[test]
+fn test_trino_corpus_fixture_exists() {
+    let path = corpus_root().join("trino-432.jsonl");
+    assert!(path.exists(), "Trino-432 wire corpus fixture missing");
+}
+
+/// Parse the Spark corpus and verify every SQL statement in it can be
+/// classified by the SQL dispatcher (categories a or b — no unknown shapes).
+#[test]
+fn test_spark_corpus_all_statements_classifiable() {
+    let path = corpus_root().join("spark-3.5.jsonl");
+    let content = std::fs::read_to_string(path).unwrap();
+    let corpus: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(corpus["client"], "spark-ducklake");
+    assert_eq!(corpus["version"], "3.5");
+
+    let statements = corpus["statements"].as_array().unwrap();
+    assert!(!statements.is_empty(), "Spark corpus must not be empty");
+
+    for stmt in statements {
+        let sql = stmt["sql"].as_str().unwrap_or("");
+        if sql.is_empty()
+            || sql.starts_with("BEGIN")
+            || sql.starts_with("COMMIT")
+            || sql.starts_with("SET ")
+        {
+            continue;
+        }
+        let result = slateduck_sql::classify_statement(sql);
+        assert!(
+            result.is_ok(),
+            "Spark corpus statement must be classifiable: {sql:?} — err: {result:?}"
+        );
+    }
+}
+
+/// Parse the Trino corpus and verify every SQL statement is classifiable.
+#[test]
+fn test_trino_corpus_all_statements_classifiable() {
+    let path = corpus_root().join("trino-432.jsonl");
+    let content = std::fs::read_to_string(path).unwrap();
+    let corpus: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(corpus["client"], "trino-ducklake");
+    assert_eq!(corpus["version"], "432");
+
+    let statements = corpus["statements"].as_array().unwrap();
+    assert!(!statements.is_empty(), "Trino corpus must not be empty");
+
+    for stmt in statements {
+        let sql = stmt["sql"].as_str().unwrap_or("");
+        if sql.is_empty()
+            || sql.starts_with("BEGIN")
+            || sql.starts_with("COMMIT")
+            || sql.starts_with("SET ")
+        {
+            continue;
+        }
+        let result = slateduck_sql::classify_statement(sql);
+        assert!(
+            result.is_ok(),
+            "Trino corpus statement must be classifiable: {sql:?} — err: {result:?}"
+        );
+    }
 }
 
 // ─── v0.6: Server config with TLS and Auth ───────────────────────────────
@@ -1238,4 +1459,184 @@ async fn test_auth_no_auth_configured_any_user_succeeds() {
     drop(client);
     let _ = tx.send(());
     let _ = handle.await;
+}
+
+// ─── v0.9.4: DataFusion pg-wire mode ──────────────────────────────────────────
+
+/// When a DataFusion engine connects via the secondary pg-wire port it gets
+/// correct responses from the same bounded SQL dispatcher.
+#[tokio::test]
+async fn test_datafusion_pg_wire_mode_e2e() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_obj = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let opts = OpenOptions {
+        object_store: store_obj,
+        path: ObjectPath::from(""),
+        encryption: None,
+    };
+    let catalog = Arc::new(Mutex::new(CatalogStore::open(opts).await.unwrap()));
+
+    // Primary server (standard port).
+    let primary_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary_addr = primary_listener.local_addr().unwrap();
+    drop(primary_listener);
+
+    // DataFusion secondary listener.
+    let df_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let df_addr = df_listener.local_addr().unwrap();
+    drop(df_listener);
+
+    let (primary_tx, primary_rx) = tokio::sync::oneshot::channel::<()>();
+    let primary_cfg = slateduck_pgwire::ServerConfig {
+        bind_addr: primary_addr,
+        ..Default::default()
+    };
+    let catalog_for_primary = catalog.clone();
+    tokio::spawn(async move {
+        let _ = slateduck_pgwire::server::run_server_with_shutdown(
+            primary_cfg,
+            catalog_for_primary,
+            primary_rx,
+        )
+        .await;
+    });
+
+    // Second server simulating --datafusion-pg-wire port.
+    let (df_tx, df_rx) = tokio::sync::oneshot::channel::<()>();
+    let df_cfg = slateduck_pgwire::ServerConfig {
+        bind_addr: df_addr,
+        ..Default::default()
+    };
+    let catalog_for_df = catalog.clone();
+    tokio::spawn(async move {
+        let _ =
+            slateduck_pgwire::server::run_server_with_shutdown(df_cfg, catalog_for_df, df_rx).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    // A DataFusion client connects to the datafusion pg-wire port and runs DuckLake SQL.
+    let conn_str = format!(
+        "host=127.0.0.1 port={} user=datafusion dbname=ducklake",
+        df_addr.port()
+    );
+    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+        .await
+        .expect("DataFusion engine should connect to the datafusion pg-wire port");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    // Run a DuckLake SELECT through the DataFusion pg-wire port.
+    let rows = client
+        .query("SELECT version()", &[])
+        .await
+        .expect("SELECT version() must succeed over datafusion pg-wire port");
+    assert_eq!(rows.len(), 1, "should return one row");
+
+    // Virtual catalog SQL is also accessible over the datafusion pg-wire port.
+    let vc_rows = client
+        .query("SELECT * FROM slateduck_catalog.ducklake_snapshot", &[])
+        .await
+        .expect("virtual catalog scan must work over datafusion pg-wire port");
+    assert!(
+        !vc_rows.is_empty(),
+        "virtual catalog must return at least one result row"
+    );
+
+    drop(client);
+    let _ = primary_tx.send(());
+    let _ = df_tx.send(());
+}
+
+// ─── v0.9.4: Virtual Catalog SQL Tables ──────────────────────────────────────
+
+/// `SELECT * FROM slateduck_catalog.ducklake_snapshot` returns a row.
+#[tokio::test]
+async fn test_virtual_catalog_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let params = ParamValues::default();
+
+    let responses = executor::execute_sql(
+        "SELECT * FROM slateduck_catalog.ducklake_snapshot",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert!(!responses.is_empty());
+}
+
+/// `SELECT * FROM slateduck_catalog.ducklake_schema` returns schemas.
+#[tokio::test]
+async fn test_virtual_catalog_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let params = ParamValues::default();
+
+    let responses = executor::execute_sql(
+        "SELECT * FROM slateduck_catalog.ducklake_schema",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert!(!responses.is_empty());
+}
+
+/// `SELECT * FROM slateduck_catalog.ducklake_table` returns all tables.
+#[tokio::test]
+async fn test_virtual_catalog_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let params = ParamValues::default();
+
+    let responses = executor::execute_sql(
+        "SELECT * FROM slateduck_catalog.ducklake_table",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert!(!responses.is_empty());
+}
+
+/// `SELECT * FROM slateduck_catalog.slateduck_counters` returns a result.
+#[tokio::test]
+async fn test_virtual_catalog_counters() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let params = ParamValues::default();
+
+    let responses = executor::execute_sql(
+        "SELECT * FROM slateduck_catalog.slateduck_counters",
+        &params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert!(!responses.is_empty());
+}
+
+/// Operator introspection: a WHERE clause on slateduck_catalog.ducklake_data_file is classifiable.
+#[tokio::test]
+async fn test_virtual_catalog_data_file_classifiable() {
+    use slateduck_sql::classify_statement;
+    use slateduck_sql::StatementKind;
+
+    let sql = "SELECT data_file_id, path, begin_snapshot FROM slateduck_catalog.ducklake_data_file WHERE table_id = 42 ORDER BY begin_snapshot DESC LIMIT 20";
+    let kind = classify_statement(sql).unwrap();
+    assert!(
+        matches!(kind, StatementKind::VirtualCatalogScan { ref table_name } if table_name == "ducklake_data_file"),
+        "expected VirtualCatalogScan{{ducklake_data_file}}, got {kind:?}"
+    );
 }

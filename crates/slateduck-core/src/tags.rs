@@ -87,6 +87,10 @@ pub const TAG_SCHEMA_VERSIONS: u8 = 0x1C;
 
 // ─── SlateDuck Internal Tags ───────────────────────────────────────────────
 
+/// Secondary index: maps `table_id` → `schema_id` for O(1) `describe_table` lookups.
+/// Key: `0xFC | table_id(u64 BE)`. Value: `schema_id(u64 BE)` encoded as a counter.
+pub const TAG_TABLE_BY_ID: u8 = 0xFC;
+
 /// Dynamic inlined rows (subtype 0x01 = insert, 0x02 = delete marker).
 pub const TAG_INLINED_ROWS: u8 = 0xFD;
 /// SlateDuck counters (next_snapshot_id, next_catalog_id, etc.).

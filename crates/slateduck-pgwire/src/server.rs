@@ -78,6 +78,9 @@ fn build_tls_acceptor(tls_config: &TlsConfig) -> std::io::Result<Arc<tokio_rustl
     use std::io::BufReader;
     use tokio_rustls::rustls::{self, pki_types::PrivateKeyDer};
 
+    // Ensure a crypto provider is installed (no-op if already set).
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cert_path = tls_config.cert_path.as_ref().unwrap();
     let key_path = tls_config.key_path.as_ref().unwrap();
 

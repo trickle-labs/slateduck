@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# SQLite VFS (Strategy C) is a future milestone, not yet implemented.
+# Enable with: cargo build --features slateduck-sqlite-vfs/experimental
+experimental = []
+
 [dependencies]
 slateduck-core = { path = "../slateduck-core" }
 thiserror = { workspace = true }

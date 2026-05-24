@@ -71,27 +71,60 @@ impl CatalogReader {
         &self,
         table_id: u64,
     ) -> CatalogResult<Option<(TableRow, Vec<ColumnRow>)>> {
-        let prefix = keys::prefix_for_tag(TAG_TABLE);
-        let mut table_row: Option<TableRow> = None;
-        let mut iter = self.db.scan_prefix(&prefix).await?;
-        while let Some(kv) = iter
-            .next()
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
-        {
-            let row: TableRow = values::decode_value(&kv.value)?;
-            if row.table_id == table_id
-                && mvcc::is_visible(row.begin_snapshot, row.end_snapshot, self.dl_snapshot_id)
+        // O(1) secondary-index lookup: TAG_TABLE_BY_ID → schema_id.
+        let idx_key = keys::key_table_by_id(table_id);
+        let schema_id_opt = match self.db.get(&idx_key).await? {
+            Some(data) => Some(values::decode_counter(&data)?),
+            None => None,
+        };
+
+        let table_row: Option<TableRow> = if let Some(schema_id) = schema_id_opt {
+            // Use the narrow schema+table prefix — O(log n) in practice.
+            let prefix = keys::prefix_tables_for_schema_table(schema_id, table_id);
+            let mut best: Option<TableRow> = None;
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
-                match &table_row {
-                    None => table_row = Some(row),
-                    Some(existing) if row.begin_snapshot > existing.begin_snapshot => {
-                        table_row = Some(row);
+                let row: TableRow = values::decode_value(&kv.value)?;
+                if mvcc::is_visible(row.begin_snapshot, row.end_snapshot, self.dl_snapshot_id) {
+                    match &best {
+                        None => best = Some(row),
+                        Some(existing) if row.begin_snapshot > existing.begin_snapshot => {
+                            best = Some(row);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
+            best
+        } else {
+            // Fallback: full scan for catalogs predating the secondary index.
+            let prefix = keys::prefix_for_tag(TAG_TABLE);
+            let mut best: Option<TableRow> = None;
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let row: TableRow = values::decode_value(&kv.value)?;
+                if row.table_id == table_id
+                    && mvcc::is_visible(row.begin_snapshot, row.end_snapshot, self.dl_snapshot_id)
+                {
+                    match &best {
+                        None => best = Some(row),
+                        Some(existing) if row.begin_snapshot > existing.begin_snapshot => {
+                            best = Some(row);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            best
+        };
 
         let table = match table_row {
             None => return Ok(None),

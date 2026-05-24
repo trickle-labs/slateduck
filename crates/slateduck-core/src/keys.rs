@@ -453,6 +453,23 @@ pub fn prefix_tables_for_schema(schema_id: u64) -> Vec<u8> {
     buf
 }
 
+/// Build a scan prefix for a specific table in a schema: `0x05 | schema_id | table_id`.
+pub fn prefix_tables_for_schema_table(schema_id: u64, table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(17);
+    buf.push(TAG_TABLE);
+    buf.extend_from_slice(&encode_u64(schema_id));
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
+/// Build a secondary-index key for O(1) table→schema lookup: `0xFC | table_id(u64 BE)`.
+pub fn key_table_by_id(table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(9);
+    buf.push(TAG_TABLE_BY_ID);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
 /// Build a scan prefix for inlined inserts of a table: `0xFD | 0x01 | table_id`.
 pub fn prefix_inlined_inserts_for_table(table_id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(10);

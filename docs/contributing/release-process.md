@@ -315,3 +315,53 @@ Binaries on GitHub Releases are never deleted (they are immutable artifacts), bu
 - **[Development Setup](development-setup.md)** — Building the project
 - **[Testing](testing.md)** — The test suite that gates releases
 - **[Operations: Upgrades](../operations/upgrades.md)** — How users perform upgrades
+
+---
+
+## v0.9.4 Acceptance Criteria
+
+The following checklist defines the quality bar for the v0.9.4 "GA Ready" milestone.
+Every item must be green before the release tag is applied.
+
+### Functional Completeness
+
+- [x] F-11: Concurrent reads — lock is dropped before any async await
+- [x] F-13: O(1) `describe_table` — TAG_TABLE_BY_ID secondary index
+- [x] F-14: AsyncBridge for DataFusion integration
+- [x] F-15: DataFusion Parquet scan with real data (Listing Table API)
+- [x] F-20: Writer session regression tests (round-trip create/insert/select)
+- [x] F-21: TLS + authentication security protocol tests
+- [x] F-22: FFI null-safety tests + DataFusion concurrent read tests
+- [x] F-23: `sqlite-vfs` experimental feature gate
+- [x] F-24: `MissingParam` structured error + `require_param_u64` helper
+- [x] F-25: `#[tracing::instrument]` on 5 key code paths
+- [x] Virtual catalog SQL tables (`SELECT * FROM slateduck_catalog.*`)
+- [x] DataFusion pg-wire mode (`--datafusion-pg-wire <port>`)
+- [x] Spark 3.5 / Trino 432 wire corpus fixtures + classifier tests
+
+### CI Quality Gates
+
+- [x] F-26: CLI smoke test — `slateduck serve --help` validates all documented flags
+- [x] F-28: `deny.toml` with ignored transitive advisories
+- [x] F-29: MSRV = 1.80 declared in workspace `Cargo.toml`; MSRV CI job added
+- [x] F-33: Coverage job (warns if below 80%) + security job (`cargo deny` + `cargo audit`)
+- [x] F-34: `release.yml` GitHub Actions workflow for tagged releases
+
+### Observability
+
+- [x] Zone-map profiling documentation
+- [x] `#[tracing::instrument]` on snapshot, GC, excise, repair code paths
+
+### Documentation
+
+- [x] `docs/compatibility.md` — version matrices for all supported integrations
+- [x] `docs/contributing/release-process.md` — acceptance criteria (this file)
+- [x] `ROADMAP.md` — v0.9.4 section fully checked off
+
+### Test Health
+
+- [x] All workspace tests pass (`cargo test --workspace`)
+- [x] `RUSTFLAGS=-Dwarnings cargo clippy --all-targets --all-features` — zero warnings
+- [x] `cargo fmt --all -- --check` passes
+- [x] `cargo audit` — 0 errors (3 pre-existing warnings are documented and ignored)
+

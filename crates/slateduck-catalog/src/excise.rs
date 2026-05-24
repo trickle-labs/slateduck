@@ -92,6 +92,7 @@ pub async fn excise_plan(db: &Db, before_snapshot: u64) -> CatalogResult<ExciseP
 }
 
 /// Apply an excision: physically delete eligible keys and record audit entry.
+#[tracing::instrument(skip(db), fields(before_snapshot, operator))]
 pub async fn excise_apply(
     db: &Db,
     before_snapshot: u64,

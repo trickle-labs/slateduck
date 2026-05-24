@@ -3201,6 +3201,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64",
+ "serde_core",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3727,6 +3737,19 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
 ]
 
 [[package]]
@@ -4314,6 +4337,7 @@ dependencies = [
  "bytes",
  "chrono",
  "criterion",
+ "datafusion",
  "futures",
  "object_store 0.12.5",
  "proptest",
@@ -4322,6 +4346,7 @@ dependencies = [
  "serde_json",
  "slatedb",
  "slateduck-core",
+ "slateduck-datafusion",
  "slateduck-ffi",
  "tempfile",
  "thiserror 2.0.18",
@@ -4355,14 +4380,17 @@ dependencies = [
 name = "slateduck-datafusion"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "async-trait",
  "datafusion",
  "futures",
  "object_store 0.12.5",
+ "parquet",
  "slateduck-catalog",
  "slateduck-core",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4386,6 +4414,7 @@ dependencies = [
  "futures",
  "object_store 0.12.5",
  "pgwire",
+ "rcgen",
  "rustls-pemfile",
  "serde",
  "serde_json",
@@ -4690,6 +4719,7 @@ dependencies = [
  "deranged",
  "num-conv",
  "powerfmt",
+ "serde_core",
  "time-core",
 ]
 
@@ -5874,6 +5904,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
+]
+
+[[package]]
 name = "yoke"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5993,18 +6032,18 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "7.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+version = "2.0.13+zstd.1.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "38ff0f21cfee8f97d94cef41359e0c89aa6113028ab0291aa8ca0038995a95aa"
 dependencies = [
  "cc",
  "pkg-config",

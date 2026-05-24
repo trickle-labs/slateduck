@@ -132,3 +132,106 @@ async fn datafusion_provider_table_exist() {
     assert!(schema_provider.table_exist("orders"));
     assert!(!schema_provider.table_exist("nonexistent"));
 }
+
+// ─── F-15: DataFusion Parquet scan ────────────────────────────────────────
+
+/// Write a minimal Parquet file with two rows and register it in the catalog.
+/// Then scan via DataFusion and verify the correct number of rows is returned.
+#[tokio::test]
+async fn datafusion_scan_reads_parquet_data() {
+    use arrow::array::{Int32Array, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use datafusion::prelude::SessionContext;
+    use parquet::arrow::ArrowWriter;
+
+    let dir = TempDir::new().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    // Build a two-row record batch: id INT32, name VARCHAR.
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("name", DataType::Utf8, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2])) as Arc<dyn arrow::array::Array>,
+            Arc::new(StringArray::from(vec!["alice", "bob"])) as Arc<dyn arrow::array::Array>,
+        ],
+    )
+    .unwrap();
+
+    // Write the Parquet file into the data directory.
+    let parquet_path = data_dir.join("t1.parquet");
+    let file = std::fs::File::create(&parquet_path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    // Register the data file in the catalog.
+    let root = dir.path().to_str().unwrap().to_string();
+    let obj_store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&root).unwrap());
+    let mut catalog_store = CatalogStore::open(OpenOptions {
+        object_store: obj_store.clone(),
+        path: ObjectPath::from("catalog"),
+        encryption: None,
+    })
+    .await
+    .unwrap();
+
+    let mut writer = catalog_store.begin_write();
+    let schema_id = writer.create_schema("main").await.unwrap();
+    let table_id = writer
+        .create_table(schema_id, "events", None)
+        .await
+        .unwrap();
+    writer
+        .add_column(table_id, "id", "INTEGER", 0, false, None)
+        .await
+        .unwrap();
+    writer
+        .add_column(table_id, "name", "VARCHAR", 1, true, None)
+        .await
+        .unwrap();
+    // The path is relative to the object store root.
+    let rel_path = "data/t1.parquet";
+    writer
+        .register_data_file(
+            table_id,
+            rel_path,
+            "parquet",
+            2,
+            parquet_path.metadata().unwrap().len(),
+        )
+        .await
+        .unwrap();
+    writer.create_snapshot(None, None).await.unwrap();
+    catalog_store.commit_writer(&writer);
+    catalog_store.close().await.unwrap();
+
+    // Open via the DataFusion provider.
+    let obj_store2 =
+        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&root).unwrap());
+    let provider = Arc::new(
+        SlateDuckCatalogProvider::open(
+            obj_store2,
+            ObjectPath::from("catalog"),
+            Some(SnapshotId::new(1)),
+        )
+        .await
+        .unwrap(),
+    );
+
+    let ctx = SessionContext::new();
+    ctx.register_catalog("duck", provider);
+
+    let df = ctx
+        .sql("SELECT id, name FROM duck.main.events")
+        .await
+        .unwrap();
+    let results = df.collect().await.unwrap();
+    let total_rows: usize = results.iter().map(|b| b.num_rows()).sum();
+    assert_eq!(total_rows, 2, "should read 2 rows from the Parquet file");
+}

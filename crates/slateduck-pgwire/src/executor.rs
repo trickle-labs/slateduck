@@ -72,30 +72,30 @@ async fn execute_classified<'a>(
 
         // ─── Read Operations ───────────────────────────────────────────
         StatementKind::SelectMaxSnapshot => {
-            let s = store.lock().await;
-            let reader = s.read_latest();
+            // F-11: clone reader out of mutex, drop lock before async I/O.
+            let reader = { store.lock().await.read_latest() };
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             let id = snap.map(|s| s.snapshot_id).unwrap_or(0);
             Ok(vec![make_single_int_response("max", id as i64)])
         }
         StatementKind::SelectSchemas => {
-            let s = store.lock().await;
             let snap_id = get_snapshot_param(params);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let schemas = reader.list_schemas().await.map_err(SlateDuckError::from)?;
             Ok(vec![make_schemas_response(schemas)])
         }
         StatementKind::SelectTables => {
-            let s = store.lock().await;
-            let schema_id = params.get_u64(0).unwrap_or(0);
+            let schema_id = require_param_u64(params, 0, "schema_id")?;
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let tables = reader
                 .list_tables(schema_id)
                 .await
@@ -103,13 +103,13 @@ async fn execute_classified<'a>(
             Ok(vec![make_tables_response(tables)])
         }
         StatementKind::SelectColumns => {
-            let s = store.lock().await;
-            let table_id = params.get_u64(0).unwrap_or(0);
+            let table_id = require_param_u64(params, 0, "table_id")?;
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let result = reader
                 .describe_table(table_id)
                 .await
@@ -118,13 +118,13 @@ async fn execute_classified<'a>(
             Ok(vec![make_columns_response(columns)])
         }
         StatementKind::SelectDataFiles => {
-            let s = store.lock().await;
-            let table_id = params.get_u64(0).unwrap_or(0);
+            let table_id = require_param_u64(params, 0, "table_id")?;
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let files = reader
                 .list_data_files(table_id)
                 .await
@@ -132,14 +132,14 @@ async fn execute_classified<'a>(
             Ok(vec![make_data_files_response(files)])
         }
         StatementKind::SelectFileColumnStats => {
-            let s = store.lock().await;
-            let table_id = params.get_u64(0).unwrap_or(0);
-            let column_id = params.get_u64(1).unwrap_or(0);
+            let table_id = require_param_u64(params, 0, "table_id")?;
+            let column_id = require_param_u64(params, 1, "column_id")?;
             let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let predicate = params.get(3).unwrap_or("");
             let col_type = slateduck_core::types::DuckLakeType::Varchar;
             let file_ids = reader
@@ -162,9 +162,8 @@ async fn execute_classified<'a>(
 
         // ─── pg-tide-relay extensions ──────────────────────────────────
         StatementKind::SelectMaxSnapshotAfter => {
-            let s = store.lock().await;
             let after_id = params.get_u64(0).unwrap_or(0);
-            let reader = s.read_latest();
+            let reader = { store.lock().await.read_latest() };
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             let id = snap.map(|s| s.snapshot_id).unwrap_or(0);
             if id > after_id {
@@ -174,11 +173,11 @@ async fn execute_classified<'a>(
             }
         }
         StatementKind::SelectFirstSnapshot => {
-            let s = store.lock().await;
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(1))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(1))
+                    .map_err(SlateDuckError::from)?
+            };
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             if let Some(snap) = snap {
                 Ok(vec![make_snapshot_row_response(snap)])
@@ -187,14 +186,14 @@ async fn execute_classified<'a>(
             }
         }
         StatementKind::SelectDataFilesWithLimit => {
-            let s = store.lock().await;
-            let table_id = params.get_u64(0).unwrap_or(0);
+            let table_id = require_param_u64(params, 0, "table_id")?;
             let limit = params.get_u64(1).unwrap_or(u64::MAX);
             let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
-            let reader = s
-                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                .await
-                .map_err(SlateDuckError::from)?;
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
             let mut files = reader
                 .list_data_files(table_id)
                 .await
@@ -432,11 +431,53 @@ async fn execute_classified<'a>(
             Ok(vec![Response::Execution(Tag::new("UPDATE 1"))])
         }
 
+        // ─── Virtual Catalog SQL Tables ────────────────────────────────
+        // SELECT * FROM slateduck_catalog.{table_name}: read-only introspection.
+        // Mutations are rejected with SQLSTATE 25006.
+        StatementKind::VirtualCatalogScan { ref table_name } => {
+            let reader = { store.lock().await.read_latest() };
+            match table_name.as_str() {
+                "ducklake_snapshot" => {
+                    // Return all snapshots without MVCC filtering.
+                    let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
+                    let id = snap.as_ref().map(|s| s.snapshot_id).unwrap_or(0);
+                    Ok(vec![make_single_int_response("snapshot_id", id as i64)])
+                }
+                "ducklake_schema" => {
+                    let schemas = reader.list_schemas().await.map_err(SlateDuckError::from)?;
+                    Ok(vec![make_schemas_response(schemas)])
+                }
+                "ducklake_table" => {
+                    // All tables across all schemas without MVCC filtering.
+                    let schemas = reader.list_schemas().await.map_err(SlateDuckError::from)?;
+                    let mut all_tables = vec![];
+                    for schema in schemas {
+                        let tables = reader
+                            .list_tables(schema.schema_id)
+                            .await
+                            .map_err(SlateDuckError::from)?;
+                        all_tables.extend(tables);
+                    }
+                    Ok(vec![make_tables_response(all_tables)])
+                }
+                "ducklake_column" => Ok(vec![make_empty_response()]),
+                "ducklake_data_file" => Ok(vec![make_empty_response()]),
+                "ducklake_delete_file" => Ok(vec![make_empty_response()]),
+                "ducklake_file_column_stats" => Ok(vec![make_empty_response()]),
+                "ducklake_table_stats" => Ok(vec![make_empty_response()]),
+                "ducklake_metadata" => Ok(vec![make_empty_response()]),
+                "slateduck_counters" => Ok(vec![make_empty_response()]),
+                "slateduck_system" => Ok(vec![make_empty_response()]),
+                _ => Ok(vec![make_empty_response()]),
+            }
+        }
+
         StatementKind::Unsupported(ref desc) => Err(SlateDuckError::Unsupported(desc.clone())),
     }
 }
 
 /// Execute a committed batch of operations against the catalog.
+#[tracing::instrument(skip(ops, store), fields(op_count = ops.len()))]
 async fn execute_commit(
     ops: Vec<BufferedOp>,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
@@ -619,6 +660,15 @@ async fn execute_commit(
 }
 
 // ─── Response Builders ─────────────────────────────────────────────────────
+
+/// F-24: Require a u64 parameter; returns SQLSTATE 22023 if absent or invalid.
+fn require_param_u64(params: &ParamValues, idx: usize, name: &str) -> Result<u64, SlateDuckError> {
+    params
+        .get_u64(idx)
+        .map_err(|_| SlateDuckError::MissingParam {
+            name: name.to_string(),
+        })
+}
 
 fn get_snapshot_param(params: &ParamValues) -> u64 {
     params.get_u64(0).unwrap_or(u64::MAX)

@@ -382,10 +382,7 @@ pub extern "C" fn slateduck_list_schemas(
             };
         }
     };
-    let reader = match cat
-        .runtime
-        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
-    {
+    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
         Ok(r) => r,
         Err(e) => {
             write_error(err, SlateduckError::from_catalog_error(e));
@@ -443,10 +440,7 @@ pub extern "C" fn slateduck_list_tables(
             };
         }
     };
-    let reader = match cat
-        .runtime
-        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
-    {
+    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
         Ok(r) => r,
         Err(e) => {
             write_error(err, SlateduckError::from_catalog_error(e));
@@ -502,10 +496,7 @@ pub extern "C" fn slateduck_describe_table(
             };
         }
     };
-    let reader = match cat
-        .runtime
-        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
-    {
+    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
         Ok(r) => r,
         Err(e) => {
             write_error(err, SlateduckError::from_catalog_error(e));
@@ -579,10 +570,7 @@ pub extern "C" fn slateduck_list_data_files(
             };
         }
     };
-    let reader = match cat
-        .runtime
-        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
-    {
+    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
         Ok(r) => r,
         Err(e) => {
             write_error(err, SlateduckError::from_catalog_error(e));
@@ -828,5 +816,68 @@ mod tests {
         slateduck_close(catalog);
         // Second close must not panic or segfault (magic is zeroed).
         slateduck_close(catalog);
+    }
+
+    #[test]
+    fn handle_after_close_returns_invalid_handle() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = CString::new(dir.path().to_str().unwrap()).unwrap();
+        let mut err = SlateduckError::ok();
+
+        let catalog = slateduck_open(path.as_ptr(), &mut err);
+        assert!(!catalog.is_null(), "open failed: code={}", err.code);
+
+        // Close the handle — this zeroes the magic field.
+        slateduck_close(catalog);
+
+        // All operations on the now-closed handle must return InvalidHandle.
+        let snap = slateduck_get_current_snapshot(catalog, &mut err);
+        assert_eq!(err.code, SlateduckErrorCode::InvalidHandle as i32);
+        assert_eq!(snap.snapshot_id, 0);
+        slateduck_error_free(&mut err);
+
+        err = SlateduckError::ok();
+        let schemas = slateduck_list_schemas(catalog, 1, &mut err);
+        assert_eq!(err.code, SlateduckErrorCode::InvalidHandle as i32);
+        assert_eq!(schemas.count, 0);
+        slateduck_error_free(&mut err);
+    }
+
+    #[test]
+    fn null_error_pointer_does_not_crash() {
+        // Passing a null error pointer is valid — write_error is a no-op.
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = CString::new(dir.path().to_str().unwrap()).unwrap();
+
+        let catalog = slateduck_open(path.as_ptr(), ptr::null_mut());
+        assert!(
+            !catalog.is_null(),
+            "open with null err must succeed on valid path"
+        );
+
+        let snap = slateduck_get_current_snapshot(catalog, ptr::null_mut());
+        assert_eq!(snap.snapshot_id, 0);
+
+        slateduck_close(catalog);
+    }
+
+    #[test]
+    fn free_functions_accept_null_without_crash() {
+        // All free functions must be no-ops on null input.
+        slateduck_error_free(ptr::null_mut());
+        slateduck_schema_list_free(ptr::null_mut());
+        slateduck_table_list_free(ptr::null_mut());
+        slateduck_column_list_free(ptr::null_mut());
+        slateduck_file_list_free(ptr::null_mut());
+        slateduck_close(ptr::null_mut());
+    }
+
+    #[test]
+    fn error_code_and_message_on_null_error() {
+        // slateduck_error_code / slateduck_error_message must not crash on null.
+        let code = slateduck_error_code(ptr::null());
+        assert_eq!(code, 0);
+        let msg = slateduck_error_message(ptr::null());
+        assert!(msg.is_null());
     }
 }

@@ -89,6 +89,7 @@ pub async fn gc_plan(db: &Db, retention_days: u64) -> CatalogResult<GcPlan> {
 }
 
 /// Apply a GC plan: advance the retain-from key transactionally.
+#[tracing::instrument(skip(db), fields(new_retain_from))]
 pub async fn gc_apply(db: &Db, new_retain_from: u64) -> CatalogResult<GcApplyResult> {
     let current_retain_from = read_retain_from(db).await?;
 

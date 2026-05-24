@@ -1,0 +1,52 @@
+# cargo-deny configuration for SlateDuck
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Target triples to check.  Ubuntu x86-64 and macOS arm64 cover CI.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+# ─── Advisories ───────────────────────────────────────────────────────────────
+[advisories]
+# Deny any crates with known security vulnerabilities.
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# These advisories are from transitive dependencies we cannot directly control.
+# They are tracked; we will update when upstream provides a fix.
+ignore = [
+    # bincode: unmaintained (use bincode 2.x when upstream migrates)
+    "RUSTSEC-2025-0141",
+    # paste: unmaintained macro crate (transitive dep of several crates)
+    "RUSTSEC-2024-0436",
+    # rustls-pemfile: older API usage (transitive from tokio-rustls 0.26)
+    "RUSTSEC-2025-0134",
+]
+
+# ─── Licenses ─────────────────────────────────────────────────────────────────
+# License checking is disabled for v0.9.4.  Enable at v1.0 GA when the full
+# dependency tree has been audited for license compatibility.
+[licenses]
+version = 2
+# Allow all licenses to avoid false positives from ring, aws-lc-sys, etc.
+# This will be tightened at v1.0.
+allow-osi-fsf-free = "neither"
+confidence-threshold = 0.8
+unused-allowed-license = "allow"
+
+# ─── Bans ─────────────────────────────────────────────────────────────────────
+[bans]
+# Warn (not deny) on duplicate versions of the same crate (common in large dep trees).
+multiple-versions = "warn"
+# Deny wildcard dependencies.
+wildcards = "deny"
+
+# ─── Sources ──────────────────────────────────────────────────────────────────
+[sources]
+# Only allow crates from crates.io and local paths.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

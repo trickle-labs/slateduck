@@ -146,6 +146,27 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
+    // If --datafusion-pg-wire <port> is set, also start a second listener on
+    // that port.  DataFusion clients connecting there are routed through the
+    // same bounded SQL dispatcher as every other DuckLake client.
+    if let Some(df_port) = config.datafusion_pg_wire_port {
+        let df_addr: SocketAddr = format!("0.0.0.0:{df_port}").parse().unwrap();
+        let df_config = ServerConfig {
+            bind_addr: df_addr,
+            max_sessions: server_config.max_sessions,
+            max_active_scans: server_config.max_active_scans,
+            tls: slateduck_pgwire::server::TlsConfig::default(),
+            auth: slateduck_pgwire::server::AuthConfig::default(),
+        };
+        let df_catalog = catalog.clone();
+        tokio::spawn(async move {
+            if let Err(e) = run_server(df_config, df_catalog).await {
+                tracing::error!("DataFusion pg-wire listener error: {e}");
+            }
+        });
+        tracing::info!("DataFusion pg-wire listener started on port {df_port}");
+    }
+
     run_server(server_config, catalog).await?;
     Ok(())
 }
@@ -170,6 +191,10 @@ struct ServeConfig {
     s3_path_style: bool,
     /// Optional AES-256 encryption key (64 hex digits).
     encryption_key: Option<String>,
+    /// When set, also listen on this port for DataFusion pg-wire connections.
+    /// DataFusion clients connecting on this port are routed through the same
+    /// bounded SQL dispatcher as DuckDB/Spark/Trino clients.
+    datafusion_pg_wire_port: Option<u16>,
 }
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
@@ -188,6 +213,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     let mut s3_endpoint: Option<String> = None;
     let mut s3_path_style = false;
     let mut encryption_key: Option<String> = None;
+    let mut datafusion_pg_wire_port: Option<u16> = None;
 
     let mut i = 2;
     while i < args.len() {
@@ -298,6 +324,15 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
             "--s3-path-style" => {
                 s3_path_style = true;
             }
+            "--datafusion-pg-wire" => {
+                i += 1;
+                datafusion_pg_wire_port = Some(
+                    args.get(i)
+                        .ok_or("--datafusion-pg-wire requires a port value")?
+                        .parse()
+                        .map_err(|e| format!("invalid --datafusion-pg-wire port: {e}"))?,
+                );
+            }
             "--help" | "-h" => {
                 eprintln!(
                     "Usage: slateduck serve --catalog <path> \
@@ -308,7 +343,8 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     [--mode writer|reader] [--read-only] \
                     [--cost-mode conservative|balanced|latency] \
                     [--s3-endpoint <url>] [--s3-path-style] \
-                    [--encryption-key <hex>]"
+                    [--encryption-key <hex>] \
+                    [--datafusion-pg-wire <port>]"
                 );
                 eprintln!(
                     "\nEnvironment variables:\
@@ -352,6 +388,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         s3_endpoint,
         s3_path_style,
         encryption_key,
+        datafusion_pg_wire_port,
     })
 }
 

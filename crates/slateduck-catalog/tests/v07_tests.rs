@@ -356,13 +356,13 @@ async fn partitioned_writer_open_multiple_datasets() {
 
     // Verify isolation: each dataset has its own schema
     let ds1_ref = writer.open_dataset("dataset_a").await.unwrap();
-    let r1 = ds1_ref.read_at(SnapshotId::new(1)).await.unwrap();
+    let r1 = ds1_ref.read_at(SnapshotId::new(1)).unwrap();
     let schemas_a = r1.list_schemas().await.unwrap();
     assert_eq!(schemas_a.len(), 1);
     assert_eq!(schemas_a[0].schema_name, "main");
 
     let ds2_ref = writer.open_dataset("dataset_b").await.unwrap();
-    let r2 = ds2_ref.read_at(SnapshotId::new(1)).await.unwrap();
+    let r2 = ds2_ref.read_at(SnapshotId::new(1)).unwrap();
     let schemas_b = r2.list_schemas().await.unwrap();
     assert_eq!(schemas_b.len(), 1);
     assert_eq!(schemas_b[0].schema_name, "analytics");
@@ -394,12 +394,12 @@ async fn partitioned_writer_concurrent_independent_writes() {
 
     // Verify both are independent
     let ds_x_read = writer1.open_dataset("x").await.unwrap();
-    let rx = ds_x_read.read_at(SnapshotId::new(1)).await.unwrap();
+    let rx = ds_x_read.read_at(SnapshotId::new(1)).unwrap();
     let schemas_x = rx.list_schemas().await.unwrap();
     assert_eq!(schemas_x[0].schema_name, "schema_x");
 
     let ds_y_read = writer2.open_dataset("y").await.unwrap();
-    let ry = ds_y_read.read_at(SnapshotId::new(1)).await.unwrap();
+    let ry = ds_y_read.read_at(SnapshotId::new(1)).unwrap();
     let schemas_y = ry.list_schemas().await.unwrap();
     assert_eq!(schemas_y[0].schema_name, "schema_y");
 

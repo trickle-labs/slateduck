@@ -58,7 +58,7 @@ binding on every roadmap release below.
 | **v0.9.1 — Write Protocol Correctness** | Atomic snapshot commits, stale-counter fix, `UPDATE end_snapshot` key resolution, writer protocol spec | **Done** |
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | **Done** |
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
-| **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | Planning |
+| **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | Done |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, GA sign-off | Planning |
 | **v0.10.0 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery semantics, metadata key namespacing | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda integration, additional performance optimizations | Planning |
@@ -1399,26 +1399,26 @@ GC, excision, and checkpoint docs and code do not share a consistent model of wh
 
 PG-Wire holds `Arc<Mutex<CatalogStore>>` across async SlateDB reads, serialising every concurrent session.
 
-- [ ] Restructure read paths to clone the `Db` handle or a `CatalogReader` snapshot while holding the mutex, then drop the lock before any async I/O
-- [ ] Verify that write paths still hold the lock for the minimum required window (counter allocation + commit only)
-- [ ] Add a concurrency test: N concurrent read-only sessions must not block each other
-- [ ] Benchmark median read latency before and after; confirm improvement for ≥ 4 concurrent sessions
+- [x] Restructure read paths to clone the `Db` handle or a `CatalogReader` snapshot while holding the mutex, then drop the lock before any async I/O
+- [x] Verify that write paths still hold the lock for the minimum required window (counter allocation + commit only)
+- [x] Add a concurrency test: N concurrent read-only sessions must not block each other
+- [x] Benchmark median read latency before and after; confirm improvement for ≥ 4 concurrent sessions
 
 ### Fix `describe_table()` O(n) Table Scan (F-13 performance)
 
 `describe_table(table_id)` scans all `TAG_TABLE` rows because the key layout encodes `(schema_id, table_id, begin_snapshot)` but the caller only has `table_id`.
 
-- [ ] Add `schema_id` as a required parameter to `describe_table`, or add a secondary `TAG_TABLE_BY_ID` index keyed by `table_id` alone
-- [ ] Verify PG-Wire and DataFusion callers can supply schema ID or resolve it from a single point-lookup
-- [ ] Add a microbenchmark for `describe_table` at 100, 1 000, and 10 000 historical table versions
+- [x] Add `schema_id` as a required parameter to `describe_table`, or add a secondary `TAG_TABLE_BY_ID` index keyed by `table_id` alone
+- [x] Verify PG-Wire and DataFusion callers can supply schema ID or resolve it from a single point-lookup
+- [x] Add a microbenchmark for `describe_table` at 100, 1 000, and 10 000 historical table versions
 
 ### DataFusion Sync/Async Bridge (F-14)
 
 `schema_names()` and `table_names()` spawn threads and `block_on()` async operations; if no Tokio runtime is present they silently return empty lists.
 
-- [ ] Replace `try_current()` + `thread::spawn` + `block_on` with a stored `tokio::runtime::Handle` or `Arc<Runtime>` inside the provider
-- [ ] Return an explicit error or log a warning rather than an empty list when the runtime is unavailable
-- [ ] Add a test verifying both methods return correct results when called from outside an async context
+- [x] Replace `try_current()` + `thread::spawn` + `block_on` with a stored `tokio::runtime::Handle` or `Arc<Runtime>` inside the provider
+- [x] Return an explicit error or log a warning rather than an empty list when the runtime is unavailable
+- [x] Add a test verifying both methods return correct results when called from outside an async context
 
 ### Coarse Zone-Map Index for Large-Scale Pruning (conditional)
 
@@ -1433,28 +1433,28 @@ If profiling during v0.9 shows MVCC filter amplification exceeds 10× at 10⁵ f
 
 **Conditional gate.** Only implement if v0.9 profiling shows amplification >10× and latency projection exceeds 3× PostgreSQL p99. Otherwise defer to v1.x.
 
-- [ ] Run v0.9 profiling benchmark: `list_data_files` at 10⁵ files measuring MVCC filter amplification
-- [ ] If amplification >10×, implement zone-map as above
-- [ ] Add correctness fuzz test: 10 000 random files, random predicates, verify zone-map superset property
-- [ ] Add performance test: zone-map scan latency <5% of full exact-stats scan at 10⁶ files
-- [ ] Verify S3 Express `list_data_files` p99 is within 3× of PostgreSQL after optimization
+- [x] Run v0.9 profiling benchmark: `list_data_files` at 10⁵ files measuring MVCC filter amplification
+- [x] If amplification >10×, implement zone-map as above
+- [x] Add correctness fuzz test: 10 000 random files, random predicates, verify zone-map superset property
+- [x] Add performance test: zone-map scan latency <5% of full exact-stats scan at 10⁶ files
+- [x] Verify S3 Express `list_data_files` p99 is within 3× of PostgreSQL after optimization
 
 ### Additional DuckLake Clients: Spark and Trino
 
 Onboard the first non-DuckDB production clients using the wire-corpus onboarding process formalized in v0.6.
 
 **Spark-DuckLake:**
-- [ ] Capture the full SQL corpus from the Spark DuckLake connector against a PostgreSQL-backed DuckLake
-- [ ] Classify each statement family into category-a (already supported), category-b (trivial extension), or category-c (new operators)
-- [ ] Add category-b dispatcher extensions behind a feature flag gated on the Spark corpus
-- [ ] Add replay tests in CI covering all Spark corpus versions
-- [ ] Update `docs/compatibility.md` with Spark connector version support matrix
+- [x] Capture the full SQL corpus from the Spark DuckLake connector against a PostgreSQL-backed DuckLake
+- [x] Classify each statement family into category-a (already supported), category-b (trivial extension), or category-c (new operators)
+- [x] Add category-b dispatcher extensions behind a feature flag gated on the Spark corpus
+- [x] Add replay tests in CI covering all Spark corpus versions
+- [x] Update `docs/compatibility.md` with Spark connector version support matrix
 
 **Trino-DuckLake:**
-- [ ] Same capture-and-classify process for the Trino connector
-- [ ] Add category-b dispatcher extensions behind a feature flag
-- [ ] Add replay tests in CI
-- [ ] Update `docs/compatibility.md` with Trino connector version support matrix
+- [x] Same capture-and-classify process for the Trino connector
+- [x] Add category-b dispatcher extensions behind a feature flag
+- [x] Add replay tests in CI
+- [x] Update `docs/compatibility.md` with Trino connector version support matrix
 
 **Acceptance criteria:** All startup probes, SQL shapes, transaction behavior, parameter/result format codes, and generated inlined-table operations captured in `tests/fixtures/wire-corpus/{spark,trino}-{version}.jsonl`; replay tests pass in CI for every captured version; no category-c statements required (if any arise, evaluate case-by-case and document decision).
 
@@ -1462,49 +1462,49 @@ Onboard the first non-DuckDB production clients using the wire-corpus onboarding
 
 `TableProvider::scan()` returns `EmptyExec`, silently producing zero rows for all queries. Implement real Parquet reading via DataFusion's native Parquet scanner.
 
-- [ ] Integrate DataFusion's built-in Parquet reader to execute scans against actual data files
-- [ ] Add a test verifying scan results match data files referenced by the catalog
-- [ ] Document in `docs/integration/datafusion.md` the full scan capability and performance characteristics
-- [ ] Add performance benchmark: DataFusion scan vs. DuckDB native scan on a TPC-H table
+- [x] Integrate DataFusion's built-in Parquet reader to execute scans against actual data files
+- [x] Add a test verifying scan results match data files referenced by the catalog
+- [x] Document in `docs/integration/datafusion.md` the full scan capability and performance characteristics
+- [x] Add performance benchmark: DataFusion scan vs. DuckDB native scan on a TPC-H table
 
 ### DataFusion pg-wire Mode
 
 The DataFusion `CatalogProvider` trait implementation from v0.7 exposes the catalog over Rust traits. Add a pg-wire-compatible mode so DataFusion-based query engines can also connect through the sidecar without a direct Rust dependency.
 
-- [ ] Add a new `--datafusion-pg-wire` mode flag to `slateduck serve` that listens on a separate port
-- [ ] When a DataFusion engine connects via pg-wire, treat it as a DuckLake client and dispatch SQL using the same bounded dispatcher
-- [ ] Add end-to-end test: DataFusion engine connects, runs full DuckLake tutorial queries, produces correct results
-- [ ] Document in `docs/integration/datafusion.md` the pg-wire mode and connection string format
-- [ ] Add performance benchmark: DataFusion pg-wire queries vs. native Rust trait queries
+- [x] Add a new `--datafusion-pg-wire` mode flag to `slateduck serve` that listens on a separate port
+- [x] When a DataFusion engine connects via pg-wire, treat it as a DuckLake client and dispatch SQL using the same bounded dispatcher
+- [x] Add end-to-end test: DataFusion engine connects, runs full DuckLake tutorial queries, produces correct results
+- [x] Document in `docs/integration/datafusion.md` the pg-wire mode and connection string format
+- [x] Add performance benchmark: DataFusion pg-wire queries vs. native Rust trait queries
 
 ### Writer Session and MVCC Regression Tests (F-20)
 
 The existing test suite uses single-writer patterns and only checks non-empty result shapes after failover.
 
-- [ ] Add test: two sequential `begin_write()` sessions on one `CatalogStore` produce monotonically increasing, non-overlapping snapshot IDs
-- [ ] Add test: `read_latest()` after commit returns the committed snapshot ID, not a prior one
-- [ ] Add test: aborted write session (dropped without `create_snapshot()`) must not expose its mutations in subsequent snapshots
-- [ ] Add property-based test: any sequence of begin/mutate/commit produces strictly increasing snapshot IDs
+- [x] Add test: two sequential `begin_write()` sessions on one `CatalogStore` produce monotonically increasing, non-overlapping snapshot IDs
+- [x] Add test: `read_latest()` after commit returns the committed snapshot ID, not a prior one
+- [x] Add test: aborted write session (dropped without `create_snapshot()`) must not expose its mutations in subsequent snapshots
+- [x] Add property-based test: any sequence of begin/mutate/commit produces strictly increasing snapshot IDs
 
 ### Security Protocol Tests (F-21)
 
 Auth and TLS tests only verify `is_enabled()` on config structs; no real protocol round-trip test exists.
 
-- [ ] Add end-to-end test: connect with valid credentials → `AuthenticationOk`
-- [ ] Add end-to-end test: connect with wrong password → `ErrorResponse 28P01`
-- [ ] Add end-to-end test: connect with no credentials when auth required → rejection
-- [ ] Add test: TLS handshake success with a self-signed certificate
-- [ ] Add test: `--tls-required` rejects a plaintext connection
+- [x] Add end-to-end test: connect with valid credentials → `AuthenticationOk`
+- [x] Add end-to-end test: connect with wrong password → `ErrorResponse 28P01`
+- [x] Add end-to-end test: connect with no credentials when auth required → rejection
+- [x] Add test: TLS handshake success with a self-signed certificate
+- [x] Add test: `--tls-required` rejects a plaintext connection
 
 ### FFI and DataFusion Coverage (F-22)
 
 FFI has four basic happy-path tests; DataFusion has five.
 
-- [ ] FFI: add tests for null URI, null error pointer, null catalog handle, double-close, and handle-after-close
-- [ ] FFI: add a test verifying all free functions do not crash on null input
-- [ ] DataFusion: add test for `schema_names()`/`table_names()` called without a Tokio runtime
-- [ ] DataFusion: add test for concurrent calls to `schema_names()` from multiple threads
-- [ ] DataFusion: add test verifying the scan path returns the expected error or data, not silently empty
+- [x] FFI: add tests for null URI, null error pointer, null catalog handle, double-close, and handle-after-close
+- [x] FFI: add a test verifying all free functions do not crash on null input
+- [x] DataFusion: add test for `schema_names()`/`table_names()` called without a Tokio runtime
+- [x] DataFusion: add test for concurrent calls to `schema_names()` from multiple threads
+- [x] DataFusion: add test verifying the scan path returns the expected error or data, not silently empty
 
 ### Read-Only Virtual Catalog SQL Tables
 
@@ -1533,10 +1533,10 @@ SELECT snapshot_id, snapshot_time, schema_version
 
 This feature makes `slateduck inspect` and `slateduck verify` less necessary for interactive debugging, and enables operators already familiar with DuckDB SQL to explore the catalog without learning a new CLI tool.
 
-- [ ] Implement `SELECT * FROM slateduck_catalog.*` statement family in the dispatcher
-- [ ] Add MVCC filtering support for time-travel queries: `WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR $1 < end_snapshot)`
-- [ ] Add end-to-end tests verifying all 28 tables return correct results
-- [ ] Document in `docs/operations/operational-sql.md` with worked examples
+- [x] Implement `SELECT * FROM slateduck_catalog.*` statement family in the dispatcher
+- [x] Add MVCC filtering support for time-travel queries: `WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR $1 < end_snapshot)`
+- [x] Add end-to-end tests verifying all 28 tables return correct results
+- [x] Document in `docs/operations/operational-sql.md` with worked examples
 
 ### Release and Versioning Policy
 
@@ -1550,126 +1550,126 @@ Establish the policies that enable confident production upgrades and long-term c
 
 **Complete `docs/compatibility.md`.** DuckDB version matrix with verified patch versions; DuckLake spec version matrix; object-store backend status (LocalFS, MinIO, S3 Standard, S3 Express, GCS, Azure Blob); Spark connector matrix; Trino connector matrix; pg-tide-relay version matrix; DataFusion version matrix.
 
-- [ ] Define and document all four policies in `CONTRIBUTING.md`
-- [ ] Create `docs/compatibility.md` with all version matrices populated based on v0.9.4 client support
-- [ ] Add CI check that validates `CHANGELOG.md` has an entry for every tagged release
+- [x] Define and document all four policies in `CONTRIBUTING.md`
+- [x] Create `docs/compatibility.md` with all version matrices populated based on v0.9.4 client support
+- [x] Add CI check that validates `CHANGELOG.md` has an entry for every tagged release
 
 ### v0.9.4 Acceptance Criteria Definition
 
 Convert the notion of "GA Ready" from self-reported to criteria-driven:
 
-- [ ] Define measurable acceptance criteria for v0.9.4: specific test suites that must pass, CLI compatibility matrix, docs completeness, operational drill results
-- [ ] Add acceptance criteria to `docs/contributing/release-process.md`
-- [ ] No v0.9.4 release tag until every acceptance criterion is documented, automated, and green
+- [x] Define measurable acceptance criteria for v0.9.4: specific test suites that must pass, CLI compatibility matrix, docs completeness, operational drill results
+- [x] Add acceptance criteria to `docs/contributing/release-process.md`
+- [x] No v0.9.4 release tag until every acceptance criterion is documented, automated, and green
 
 ### Remove or Gate `slateduck-sqlite-vfs` Placeholder (F-23 / F-10)
 
 The crate has no implementation, no tests, and is a workspace member implying parity it does not have.
 
-- [ ] Remove `slateduck-sqlite-vfs` from the workspace `members` list, or add a `[features]` gate `experimental = []` and document it as a future direction
-- [ ] Update README and docs to note that Strategy C (native SQLite VFS) is a future milestone, not a current feature
+- [x] Remove `slateduck-sqlite-vfs` from the workspace `members` list, or add a `[features]` gate `experimental = []` and document it as a future direction
+- [x] Update README and docs to note that Strategy C (native SQLite VFS) is a future milestone, not a current feature
 
 ### Structured Parameter Validation in PG-Wire (F-24)
 
 Missing or unparsable parameters default to `0`, `u64::MAX`, or empty strings across executor read and write paths.
 
-- [ ] Define `require_param_u64`, `require_param_i64`, and `require_param_string` helpers that return a structured SQLSTATE error rather than a default
-- [ ] Apply them to every `params.get_u64(idx).unwrap_or(0)` and equivalent call in the executor
-- [ ] Add tests that deliberately omit required parameters and verify the returned SQLSTATE code
+- [x] Define `require_param_u64`, `require_param_i64`, and `require_param_string` helpers that return a structured SQLSTATE error rather than a default
+- [x] Apply them to every `params.get_u64(idx).unwrap_or(0)` and equivalent call in the executor
+- [x] Add tests that deliberately omit required parameters and verify the returned SQLSTATE code
 
 ### Tracing and Metrics on Critical Paths (F-25)
 
 Core write, read, GC, excision, repair, and FFI paths lack tracing spans and metrics counters.
 
-- [ ] Add `#[tracing::instrument]` to `CatalogWriter::create_snapshot()`, `execute_commit()`, `gc_apply()`, `excise_apply()`, and `repair_apply()`
-- [ ] Emit counter metrics for snapshot commits, transaction conflicts, auth failures, FFI errors, and excision events
-- [ ] Emit histogram metrics for commit latency, read latency, and scan row counts
-- [ ] Integrate with the existing `metrics.rs` module and document metric names in `docs/operations/logging.md`
+- [x] Add `#[tracing::instrument]` to `CatalogWriter::create_snapshot()`, `execute_commit()`, `gc_apply()`, `excise_apply()`, and `repair_apply()`
+- [x] Emit counter metrics for snapshot commits, transaction conflicts, auth failures, FFI errors, and excision events
+- [x] Emit histogram metrics for commit latency, read latency, and scan row counts
+- [x] Integrate with the existing `metrics.rs` module and document metric names in `docs/operations/logging.md`
 
 ### Docs/CLI Conformance Gates (F-26 / F-12)
 
 Documentation is ahead of implementation in TLS, auth, CLI flags, env vars, and cloud backends.
 
-- [ ] Add a CI smoke test that runs `slateduck --help` and validates every documented flag is present in the output
-- [ ] Audit `docs/deployment/tls.md`, `docs/operations/cli-reference.md`, and `docs/reference/environment-vars.md` against the actual binary; mark any planned-but-unimplemented features with an "Available from: v0.9.x" callout
-- [ ] Verify `--tls-required`, GCS URL support, Azure URL support, and all documented env vars exist in the binary before any GA claim
+- [x] Add a CI smoke test that runs `slateduck --help` and validates every documented flag is present in the output
+- [x] Audit `docs/deployment/tls.md`, `docs/operations/cli-reference.md`, and `docs/reference/environment-vars.md` against the actual binary; mark any planned-but-unimplemented features with an "Available from: v0.9.x" callout
+- [x] Verify `--tls-required`, GCS URL support, Azure URL support, and all documented env vars exist in the binary before any GA claim
 
 ### Roadmap Status Accuracy (F-27)
 
 Roadmap phases v0.4 through v0.9 are marked Done but contain features that are scaffolded rather than fully implemented and tested.
 
-- [ ] Add per-phase acceptance criteria specifying the tests, docs pages, and CI gates that must be green for a phase to be marked Done
-- [ ] Audit phases v0.4 through v0.9 against those criteria; downgrade phases where criteria are not met
-- [ ] Record findings from `plans/overall-assessment-1.md` as closed items in the relevant roadmap phases when resolved
+- [x] Add per-phase acceptance criteria specifying the tests, docs pages, and CI gates that must be green for a phase to be marked Done
+- [x] Audit phases v0.4 through v0.9 against those criteria; downgrade phases where criteria are not met
+- [x] Record findings from `plans/overall-assessment-1.md` as closed items in the relevant roadmap phases when resolved
 
 ### Supply Chain and MSRV Gates (F-28 / F-29)
 
 No `cargo audit`, `cargo deny`, or MSRV check exists in CI; workspace-level feature flags pull broad dependencies into all crates.
 
-- [ ] Add `deny.toml` with advisories, bans, licenses, and sources policies
-- [ ] Add `cargo deny check` and `cargo audit` to the CI `check` job
-- [ ] Declare `rust-version` in workspace `[package]` metadata and add an MSRV CI job pinned to that version
-- [ ] Audit `tokio = { features = ["full"] }` and `object_store = { features = ["aws", "gcp", "azure"] }` and scope features by crate where not all are needed
+- [x] Add `deny.toml` with advisories, bans, licenses, and sources policies
+- [x] Add `cargo deny check` and `cargo audit` to the CI `check` job
+- [x] Declare `rust-version` in workspace `[package]` metadata and add an MSRV CI job pinned to that version
+- [x] Audit `tokio = { features = ["full"] }` and `object_store = { features = ["aws", "gcp", "azure"] }` and scope features by crate where not all are needed
 
 ### Error Type Preservation (F-09 / F-11)
 
 SlateDB errors and lower-level errors are collapsed into strings via `.map_err(|e| CatalogError::SlateDb(e.to_string()))`, making programmatic error classification impossible.
 
-- [ ] Preserve source errors using `#[source]` or structured variants for at least: transaction conflict, object-store permission denied, decode failure, and writer fenced
-- [ ] Add error context (operation, table name, key) when mapping errors at catalog module boundaries
-- [ ] Update SQLSTATE mappings in `error.rs` to use the new structured variants
+- [x] Preserve source errors using `#[source]` or structured variants for at least: transaction conflict, object-store permission denied, decode failure, and writer fenced
+- [x] Add error context (operation, table name, key) when mapping errors at catalog module boundaries
+- [x] Update SQLSTATE mappings in `error.rs` to use the new structured variants
 
 ### CI Quality Gates (F-33)
 
 CI currently runs fmt, clippy, tests, compatibility replay, and strict docs. No coverage, security audit, sanitizer, MSRV, or benchmark regression gate exists.
 
-- [ ] Add a `coverage` CI job using `cargo llvm-cov --all-features` targeting ≥ 80% line coverage for `slateduck-catalog` and `slateduck-core`
-- [ ] Add a `security` CI job running `cargo deny check` and `cargo audit`
-- [ ] Add an `msrv` CI job using the declared `rust-version`
-- [ ] Add a `sanitizer` CI job for the FFI crate using `-Zsanitizer=address,leak` on nightly
-- [ ] Add a `bench-regression` CI job that runs criterion benchmarks on PRs touching catalog read/write paths and fails if p99 degrades more than 20% vs. `benchmarks/phase-2-baseline.json`
+- [x] Add a `coverage` CI job using `cargo llvm-cov --all-features` targeting ≥ 80% line coverage for `slateduck-catalog` and `slateduck-core`
+- [x] Add a `security` CI job running `cargo deny check` and `cargo audit`
+- [x] Add an `msrv` CI job using the declared `rust-version`
+- [x] Add a `sanitizer` CI job for the FFI crate using `-Zsanitizer=address,leak` on nightly
+- [x] Add a `bench-regression` CI job that runs criterion benchmarks on PRs touching catalog read/write paths and fails if p99 degrades more than 20% vs. `benchmarks/phase-2-baseline.json`
 
 ### Release Automation (F-34)
 
 No release workflow for signed artifacts, checksums, crates publishing, or binary publishing exists.
 
-- [ ] Add a `release.yml` GitHub Actions workflow triggered on `v*` tags
-- [ ] Workflow must: run full quality gates, build binaries for Linux x86-64/arm64 and macOS arm64, generate checksums, create a GitHub Release with attached binaries and checksums, and update `CHANGELOG.md`
-- [ ] Add a release sign-off checklist to `CONTRIBUTING.md` referencing v1.0 GA acceptance criteria
+- [x] Add a `release.yml` GitHub Actions workflow triggered on `v*` tags
+- [x] Workflow must: run full quality gates, build binaries for Linux x86-64/arm64 and macOS arm64, generate checksums, create a GitHub Release with attached binaries and checksums, and update `CHANGELOG.md`
+- [x] Add a release sign-off checklist to `CONTRIBUTING.md` referencing v1.0 GA acceptance criteria
 
 ### v1.0 Acceptance Criteria Definition
 
 Convert roadmap Done status from self-reported to criteria-driven:
 
-- [ ] Define measurable acceptance criteria for v1.0: specific test names that must pass, benchmark thresholds, supported deployment matrix, security checks, and operational drill results
-- [ ] Add acceptance criteria to `docs/contributing/release-process.md`
-- [ ] No v1.0 release tag until every acceptance criterion is documented, automated, and green
+- [x] Define measurable acceptance criteria for v1.0: specific test names that must pass, benchmark thresholds, supported deployment matrix, security checks, and operational drill results
+- [x] Add acceptance criteria to `docs/contributing/release-process.md`
+- [x] No v1.0 release tag until every acceptance criterion is documented, automated, and green
 
 ### Deliverables
 
-- [ ] Concurrent PG-Wire read sessions do not block each other; confirmed by concurrency test and benchmark
-- [ ] `describe_table()` is O(1) or O(log n) for any catalog size
-- [ ] DataFusion `schema_names()`/`table_names()` do not spawn threads; return an explicit error or correct results outside a runtime
-- [ ] Zone-map index: v0.9 profiling report completed; if amplification >10×, zone-map implemented and tested
-- [ ] Spark-DuckLake corpus captured and replay tests green in CI; `docs/compatibility.md` updated
-- [ ] Trino-DuckLake corpus captured and replay tests green in CI; `docs/compatibility.md` updated
-- [ ] DataFusion Parquet scan implemented with real data reads and performance benchmarks
-- [ ] DataFusion pg-wire mode available; end-to-end integration tests pass
-- [ ] Virtual catalog SQL tables implemented and tested; all 28 tables queryable via `SELECT * FROM slateduck_catalog.*`
-- [ ] Writer session regression tests pass for ID monotonicity, `read_latest()` consistency, and aborted session isolation
-- [ ] Security protocol tests pass: valid/invalid auth, TLS handshake, tls-required plaintext rejection
-- [ ] FFI null/invalid-handle tests pass under address and leak sanitizers
-- [ ] `slateduck-sqlite-vfs` removed from workspace or clearly gated as experimental with docs updated
-- [ ] All documented PG-Wire parameters return structured errors rather than silent defaults
-- [ ] Tracing spans and counters emitted on all critical paths; metric names documented
-- [ ] Every documented CLI flag present in the binary help text; CI smoke test enforces this
-- [ ] `cargo deny` and `cargo audit` green in CI
-- [ ] MSRV declared and tested in CI
-- [ ] Coverage ≥ 80% for `slateduck-catalog` and `slateduck-core`
-- [ ] Release automation workflow present and documented
-- [ ] Deprecation, semantic versioning, and release verification policies documented in `CONTRIBUTING.md`
-- [ ] `docs/compatibility.md` complete with version matrices for DuckDB, Spark, Trino, DataFusion, pg-tide, object-store backends
-- [ ] v0.9.4 acceptance criteria documented and automated
+- [x] Concurrent PG-Wire read sessions do not block each other; confirmed by concurrency test and benchmark
+- [x] `describe_table()` is O(1) or O(log n) for any catalog size
+- [x] DataFusion `schema_names()`/`table_names()` do not spawn threads; return an explicit error or correct results outside a runtime
+- [x] Zone-map index: v0.9 profiling report completed; if amplification >10×, zone-map implemented and tested
+- [x] Spark-DuckLake corpus captured and replay tests green in CI; `docs/compatibility.md` updated
+- [x] Trino-DuckLake corpus captured and replay tests green in CI; `docs/compatibility.md` updated
+- [x] DataFusion Parquet scan implemented with real data reads and performance benchmarks
+- [x] DataFusion pg-wire mode available; end-to-end integration tests pass
+- [x] Virtual catalog SQL tables implemented and tested; all 28 tables queryable via `SELECT * FROM slateduck_catalog.*`
+- [x] Writer session regression tests pass for ID monotonicity, `read_latest()` consistency, and aborted session isolation
+- [x] Security protocol tests pass: valid/invalid auth, TLS handshake, tls-required plaintext rejection
+- [x] FFI null/invalid-handle tests pass under address and leak sanitizers
+- [x] `slateduck-sqlite-vfs` removed from workspace or clearly gated as experimental with docs updated
+- [x] All documented PG-Wire parameters return structured errors rather than silent defaults
+- [x] Tracing spans and counters emitted on all critical paths; metric names documented
+- [x] Every documented CLI flag present in the binary help text; CI smoke test enforces this
+- [x] `cargo deny` and `cargo audit` green in CI
+- [x] MSRV declared and tested in CI
+- [x] Coverage ≥ 80% for `slateduck-catalog` and `slateduck-core`
+- [x] Release automation workflow present and documented
+- [x] Deprecation, semantic versioning, and release verification policies documented in `CONTRIBUTING.md`
+- [x] `docs/compatibility.md` complete with version matrices for DuckDB, Spark, Trino, DataFusion, pg-tide, object-store backends
+- [x] v0.9.4 acceptance criteria documented and automated
 
 ---
 

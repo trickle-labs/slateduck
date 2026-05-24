@@ -1,0 +1,16 @@
+{"version":"432","client":"trino-ducklake","captured_at":"2025-07-01T00:00:00Z","statements":[
+{"type":"startup","sql":"SET application_name = 'trino-ducklake-connector'"},
+{"type":"read","sql":"SELECT max(snapshot_id) FROM ducklake_snapshot"},
+{"type":"read","sql":"SELECT snapshot_id, schema_version FROM ducklake_snapshot WHERE snapshot_id = $1","params":["1"]},
+{"type":"read","sql":"SELECT schema_id, schema_name FROM ducklake_schema WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR end_snapshot > $1)","params":["1"]},
+{"type":"read","sql":"SELECT table_id, schema_id, table_name FROM ducklake_table WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR end_snapshot > $1)","params":["1"]},
+{"type":"read","sql":"SELECT column_id, table_id, column_name, data_type, column_index, is_nullable FROM ducklake_column WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR end_snapshot > $1) AND table_id = $2","params":["1","42"]},
+{"type":"read","sql":"SELECT data_file_id, table_id, path, file_format, row_count, file_size_bytes, snapshot_id FROM ducklake_data_file WHERE begin_snapshot <= $1 AND (end_snapshot IS NULL OR end_snapshot > $1) AND table_id = $2","params":["1","42"]},
+{"type":"read","sql":"SELECT value FROM ducklake_metadata WHERE scope = $1 AND key = $2","params":["global","next_catalog_id"]},
+{"type":"write","sql":"BEGIN"},
+{"type":"write","sql":"INSERT INTO ducklake_snapshot (snapshot_id, author, message) VALUES ($1, $2, $3)","params":["2","trino-432","create table orders"]},
+{"type":"write","sql":"INSERT INTO ducklake_schema (schema_id, schema_name, begin_snapshot) VALUES ($1, $2, $3)","params":["1","tpch","2"]},
+{"type":"write","sql":"INSERT INTO ducklake_table (table_id, schema_id, table_name, begin_snapshot) VALUES ($1, $2, $3, $4)","params":["1","1","orders","2"]},
+{"type":"write","sql":"INSERT INTO ducklake_column (column_id, table_id, column_name, data_type, column_index, is_nullable, begin_snapshot) VALUES ($1, $2, $3, $4, $5, $6, $7)","params":["1","1","orderkey","BIGINT","0","false","2"]},
+{"type":"write","sql":"COMMIT"}
+]}

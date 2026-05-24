@@ -123,6 +123,11 @@ impl CatalogWriter {
 
         let key = keys::key_table(schema_id, table_id, snapshot_id);
         self.stage(key, values::encode_value(&row));
+
+        // Secondary index: TAG_TABLE_BY_ID → schema_id for O(1) describe_table lookups.
+        let idx_key = keys::key_table_by_id(table_id);
+        self.stage(idx_key, values::encode_counter(schema_id));
+
         self.mark_schema_changed();
         Ok(table_id)
     }
@@ -154,29 +159,37 @@ impl CatalogWriter {
         Ok(())
     }
 
-    /// Scan all table rows to find the `schema_id` that owns `table_id`.
+    /// Return the `schema_id` that owns `table_id` using the TAG_TABLE_BY_ID
+    /// secondary index — O(1) point-lookup instead of O(n) full-table scan.
     ///
-    /// Returns `None` if no live (end_snapshot IS NULL) table row is found.
-    /// Used by the PG-Wire executor to resolve `UPDATE end_snapshot` on
-    /// `ducklake_table` without a hard-coded `schema_id = 0`.
+    /// Returns `None` if the secondary index entry does not exist (e.g. the
+    /// table was created before this index was introduced).  Callers that need
+    /// a guaranteed result should fall back to the legacy scan themselves.
     pub async fn find_table_schema_id(&self, table_id: u64) -> CatalogResult<Option<u64>> {
-        let prefix = keys::prefix_for_tag(TAG_TABLE);
-        let mut iter = self
-            .db
-            .scan_prefix(&prefix)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        while let Some(kv) = iter
-            .next()
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
-        {
-            let row: TableRow = values::decode_value(&kv.value)?;
-            if row.table_id == table_id && row.end_snapshot.is_none() {
-                return Ok(Some(row.schema_id));
+        let idx_key = keys::key_table_by_id(table_id);
+        match self.db.get(&idx_key).await? {
+            Some(data) => Ok(Some(values::decode_counter(&data)?)),
+            None => {
+                // Fallback for catalogs created before the secondary index.
+                let prefix = keys::prefix_for_tag(TAG_TABLE);
+                let mut iter = self
+                    .db
+                    .scan_prefix(&prefix)
+                    .await
+                    .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+                while let Some(kv) = iter
+                    .next()
+                    .await
+                    .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+                {
+                    let row: TableRow = values::decode_value(&kv.value)?;
+                    if row.table_id == table_id && row.end_snapshot.is_none() {
+                        return Ok(Some(row.schema_id));
+                    }
+                }
+                Ok(None)
             }
         }
-        Ok(None)
     }
 
     pub async fn add_column(
@@ -430,6 +443,7 @@ impl CatalogWriter {
     /// Every staging method (`create_schema`, `create_table`, `add_column`,
     /// etc.) merely buffers the write; `create_snapshot()` is the sole commit
     /// boundary.
+    #[tracing::instrument(skip(self, author, message))]
     pub async fn create_snapshot(
         &mut self,
         author: Option<&str>,

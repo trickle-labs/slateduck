@@ -111,12 +111,12 @@ async fn gc_time_travel_still_works_after_advance() {
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
     // Reading at snap2 shows both schemas
-    let reader = store.read_at(snap2).await.unwrap();
+    let reader = store.read_at(snap2).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 2);
 
     // Reading at snap1 shows only first
-    let reader = store.read_at(snap1).await.unwrap();
+    let reader = store.read_at(snap1).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1);
     assert_eq!(schemas[0].schema_name, "visible");
@@ -277,7 +277,7 @@ async fn checkpoint_restore_after_modifications() {
 
     // Verify we're back at snapshot 1
     let store = CatalogStore::open(test_opts(&dir)).await.unwrap();
-    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
+    let reader = store.read_at(SnapshotId::new(1)).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1);
     assert_eq!(schemas[0].schema_name, "original");

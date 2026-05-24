@@ -70,7 +70,7 @@ fn bench_get_current_snapshot(c: &mut Criterion) {
     c.bench_function("get_current_snapshot", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let reader = catalog.read_at(SnapshotId::new(1)).await.unwrap();
+                let reader = catalog.read_at(SnapshotId::new(1)).unwrap();
                 reader.get_snapshot().await.unwrap();
             });
         });
@@ -86,7 +86,7 @@ fn bench_list_data_files(c: &mut Criterion) {
     c.bench_function("list_data_files_100", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let reader = catalog.read_at(SnapshotId::new(1)).await.unwrap();
+                let reader = catalog.read_at(SnapshotId::new(1)).unwrap();
                 reader.list_data_files(table_id).await.unwrap();
             });
         });
@@ -102,7 +102,7 @@ fn bench_describe_table(c: &mut Criterion) {
     c.bench_function("describe_table", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let reader = catalog.read_at(SnapshotId::new(1)).await.unwrap();
+                let reader = catalog.read_at(SnapshotId::new(1)).unwrap();
                 reader.describe_table(table_id).await.unwrap();
             });
         });
@@ -123,7 +123,7 @@ fn bench_prune_files(c: &mut Criterion) {
     c.bench_function("prune_files_100", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let reader = catalog.read_at(SnapshotId::new(1)).await.unwrap();
+                let reader = catalog.read_at(SnapshotId::new(1)).unwrap();
                 reader
                     .prune_files(table_id, col_id, "5000", &col_type)
                     .await

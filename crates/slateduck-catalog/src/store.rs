@@ -7,10 +7,11 @@ use slateduck_core::keys;
 use slateduck_core::mvcc::SnapshotId;
 use slateduck_core::tags::*;
 use slateduck_core::values;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::encryption::{AesGcmTransformer, EncryptionConfig};
-use crate::error::CatalogResult;
+use crate::error::{CatalogError, CatalogResult};
 use crate::init;
 use crate::reader::CatalogReader;
 use crate::writer::CatalogWriter;
@@ -32,6 +33,10 @@ pub struct CatalogStore {
     counters: CounterCache,
     writer_epoch: u64,
     schema_version: u64,
+    /// In-memory cache of the current `retain-from` floor.
+    /// Updated eagerly on `open()` and after every `gc_apply()`.
+    /// `read_at()` uses this atomically without holding the mutex.
+    retain_from_cache: Arc<AtomicU64>,
 }
 
 impl CatalogStore {
@@ -64,20 +69,32 @@ impl CatalogStore {
         // Load current schema version (from latest snapshot, or 0)
         let schema_version = Self::load_schema_version(&db, &counters).await;
 
+        // Seed the retain-from cache from SlateDB (single read at startup).
+        let retain_from_initial = crate::gc::read_retain_from(&db).await.unwrap_or(0);
+        let retain_from_cache = Arc::new(AtomicU64::new(retain_from_initial));
+
         Ok(Self {
             db,
             counters,
             writer_epoch,
             schema_version,
+            retain_from_cache,
         })
     }
 
     /// Create a reader bound to a specific DuckLake snapshot.
-    /// Rejects snapshots below the current `retain-from` floor (SQLSTATE 22023).
-    pub async fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogResult<CatalogReader> {
-        let retain_from = crate::gc::read_retain_from(&self.db).await?;
+    ///
+    /// This is a **synchronous** operation — it checks the in-memory
+    /// `retain-from` cache and clones the `Db` handle without any async I/O.
+    /// The caller can therefore hold the catalog mutex for this call only and
+    /// drop it before performing any async reads on the returned reader.
+    ///
+    /// Returns `CatalogError::SnapshotOutOfRetention` (SQLSTATE 22023) if
+    /// `dl_snapshot_id` falls below the current retain-from floor.
+    pub fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogResult<CatalogReader> {
+        let retain_from = self.retain_from_cache.load(Ordering::Relaxed);
         if retain_from > 0 && dl_snapshot_id.as_u64() < retain_from {
-            return Err(crate::error::CatalogError::SnapshotOutOfRetention {
+            return Err(CatalogError::SnapshotOutOfRetention {
                 requested: dl_snapshot_id.as_u64(),
                 retain_from,
             });
@@ -93,6 +110,22 @@ impl CatalogStore {
             0
         };
         CatalogReader::new(self.db.clone(), SnapshotId::new(latest))
+    }
+
+    /// Update the in-memory retain-from cache.
+    ///
+    /// Must be called after every successful `gc::gc_apply()` so that
+    /// subsequent `read_at()` calls see the new floor without re-reading
+    /// SlateDB.
+    pub fn update_retain_from_cache(&self, new_retain_from: u64) {
+        self.retain_from_cache
+            .store(new_retain_from, Ordering::Relaxed);
+    }
+
+    /// Expose the retain-from cache handle so the FFI / CLI can share it
+    /// without holding the catalog mutex.
+    pub fn retain_from_cache(&self) -> Arc<AtomicU64> {
+        self.retain_from_cache.clone()
     }
 
     /// Begin a write session.

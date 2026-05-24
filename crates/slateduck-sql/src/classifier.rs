@@ -73,6 +73,13 @@ pub enum StatementKind {
     UpdateInlinedRowEndSnapshot,
     SelectInlinedRows,
 
+    // ─── Virtual Catalog SQL Tables ────────────────────────────────────
+    /// `SELECT * FROM slateduck_catalog.{table_name}` — read-only catalog introspection.
+    /// Mutations against `slateduck_catalog.*` return SQLSTATE 25006.
+    VirtualCatalogScan {
+        table_name: String,
+    },
+
     // ─── Unsupported ───────────────────────────────────────────────────
     Unsupported(String),
 }
@@ -213,6 +220,14 @@ fn classify_table_select_with_query(
         "ducklake_macro" => StatementKind::SelectMacros,
         s if s.starts_with("pg_catalog.pg_type") || s == "pg_type" => StatementKind::SelectPgType,
         s if s.starts_with("ducklake_inlined_") => StatementKind::SelectInlinedRows,
+        // Virtual catalog schema: slateduck_catalog.{table}
+        s if s.starts_with("slateduck_catalog.") => {
+            let table_name = s
+                .strip_prefix("slateduck_catalog.")
+                .unwrap_or(s)
+                .to_string();
+            StatementKind::VirtualCatalogScan { table_name }
+        }
         _ => StatementKind::Unsupported(format!("SELECT from {table_name}")),
     }
 }
@@ -484,5 +499,44 @@ mod tests {
             classify_statement("SELECT value FROM ducklake_metadata WHERE metadata_key = $1")
                 .unwrap();
         assert_eq!(kind, StatementKind::SelectMetadata);
+    }
+
+    // ─── Virtual Catalog SQL Tables ────────────────────────────────────
+
+    #[test]
+    fn test_classify_virtual_catalog_scan_snapshot() {
+        let kind = classify_statement("SELECT * FROM slateduck_catalog.ducklake_snapshot").unwrap();
+        assert_eq!(
+            kind,
+            StatementKind::VirtualCatalogScan {
+                table_name: "ducklake_snapshot".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_virtual_catalog_scan_counters() {
+        let kind =
+            classify_statement("SELECT * FROM slateduck_catalog.slateduck_counters").unwrap();
+        assert_eq!(
+            kind,
+            StatementKind::VirtualCatalogScan {
+                table_name: "slateduck_counters".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_virtual_catalog_scan_data_file() {
+        let kind = classify_statement(
+            "SELECT data_file_id, path, begin_snapshot FROM slateduck_catalog.ducklake_data_file WHERE table_id = 42 ORDER BY begin_snapshot DESC LIMIT 20",
+        )
+        .unwrap();
+        assert_eq!(
+            kind,
+            StatementKind::VirtualCatalogScan {
+                table_name: "ducklake_data_file".to_string()
+            }
+        );
     }
 }

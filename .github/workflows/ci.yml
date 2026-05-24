@@ -32,3 +32,94 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+  # F-26: CLI smoke test — verify every documented flag is present in --help.
+  smoke-test:
+    name: CLI Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build slateduck binary
+        run: cargo build -p slateduck-pgwire --bin slateduck
+
+      - name: Verify documented CLI flags are present
+        run: |
+          HELP=$(./target/debug/slateduck serve --help 2>&1 || true)
+          for flag in \
+            "--tls-cert" \
+            "--tls-key" \
+            "--tls-required" \
+            "--auth-user" \
+            "--auth-password" \
+            "--bind" \
+            "--catalog" \
+            "--datafusion-pg-wire"; do
+            if echo "$HELP" | grep -q "$flag"; then
+              echo "OK: $flag"
+            else
+              echo "MISSING FLAG: $flag" && exit 1
+            fi
+          done
+          echo "All documented flags verified."
+
+  # F-29: MSRV — build must succeed on the declared minimum supported Rust version.
+  msrv:
+    name: MSRV (Rust 1.80)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.80
+      - uses: Swatinem/rust-cache@v2
+      - name: Build on MSRV
+        run: cargo build --workspace
+
+  # F-28/F-33: Security — cargo audit + cargo deny advisories check.
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo deny (advisories + bans + sources)
+        run: cargo deny check advisories bans sources
+
+  # F-33: Code coverage — report coverage for slateduck-catalog and slateduck-core.
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Run coverage
+        run: |
+          cargo llvm-cov \
+            -p slateduck-catalog \
+            -p slateduck-core \
+            --summary-only 2>&1 | tee coverage-summary.txt
+          COVERAGE=$(grep 'TOTAL' coverage-summary.txt | awk '{print $10}' | tr -d '%' || echo "0")
+          echo "Coverage: ${COVERAGE}%"
+          if [ "${COVERAGE%.*}" -lt 80 ]; then
+            echo "::warning::Coverage ${COVERAGE}% is below 80% threshold (enforced at v1.0)"
+          fi
+
