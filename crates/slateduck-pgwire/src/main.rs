@@ -913,9 +913,7 @@ async fn cmd_corpus(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 let mut entries: Vec<_> = std::fs::read_dir(path)
                     .map_err(|e| format!("Cannot read corpus directory: {e}"))?
                     .filter_map(|e| e.ok())
-                    .filter(|e| {
-                        e.path().extension().map(|x| x == "jsonl").unwrap_or(false)
-                    })
+                    .filter(|e| e.path().extension().map(|x| x == "jsonl").unwrap_or(false))
                     .collect();
                 entries.sort_by_key(|e| e.file_name());
                 for entry in entries {
@@ -926,8 +924,8 @@ async fn cmd_corpus(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     all_records.append(&mut records);
                 }
             } else {
-                let file = std::fs::File::open(path)
-                    .map_err(|e| format!("Cannot open corpus: {e}"))?;
+                let file =
+                    std::fs::File::open(path).map_err(|e| format!("Cannot open corpus: {e}"))?;
                 all_records = slateduck_catalog::parse_corpus(std::io::BufReader::new(file));
             }
             let result = slateduck_catalog::corpus_validate(&all_records);
