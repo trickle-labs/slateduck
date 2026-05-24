@@ -31,11 +31,8 @@ ignore = [
 # dependency tree has been audited for license compatibility.
 [licenses]
 version = 2
-# Allow all licenses to avoid false positives from ring, aws-lc-sys, etc.
-# This will be tightened at v1.0.
-allow-osi-fsf-free = "neither"
-confidence-threshold = 0.8
-unused-allowed-license = "allow"
+# License checking is intentionally minimal for v0.9.4.
+# Tighten at v1.0 GA after a full dependency audit.
 
 # ─── Bans ─────────────────────────────────────────────────────────────────────
 [bans]

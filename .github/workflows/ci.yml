@@ -57,7 +57,7 @@ jobs:
             "--bind" \
             "--catalog" \
             "--datafusion-pg-wire"; do
-            if echo "$HELP" | grep -q "$flag"; then
+            if echo "$HELP" | grep -qF -- "$flag"; then
               echo "OK: $flag"
             else
               echo "MISSING FLAG: $flag" && exit 1
@@ -67,11 +67,11 @@ jobs:
 
   # F-29: MSRV — build must succeed on the declared minimum supported Rust version.
   msrv:
-    name: MSRV (Rust 1.80)
+    name: MSRV (Rust 1.85)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.80
+      - uses: dtolnay/rust-toolchain@1.85
       - uses: Swatinem/rust-cache@v2
       - name: Build on MSRV
         run: cargo build --workspace

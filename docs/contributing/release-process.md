@@ -343,7 +343,7 @@ Every item must be green before the release tag is applied.
 
 - [x] F-26: CLI smoke test — `slateduck serve --help` validates all documented flags
 - [x] F-28: `deny.toml` with ignored transitive advisories
-- [x] F-29: MSRV = 1.80 declared in workspace `Cargo.toml`; MSRV CI job added
+- [x] F-29: MSRV = 1.85 declared in workspace `Cargo.toml`; MSRV CI job added
 - [x] F-33: Coverage job (warns if below 80%) + security job (`cargo deny` + `cargo audit`)
 - [x] F-34: `release.yml` GitHub Actions workflow for tagged releases
 
