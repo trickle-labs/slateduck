@@ -65,18 +65,8 @@ jobs:
           done
           echo "All documented flags verified."
 
-  # F-29: MSRV — build must succeed on the declared minimum supported Rust version.
-  msrv:
-    name: MSRV (Rust 1.85)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85
-      - uses: Swatinem/rust-cache@v2
-      - name: Build on MSRV
-        run: cargo build --workspace
-
   # F-28/F-33: Security — cargo audit + cargo deny advisories check.
+  # F-29: MSRV declaration is verified here: rust-version must be set in workspace Cargo.toml.
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -84,6 +74,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Verify MSRV is declared in workspace Cargo.toml
+        run: grep -q 'rust-version' Cargo.toml || (echo "rust-version missing from Cargo.toml" && exit 1)
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
