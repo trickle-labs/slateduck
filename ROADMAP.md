@@ -55,7 +55,7 @@ binding on every roadmap release below.
 | **v0.7 — Performance & Ecosystem** | Hot-key reads, secondary indexes, SlateDB tuning, multi-writer partitioning, DataFusion integration | **Done** |
 | **v0.8 — Documentation** | MkDocs Material site, GitHub Pages, full conceptual, operational, and reference coverage | **Done** |
 | **v0.9 — Production Readiness** | K8s deployment, writer routing and failover, performance tuning, cost analysis, migration and corpus tooling | **Done** |
-| **v0.9.1 — Write Protocol Correctness** | Atomic snapshot commits, stale-counter fix, `UPDATE end_snapshot` key resolution, writer protocol spec | Planning |
+| **v0.9.1 — Write Protocol Correctness** | Atomic snapshot commits, stale-counter fix, `UPDATE end_snapshot` key resolution, writer protocol spec | **Done** |
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | Planning |
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | Planning |
 | **v0.9.4 — Quality Gates & GA Readiness** | Concurrent reads, DataFusion scan, test coverage, CI gates, docs alignment, supply chain, release automation | Planning |
@@ -1206,46 +1206,46 @@ slateduck corpus validate --corpus tests/fixtures/wire-corpus/duckdb-2.x.jsonl
 
 `CatalogStore::begin_write()` clones counters into a `CatalogWriter` and never synchronises them back on commit. `read_latest()` returns stale snapshot IDs from the same uncorrected cache. PG-Wire sessions that each create a writer via `execute_commit()` can reuse `snapshot_id`, `catalog_id`, and `file_id`.
 
-- [ ] Introduce `CatalogStore::commit_writer(writer)` that updates in-memory counters from the committed writer after every successful SlateDB transaction
-- [ ] Make `read_latest()` derive its snapshot ID from the authoritative counter, not a stale in-memory copy
-- [ ] Add regression tests for sequential `begin_write()` calls on one store: IDs must be monotonically increasing across sessions
-- [ ] Add regression tests for `read_latest()` after every commit: must return the just-committed snapshot ID
-- [ ] Add PG-Wire-level regression tests for `SELECT max(snapshot)` after multiple write sessions on one connection
+- [x] Introduce `CatalogStore::commit_writer(writer)` that updates in-memory counters from the committed writer after every successful SlateDB transaction
+- [x] Make `read_latest()` derive its snapshot ID from the authoritative counter, not a stale in-memory copy
+- [x] Add regression tests for sequential `begin_write()` calls on one store: IDs must be monotonically increasing across sessions
+- [x] Add regression tests for `read_latest()` after every commit: must return the just-committed snapshot ID
+- [x] Add PG-Wire-level regression tests for `SELECT max(snapshot)` after multiple write sessions on one connection
 
 ### Atomic Snapshot Publication (F-02)
 
 Each writer operation commits its own SlateDB transaction using the current `peek_snapshot_id()`. The snapshot row is committed separately by `create_snapshot()`. A failure between any mutation and the matching `create_snapshot()` leaves unpublished rows that a later snapshot can inadvertently publish.
 
-- [ ] Stage all catalog row writes in memory within a single logical writer transaction
-- [ ] Commit all row writes, counter updates, and the snapshot row in one atomic SlateDB transaction inside `create_snapshot()`
-- [ ] Remove or clearly mark as internal-only any public writer methods that commit individual rows without a snapshot
-- [ ] Add tests for simulated mid-write failures: verify no phantom rows appear in subsequent snapshots
-- [ ] Update the writer API documentation to describe the staging model explicitly
+- [x] Stage all catalog row writes in memory within a single logical writer transaction
+- [x] Commit all row writes, counter updates, and the snapshot row in one atomic SlateDB transaction inside `create_snapshot()`
+- [x] Remove or clearly mark as internal-only any public writer methods that commit individual rows without a snapshot
+- [x] Add tests for simulated mid-write failures: verify no phantom rows appear in subsequent snapshots
+- [x] Update the writer API documentation to describe the staging model explicitly
 
 ### Fix `UPDATE end_snapshot` Key Resolution (F-04)
 
 `execute_commit()` calls `drop_table(0, entity_id, begin_snapshot)` with a hard-coded `schema_id = 0` and `drop_column(entity_id, entity_id, begin_snapshot)` using the same value for both table ID and column ID.
 
-- [ ] Resolve the owning `(schema_id, table_id, begin_snapshot)` tuple by reading the existing row before mutating it for table drops
-- [ ] Resolve the owning `(table_id, column_id, begin_snapshot)` tuple by reading the existing row before mutating it for column drops
-- [ ] Add end-to-end PG-Wire tests for `DROP TABLE` and `ALTER TABLE DROP COLUMN` that verify the correct row is marked with `end_snapshot`
+- [x] Resolve the owning `(schema_id, table_id, begin_snapshot)` tuple by reading the existing row before mutating it for table drops
+- [x] Resolve the owning `(table_id, column_id, begin_snapshot)` tuple by reading the existing row before mutating it for column drops
+- [x] Add end-to-end PG-Wire tests for `DROP TABLE` and `ALTER TABLE DROP COLUMN` that verify the correct row is marked with `end_snapshot`
 
 ### Writer Protocol State-Machine Specification (F-30)
 
 Writer fencing prevents concurrent writers but does not guard against stale in-memory state or non-atomic staging.
 
-- [ ] Document the single writer protocol: acquire fencing epoch → load counters from SlateDB → stage mutations in memory → commit rows + snapshot + counters atomically → update in-memory state → emit observability event
-- [ ] Add a conformance test that verifies no variant of this protocol produces duplicate IDs or unpublished facts under simulated failures
-- [ ] Document the protocol in `docs/architecture/transaction-model.md`
+- [x] Document the single writer protocol: acquire fencing epoch → load counters from SlateDB → stage mutations in memory → commit rows + snapshot + counters atomically → update in-memory state → emit observability event
+- [x] Add a conformance test that verifies no variant of this protocol produces duplicate IDs or unpublished facts under simulated failures
+- [x] Document the protocol in `docs/architecture/transaction-model.md`
 
 ### Deliverables
 
-- [ ] `CatalogStore::begin_write()` and `read_latest()` always reflect post-commit state
-- [ ] `create_snapshot()` is the sole commit boundary; all mutations are committed atomically with the snapshot row
-- [ ] `UPDATE end_snapshot` for tables and columns uses correct key resolution
-- [ ] Sequential write sessions on one `CatalogStore` produce monotonically increasing IDs with no reuse
-- [ ] PG-Wire `SELECT max(snapshot)` is consistent with committed state after every transaction
-- [ ] Writer protocol state-machine documented in `docs/architecture/transaction-model.md`
+- [x] `CatalogStore::begin_write()` and `read_latest()` always reflect post-commit state
+- [x] `create_snapshot()` is the sole commit boundary; all mutations are committed atomically with the snapshot row
+- [x] `UPDATE end_snapshot` for tables and columns uses correct key resolution
+- [x] Sequential write sessions on one `CatalogStore` produce monotonically increasing IDs with no reuse
+- [x] PG-Wire `SELECT max(snapshot)` is consistent with committed state after every transaction
+- [x] Writer protocol state-machine documented in `docs/architecture/transaction-model.md`
 
 ---
 

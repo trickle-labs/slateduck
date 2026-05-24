@@ -101,6 +101,15 @@ impl CounterCache {
     pub fn encode_file_counter(&self) -> Vec<u8> {
         values::encode_counter(self.next_file_id)
     }
+
+    /// Synchronise this cache with authoritative values read back after a
+    /// successful commit.  Called by `CatalogStore::commit_writer` to keep the
+    /// store's counter cache in step with every committed writer.
+    pub fn sync_from(&mut self, next_snapshot_id: u64, next_catalog_id: u64, next_file_id: u64) {
+        self.next_snapshot_id = next_snapshot_id;
+        self.next_catalog_id = next_catalog_id;
+        self.next_file_id = next_file_id;
+    }
 }
 
 /// Encode a column counter value for a specific table.

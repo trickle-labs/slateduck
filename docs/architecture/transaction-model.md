@@ -202,6 +202,57 @@ Every committed write transaction creates exactly one DuckLake snapshot. The rel
 
 This means the snapshot sequence is also the commit sequence: snapshot 42 was committed before snapshot 43, which was committed before snapshot 44. There are no "gaps" in the sequence (every integer between 1 and the current snapshot has a corresponding committed transaction) and no "reordering" (the commit order matches the snapshot ID order).
 
+## Writer Protocol State Machine
+
+Every write session follows a strict, non-negotiable lifecycle:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  1. CatalogStore::begin_write()                                                  │
+│     • Acquire fencing epoch from SlateDB                                         │
+│     • Load persisted counters (next_snapshot_id, next_catalog_id, next_file_id) │
+│     • Return a CatalogWriter with empty staging buffer                           │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│  2. Zero or more mutation calls on CatalogWriter                                 │
+│     • create_schema / create_table / create_view / etc.                          │
+│     • All MVCC-versioned rows are appended to in-memory staging buffer           │
+│     • Nothing is written to SlateDB yet                                          │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│  3. CatalogWriter::create_snapshot()                                             │
+│     • Drain staged rows                                                          │
+│     • Begin ONE SlateDB SerializableSnapshot transaction                         │
+│     • Check fencing epoch (reject if writer has been superseded)                 │
+│     • Write all staged mutation rows                                             │
+│     • Write ducklake_snapshot row (the commit marker)                            │
+│     • Write all three persisted counters atomically                              │
+│     • Commit — this single commit is the transaction boundary                   │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│  4. CatalogStore::commit_writer()                                                │
+│     • Sync in-memory counter cache from the writer                               │
+│     • Ensures subsequent begin_write() sees the new baseline IDs                 │
+│     • Ensures read_latest() returns the newly committed snapshot ID              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Protocol Invariants
+
+**Atomicity** — If step 3 is never reached (writer dropped, connection lost, panic), the staging buffer is discarded and no rows reach SlateDB.  There are no partial writes visible to readers.
+
+**Monotonic IDs** — Because all three counter keys are written inside the same transaction as the snapshot row, a crash between step 3 and step 4 leaves the counter state consistent in persistent storage.  A reopened `CatalogStore` reloads the counters from SlateDB, so IDs always advance and never repeat.
+
+**Correct key resolution** — Before calling `drop_table` or `drop_column`, the executor resolves the enclosing `schema_id` / `table_id` by scanning live MVCC rows via `find_table_schema_id()` / `find_column_table_id()`.  IDs are never assumed or inferred from the calling context.
+
+**Fencing** — The epoch check in step 3 guarantees that only one writer can commit to any given generation of the catalog.  A stale writer whose epoch has been superseded receives a `FencingEpochMismatch` error and its transaction is aborted.
+
+### Non-Conformant Patterns (Do Not Use)
+
+| Anti-pattern | Why it breaks the protocol |
+|---|---|
+| Writing rows directly to SlateDB before `create_snapshot()` | Partial state becomes visible to concurrent readers |
+| Omitting `commit_writer()` after a successful `create_snapshot()` | In-memory counter cache goes stale; next session reuses IDs |
+| Using a hardcoded `schema_id = 0` in `UpdateEndSnapshot` | Writes the tombstone to the wrong key; original row remains live |
+| Beginning a second `CatalogWriter` before committing the first | The second writer loads the same counter baseline; IDs overlap |
+
 ## Further Reading
 
 - **[MVCC Implementation](mvcc-implementation.md)** — How version fields interact with the transaction model

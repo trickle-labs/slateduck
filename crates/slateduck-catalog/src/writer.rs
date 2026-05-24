@@ -1,4 +1,16 @@
 //! CatalogWriter: write operations that produce new snapshots.
+//!
+//! # Staging model (v0.9.1)
+//!
+//! All MVCC-versioned catalog row mutations are **staged in memory** until
+//! `create_snapshot()` is called, which commits every staged write plus all
+//! counter updates and the snapshot row in **one atomic SlateDB transaction**.
+//! A crash before `create_snapshot()` leaves the catalog unchanged.
+//!
+//! Non-MVCC ancillary writes (`update_table_stats`, `upsert_file_column_stats`,
+//! `upsert_file_variant_stats`, `add_macro_parameter`,
+//! `schedule_file_deletion`, `remove_scheduled_deletion`) are written directly
+//! and are safe to write outside the snapshot boundary.
 
 use slatedb::{Db, DbTransaction, IsolationLevel};
 use slateduck_core::counters::CounterCache;
@@ -11,12 +23,18 @@ use slateduck_core::values::{self, MAX_INLINED_VALUE_SIZE};
 use crate::error::{CatalogError, CatalogResult};
 
 /// Writes to the catalog, producing new snapshots atomically.
+///
+/// Call `create_snapshot()` to commit all staged mutations in a single atomic
+/// SlateDB transaction.  Dropping a `CatalogWriter` without calling
+/// `create_snapshot()` discards all staged mutations without touching SlateDB.
 pub struct CatalogWriter {
-    db: Db,
-    counters: CounterCache,
+    pub(crate) db: Db,
+    pub(crate) counters: CounterCache,
     writer_epoch: u64,
     schema_changed: bool,
     current_schema_version: u64,
+    /// Staged (key, value) pairs committed atomically by `create_snapshot()`.
+    staged: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 impl CatalogWriter {
@@ -32,7 +50,13 @@ impl CatalogWriter {
             writer_epoch,
             schema_changed: false,
             current_schema_version: schema_version,
+            staged: Vec::new(),
         }
+    }
+
+    /// Stage a (key, value) write for atomic commit in `create_snapshot()`.
+    fn stage(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.staged.push((key, value));
     }
 
     /// Mark that a schema-mutating operation occurred in this write session.
@@ -55,21 +79,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_schema(schema_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(schema_id)
     }
@@ -78,24 +89,16 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_schema(schema_id);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("schema {schema_id}")))?;
 
         let mut row: SchemaRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(())
     }
@@ -118,25 +121,16 @@ impl CatalogWriter {
             data_path: data_path.map(|s| s.to_string()),
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_table(schema_id, table_id, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(table_id)
     }
 
+    /// Drop a table by marking its `end_snapshot`.
+    ///
+    /// The `schema_id` **must** be the correct owning schema; callers that
+    /// only have the `table_id` should first call `find_table_schema_id`.
     pub async fn drop_table(
         &mut self,
         schema_id: u64,
@@ -146,26 +140,43 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_table(schema_id, table_id, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("table {table_id}")))?;
 
         let mut row: TableRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(())
+    }
+
+    /// Scan all table rows to find the `schema_id` that owns `table_id`.
+    ///
+    /// Returns `None` if no live (end_snapshot IS NULL) table row is found.
+    /// Used by the PG-Wire executor to resolve `UPDATE end_snapshot` on
+    /// `ducklake_table` without a hard-coded `schema_id = 0`.
+    pub async fn find_table_schema_id(&self, table_id: u64) -> CatalogResult<Option<u64>> {
+        let prefix = keys::prefix_for_tag(TAG_TABLE);
+        let mut iter = self
+            .db
+            .scan_prefix(&prefix)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: TableRow = values::decode_value(&kv.value)?;
+            if row.table_id == table_id && row.end_snapshot.is_none() {
+                return Ok(Some(row.schema_id));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn add_column(
@@ -192,25 +203,16 @@ impl CatalogWriter {
             is_nullable,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_column(table_id, column_id, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(column_id)
     }
 
+    /// Drop a column by marking its `end_snapshot`.
+    ///
+    /// The `table_id` **must** be the correct owning table; callers that only
+    /// have the `column_id` should first call `find_column_table_id`.
     pub async fn drop_column(
         &mut self,
         table_id: u64,
@@ -220,26 +222,43 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_column(table_id, column_id, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("column {column_id}")))?;
 
         let mut row: ColumnRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(())
+    }
+
+    /// Scan all column rows to find the `table_id` that owns `column_id`.
+    ///
+    /// Returns `None` if no live (end_snapshot IS NULL) column row is found.
+    /// Used by the PG-Wire executor to resolve `UPDATE end_snapshot` on
+    /// `ducklake_column` without using entity_id for both table_id and column_id.
+    pub async fn find_column_table_id(&self, column_id: u64) -> CatalogResult<Option<u64>> {
+        let prefix = keys::prefix_for_tag(TAG_COLUMN);
+        let mut iter = self
+            .db
+            .scan_prefix(&prefix)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: ColumnRow = values::decode_value(&kv.value)?;
+            if row.column_id == column_id && row.end_snapshot.is_none() {
+                return Ok(Some(row.table_id));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn register_data_file(
@@ -264,21 +283,8 @@ impl CatalogWriter {
             footer_size: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_data_file(table_id, data_file_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_FILE_ID),
-            self.counters.encode_file_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(data_file_id)
     }
 
@@ -301,21 +307,8 @@ impl CatalogWriter {
             snapshot_id,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_delete_file(data_file_id, delete_file_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_FILE_ID),
-            self.counters.encode_file_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(delete_file_id)
     }
 
@@ -341,16 +334,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_inlined_insert(table_id, schema_version, row_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -363,24 +348,16 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_inlined_insert(table_id, schema_version, row_id);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("inlined row {row_id}")))?;
 
         let mut row: InlinedInsertRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -398,16 +375,8 @@ impl CatalogWriter {
             begin_snapshot: snapshot_id,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_inlined_delete(table_id, data_file_id, row_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -454,7 +423,13 @@ impl CatalogWriter {
         Ok(())
     }
 
-    /// Create a new snapshot. Increments `schema_version` iff `mark_schema_changed()` was called.
+    /// Commit all staged mutations, counter updates, and the snapshot row in a
+    /// single atomic SlateDB transaction.
+    ///
+    /// This is the **only** method that writes MVCC-versioned rows to SlateDB.
+    /// Every staging method (`create_schema`, `create_table`, `add_column`,
+    /// etc.) merely buffers the write; `create_snapshot()` is the sole commit
+    /// boundary.
     pub async fn create_snapshot(
         &mut self,
         author: Option<&str>,
@@ -475,21 +450,47 @@ impl CatalogWriter {
             message: message.map(|s| s.to_string()),
         };
 
+        // Drain staged mutations — these become part of the atomic commit.
+        let staged = std::mem::take(&mut self.staged);
+
+        // One serializable transaction for everything.
         let tx = self.begin_tx().await?;
+
+        // Verify writer-epoch fencing before touching any data.
         self.check_epoch(&tx).await?;
 
-        let key = keys::key_snapshot(snapshot_id);
-        tx.put(&key, values::encode_value(&row))
+        // Write all staged catalog rows.
+        for (key, value) in &staged {
+            tx.put(key, value)
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        }
+
+        // Write the snapshot row.
+        let snapshot_key = keys::key_snapshot(snapshot_id);
+        tx.put(&snapshot_key, values::encode_value(&row))
             .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+        // Persist all counter values atomically with the snapshot.
         tx.put(
             keys::key_counter(COUNTER_NEXT_SNAPSHOT_ID),
             self.counters.encode_snapshot_counter(),
+        )
+        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        tx.put(
+            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
+            self.counters.encode_catalog_counter(),
+        )
+        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        tx.put(
+            keys::key_counter(COUNTER_NEXT_FILE_ID),
+            self.counters.encode_file_counter(),
         )
         .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
 
         tx.commit()
             .await
             .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+
         Ok(SnapshotId::new(snapshot_id))
     }
 
@@ -513,21 +514,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_view(schema_id, view_id, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(view_id)
     }
@@ -541,24 +529,16 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_view(schema_id, view_id, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("view {view_id}")))?;
 
         let mut row: ViewRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(())
     }
@@ -583,21 +563,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_macro(schema_id, macro_id, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(macro_id)
     }
@@ -611,24 +578,16 @@ impl CatalogWriter {
         let snapshot_id = self.counters.peek_snapshot_id();
         let key = keys::key_macro(schema_id, macro_id, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("macro {macro_id}")))?;
 
         let mut row: MacroRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         self.mark_schema_changed();
         Ok(())
     }
@@ -642,21 +601,8 @@ impl CatalogWriter {
             definition: definition.to_string(),
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_macro_impl(macro_id, impl_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-        tx.put(
-            keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-            self.counters.encode_catalog_counter(),
-        )
-        .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(impl_id)
     }
 
@@ -702,16 +648,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_tag(object_id, tag_key_hash, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -725,24 +663,16 @@ impl CatalogWriter {
         let tag_key_hash = hash_tag_key(tag_key);
         let key = keys::key_tag(object_id, tag_key_hash, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
+        let existing = self
+            .db
             .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            .await?
             .ok_or_else(|| CatalogError::NotFound(format!("tag {tag_key} on {object_id}")))?;
 
         let mut row: TagRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -765,16 +695,8 @@ impl CatalogWriter {
             end_snapshot: None,
         };
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
         let key = keys::key_column_tag(table_id, column_id, tag_key_hash, snapshot_id);
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 
@@ -789,26 +711,14 @@ impl CatalogWriter {
         let tag_key_hash = hash_tag_key(tag_key);
         let key = keys::key_column_tag(table_id, column_id, tag_key_hash, begin_snapshot);
 
-        let tx = self.begin_tx().await?;
-        self.check_epoch(&tx).await?;
-
-        let existing = tx
-            .get(&key)
-            .await
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
-            .ok_or_else(|| {
-                CatalogError::NotFound(format!("column tag {tag_key} on {table_id}.{column_id}"))
-            })?;
+        let existing = self.db.get(&key).await?.ok_or_else(|| {
+            CatalogError::NotFound(format!("column tag {tag_key} on {table_id}.{column_id}"))
+        })?;
 
         let mut row: ColumnTagRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
 
-        tx.put(&key, values::encode_value(&row))
-            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
-
-        tx.commit()
-            .await
-            .map_err(|e| CatalogError::TransactionConflict(e.to_string()))?;
+        self.stage(key, values::encode_value(&row));
         Ok(())
     }
 

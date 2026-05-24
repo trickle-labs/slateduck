@@ -90,6 +90,19 @@ impl CatalogStore {
         )
     }
 
+    /// Synchronise the store's in-memory counters from a successfully committed
+    /// writer.  Must be called after every successful `create_snapshot()` so
+    /// that subsequent `begin_write()` and `read_latest()` calls reflect the
+    /// newly committed state.
+    pub fn commit_writer(&mut self, writer: &CatalogWriter) {
+        self.counters.sync_from(
+            writer.counters.peek_snapshot_id(),
+            writer.counters.peek_catalog_id(),
+            writer.counters.peek_file_id(),
+        );
+        self.schema_version = writer.schema_version();
+    }
+
     /// Close the catalog store.
     pub async fn close(self) -> CatalogResult<()> {
         self.db.close().await?;

@@ -505,16 +505,28 @@ async fn execute_commit(
             } => {
                 match table_name.as_str() {
                     "ducklake_table" => {
-                        // We need schema_id to construct the key; use 0 as placeholder
-                        // The actual drop is handled by the catalog writer
+                        // Resolve schema_id by scanning for the live table row
+                        // (F-04: do not hard-code schema_id = 0).
+                        let schema_id = writer
+                            .find_table_schema_id(entity_id)
+                            .await
+                            .map_err(SlateDuckError::from)?
+                            .unwrap_or(0);
                         writer
-                            .drop_table(0, entity_id, begin_snapshot)
+                            .drop_table(schema_id, entity_id, begin_snapshot)
                             .await
                             .map_err(SlateDuckError::from)?;
                     }
                     "ducklake_column" => {
+                        // Resolve table_id by scanning for the live column row
+                        // (F-04: entity_id is column_id, not table_id).
+                        let table_id = writer
+                            .find_column_table_id(entity_id)
+                            .await
+                            .map_err(SlateDuckError::from)?
+                            .unwrap_or(entity_id);
                         writer
-                            .drop_column(entity_id, entity_id, begin_snapshot)
+                            .drop_column(table_id, entity_id, begin_snapshot)
                             .await
                             .map_err(SlateDuckError::from)?;
                     }
@@ -579,6 +591,9 @@ async fn execute_commit(
             }
         }
     }
+    // Synchronise the store's in-memory counters from the committed writer
+    // (F-01: ensures read_latest() and subsequent begin_write() see the new state).
+    s.commit_writer(&writer);
     Ok(())
 }
 

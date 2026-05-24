@@ -1008,3 +1008,90 @@ fn test_server_config_default() {
     assert!(!config.tls.is_enabled());
     assert!(!config.auth.is_enabled());
 }
+
+// ─── v0.9.1: SELECT max(snapshot) consistency (F-01) ─────────────────────
+
+/// After multiple write sessions each ending with InsertSnapshot, the
+/// executor must successfully respond to `SELECT max(snapshot)` without
+/// panicking.  The response must contain exactly one row (non-null).
+///
+/// This is a PG-Wire-level regression for F-01: before `commit_writer` was
+/// called in `execute_commit`, `read_latest()` would always return a stale
+/// snapshot ID, eventually returning 0 even after multiple commits.
+#[tokio::test]
+async fn test_select_max_snapshot_consistent_after_multiple_write_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let empty_params = ParamValues::default();
+
+    // Session 1: INSERT INTO ducklake_snapshot (simulates DuckLake DDL commit)
+    executor::execute_sql("BEGIN", &empty_params, &store, &mut session)
+        .await
+        .unwrap();
+    let params1 = ParamValues::new(vec![
+        Some("user".to_string()),
+        Some("session-1".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_snapshot (snapshot_id, author, message) VALUES ($1, $2, $3)",
+        &params1,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    executor::execute_sql("COMMIT", &empty_params, &store, &mut session)
+        .await
+        .unwrap();
+
+    // After session 1: SELECT max(snapshot) must return 1 row
+    let r1 = executor::execute_sql(
+        "SELECT max(snapshot_id) FROM ducklake_snapshot",
+        &empty_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        r1.len(),
+        1,
+        "SELECT max(snapshot) must return 1 row after first commit"
+    );
+
+    // Session 2
+    executor::execute_sql("BEGIN", &empty_params, &store, &mut session)
+        .await
+        .unwrap();
+    let params2 = ParamValues::new(vec![
+        Some("user".to_string()),
+        Some("session-2".to_string()),
+    ]);
+    executor::execute_sql(
+        "INSERT INTO ducklake_snapshot (snapshot_id, author, message) VALUES ($1, $2, $3)",
+        &params2,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    executor::execute_sql("COMMIT", &empty_params, &store, &mut session)
+        .await
+        .unwrap();
+
+    // After session 2: SELECT max(snapshot) must return 1 row
+    let r2 = executor::execute_sql(
+        "SELECT max(snapshot_id) FROM ducklake_snapshot",
+        &empty_params,
+        &store,
+        &mut session,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        r2.len(),
+        1,
+        "SELECT max(snapshot) must return 1 row after second commit"
+    );
+}
