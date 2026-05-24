@@ -76,7 +76,7 @@ Excision is **irreversible**. Once the bytes are deleted from object storage, th
 ### Phase 1: Advance Horizon
 
 ```bash
-slateduck gc --storage s3://bucket/catalog/ --retain-days 30
+slateduck gc --catalog s3://bucket/catalog/ --retain-days 30
 ```
 
 This command:
@@ -103,7 +103,7 @@ Garbage Collection Summary:
 Always preview before running GC in production:
 
 ```bash
-slateduck gc --storage s3://bucket/catalog/ --retain-days 30 --dry-run
+slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 --dry-run
 ```
 
 Dry run performs all calculations but does not write anything. It shows exactly what would happen.
@@ -113,7 +113,7 @@ Dry run performs all calculations but does not write anything. It shows exactly 
 After advancing the horizon, optionally run excision to reclaim physical storage:
 
 ```bash
-slateduck excise --storage s3://bucket/catalog/
+slateduck excise --catalog s3://bucket/catalog/
 ```
 
 This scans all keys, identifies pairs that are invisible to all valid readers, and deletes them. See the [Excision](excision.md) page for full details.
@@ -201,7 +201,7 @@ Description=SlateDuck GC Run
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/slateduck gc --storage s3://bucket/catalog/ --retain-days 30
+ExecStart=/usr/local/bin/slateduck gc --catalog s3://bucket/catalog/ --retain-days 30
 Environment=AWS_REGION=us-east-1
 ```
 
@@ -209,7 +209,7 @@ Environment=AWS_REGION=us-east-1
 
 ```bash
 # Daily GC at 3 AM
-0 3 * * * /usr/local/bin/slateduck gc --storage s3://bucket/catalog/ --retain-days 30 >> /var/log/slateduck-gc.log 2>&1
+0 3 * * * /usr/local/bin/slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 >> /var/log/slateduck-gc.log 2>&1
 ```
 
 ## Pinned Snapshots
@@ -226,13 +226,13 @@ Pinned snapshots prevent GC from advancing the retention horizon past them. This
 
 ```bash
 # Pin a snapshot (prevents GC from advancing past it)
-slateduck pin-snapshot --storage s3://bucket/catalog/ --snapshot-id 500
+slateduck pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
 
 # List all pinned snapshots
-slateduck list-pins --storage s3://bucket/catalog/
+slateduck list-pins --catalog s3://bucket/catalog/
 
 # Unpin when no longer needed
-slateduck unpin-snapshot --storage s3://bucket/catalog/ --snapshot-id 500
+slateduck unpin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
 ```
 
 ### GC Behavior with Pins
@@ -240,7 +240,7 @@ slateduck unpin-snapshot --storage s3://bucket/catalog/ --snapshot-id 500
 If GC encounters a pinned snapshot within the target retention window:
 
 ```bash
-slateduck gc --storage s3://bucket/catalog/ --retain-days 7
+slateduck gc --catalog s3://bucket/catalog/ --retain-days 7
 # WARNING: Cannot advance past snapshot 450 (pinned since 2024-12-10)
 # Advancing retain_from to 449 instead of requested 650
 ```
@@ -252,7 +252,7 @@ GC advances as far as it can without violating any pin. It does not fail — it 
 For safety, pins can have an expiry:
 
 ```bash
-slateduck pin-snapshot --storage s3://bucket/catalog/ --snapshot-id 500 --expires 72h
+slateduck pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500 --expires 72h
 ```
 
 After 72 hours, the pin is automatically removed and GC can proceed past it.
@@ -262,7 +262,7 @@ After 72 hours, the pin is automatically removed and GC can proceed past it.
 ### Estimating Reclaimable Space
 
 ```bash
-slateduck gc --storage s3://bucket/catalog/ --retain-days 30 --analyze
+slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 --analyze
 ```
 
 Output:
@@ -338,7 +338,7 @@ The improvement comes from reading fewer SST blocks during scans.
 A pinned snapshot is preventing GC. List pins and determine if they are still needed:
 
 ```bash
-slateduck list-pins --storage s3://bucket/catalog/
+slateduck list-pins --catalog s3://bucket/catalog/
 ```
 
 ### "GC completed but catalog size unchanged"
@@ -346,7 +346,7 @@ slateduck list-pins --storage s3://bucket/catalog/
 GC only advances the horizon. You need to run excision to actually delete bytes:
 
 ```bash
-slateduck excise --storage s3://bucket/catalog/
+slateduck excise --catalog s3://bucket/catalog/
 ```
 
 ### "Excision running slowly"

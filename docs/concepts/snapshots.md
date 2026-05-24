@@ -105,7 +105,7 @@ While infinite time travel is the default, operators can choose to limit how far
 
 ```bash
 # Set the query horizon to 30 days ago
-slateduck gc advance --retain-days 30 --storage s3://bucket/catalog/
+slateduck gc advance --retain-days 30 --catalog s3://bucket/catalog/
 ```
 
 After this command, queries at snapshots older than 30 days return an error:
@@ -131,13 +131,13 @@ Sometimes you need to prevent the retention horizon from advancing past a specif
 SlateDuck supports pinned snapshots for this use case:
 
 ```bash
-slateduck pin-snapshot --storage s3://bucket/catalog/ --snapshot-id 42 --reason "Quarterly audit"
+slateduck pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 42 --reason "Quarterly audit"
 ```
 
 A pinned snapshot prevents `gc advance` from moving `retain-from` past snapshot 42. The pin must be explicitly removed when no longer needed:
 
 ```bash
-slateduck unpin-snapshot --storage s3://bucket/catalog/ --snapshot-id 42
+slateduck unpin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 42
 ```
 
 Pinned snapshots also block excision: `slateduck excise` will refuse to remove data that a pinned snapshot might need. This ensures that pinned snapshots remain fully queryable regardless of GC activity.

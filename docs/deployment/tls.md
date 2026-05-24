@@ -23,7 +23,7 @@ Provide a certificate and private key:
 
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/slateduck/tls/server.crt \
     --tls-key /etc/slateduck/tls/server.key
@@ -34,7 +34,7 @@ Or via environment variables:
 ```bash
 export SLATEDUCK_TLS_CERT=/etc/slateduck/tls/server.crt
 export SLATEDUCK_TLS_KEY=/etc/slateduck/tls/server.key
-slateduck --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 ### TLS Behavior
@@ -197,7 +197,7 @@ Mutual TLS requires clients to present a certificate that the server verifies. T
 
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/slateduck/tls/server.crt \
     --tls-key /etc/slateduck/tls/server.key \
@@ -367,9 +367,152 @@ openssl s_client -connect slateduck.example.com:5432 -starttls postgres
 echo | openssl s_client -connect slateduck.example.com:5432 -starttls postgres 2>/dev/null | openssl x509 -noout -text
 ```
 
+## Authentication Strategies
+
+TLS encrypts the channel; authentication determines who can use it. SlateDuck supports three authentication models, which can be combined.
+
+### Password Authentication
+
+The simplest model: DuckDB provides a password when connecting, and SlateDuck verifies it. Enable by setting `--auth-user` and `--auth-password` (or `SLATEDUCK_AUTH_PASSWORD`):
+
+```bash
+slateduck serve \
+  --catalog s3://my-bucket/catalog/ \
+  --bind 0.0.0.0:5432 \
+  --auth-user ducklake \
+  --tls-cert /etc/slateduck/tls/server.crt \
+  --tls-key /etc/slateduck/tls/server.key
+```
+
+DuckDB connects with:
+
+```sql
+ATTACH 'ducklake:host=slateduck.example.com;port=5432;user=ducklake;password=my-token;sslmode=require' AS lake;
+```
+
+**Important:** Password authentication provides no real security without TLS. The password would be transmitted in plaintext and trivially intercepted. Always combine password authentication with at least `sslmode=require`.
+
+### Certificate-Only Authentication (mTLS)
+
+With mutual TLS configured, the client certificate itself proves identity — no password is needed. This is the preferred model for service-to-service connections (ETL pipelines, automated jobs) because:
+
+- Certificates can be rotated without code changes
+- No shared secret to accidentally expose in logs or config files
+- Certificate identity is auditable (the CN/SAN identifies the connecting service)
+
+To use certificate-only auth, configure mTLS and do not set `--auth-password`:
+
+```bash
+slateduck serve \
+  --catalog s3://my-bucket/catalog/ \
+  --bind 0.0.0.0:5432 \
+  --tls-cert server.crt \
+  --tls-key server.key \
+  --tls-ca client-ca.crt
+  # No --auth-password: certificate IS the authentication
+```
+
+### Combined: Certificate + Password
+
+For environments requiring two factors, configure both mTLS and password authentication. A connecting client must present a valid certificate AND the correct password:
+
+```bash
+slateduck serve \
+  --catalog s3://my-bucket/catalog/ \
+  --bind 0.0.0.0:5432 \
+  --tls-cert server.crt \
+  --tls-key server.key \
+  --tls-ca client-ca.crt \
+  --auth-user ducklake
+  # SLATEDUCK_AUTH_PASSWORD set in environment
+```
+
+This satisfies strict compliance requirements (PCI-DSS, HIPAA) that mandate multi-factor authentication for privileged system access.
+
+### No Authentication (Development Only)
+
+In local development, running SlateDuck without any authentication is fine:
+
+```bash
+# Local development: no TLS, no auth
+slateduck serve --catalog ./dev-catalog --bind 127.0.0.1:5432
+```
+
+Never expose an unauthenticated SlateDuck instance on a non-loopback address. Even within a private network, the absence of authentication means any host on that network can modify your catalog.
+
+## TLS in Containerized Environments
+
+### Docker Compose
+
+Mount certificates as a read-only volume:
+
+```yaml
+services:
+  slateduck:
+    image: ghcr.io/slateduck/slateduck:latest
+    command: >
+      serve
+      --catalog s3://my-bucket/catalog/
+      --bind 0.0.0.0:5432
+      --tls-cert /etc/slateduck/tls/server.crt
+      --tls-key /etc/slateduck/tls/server.key
+    volumes:
+      - ./certs:/etc/slateduck/tls:ro
+    environment:
+      SLATEDUCK_AUTH_PASSWORD: "${AUTH_PASSWORD}"
+      AWS_REGION: us-east-1
+```
+
+Generate the certificates once during local setup:
+
+```bash
+mkdir -p ./certs
+openssl req -x509 -newkey rsa:4096 -keyout ./certs/server.key \
+  -out ./certs/server.crt -days 365 -nodes \
+  -subj '/CN=slateduck' \
+  -addext 'subjectAltName=DNS:slateduck,DNS:localhost,IP:127.0.0.1'
+```
+
+### Reading Cert Paths from Secrets
+
+For production Docker deployments, use Docker Secrets or environment variables pointing at mounted secret files — never bake certificate paths into the image:
+
+```yaml
+services:
+  slateduck:
+    environment:
+      SLATEDUCK_TLS_CERT: /run/secrets/server_crt
+      SLATEDUCK_TLS_KEY: /run/secrets/server_key
+    secrets:
+      - server_crt
+      - server_key
+
+secrets:
+  server_crt:
+    file: ./certs/server.crt
+  server_key:
+    file: ./certs/server.key
+```
+
 ## Further Reading
 
 - **[Networking](networking.md)** — Network topology and firewall configuration
 - **[Configuration](configuration.md)** — TLS-related configuration options
 - **[Kubernetes](kubernetes.md)** — cert-manager integration
 - **[High Availability](high-availability.md)** — TLS with load balancers and failover
+- **[Credential Isolation](credential-isolation.md)** — IAM/RBAC separation for catalog and data planes
+
+## TLS Quick-Reference Checklist
+
+Use this checklist before going to production:
+
+- [ ] Server certificate has the correct hostname in its Subject Alternative Name (SAN)
+- [ ] Certificate is signed by a CA that your DuckDB clients trust
+- [ ] Private key file has restricted permissions (`chmod 600 server.key`)
+- [ ] `sslmode=require` or stronger configured on all DuckDB connection strings
+- [ ] `--tls-required` enabled if you want to reject plaintext connections entirely
+- [ ] Certificate expiry monitoring in place (alert at 30 days, critical at 7 days)
+- [ ] Certificate rotation tested in staging before production rollout
+- [ ] For mTLS: client CA certificate distributed to all SlateDuck instances
+- [ ] For mTLS: each automated client has a unique CN/SAN for audit purposes
+- [ ] Authentication password set via environment variable, not command-line flag

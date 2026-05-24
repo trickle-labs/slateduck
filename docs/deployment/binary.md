@@ -70,7 +70,7 @@ Building from source requires Rust 1.75+ and takes approximately 60–90 seconds
 For local development and testing, point SlateDuck at a filesystem path:
 
 ```bash
-slateduck --storage ./my-catalog --bind 127.0.0.1:5432
+slateduck serve --catalog ./my-catalog --bind 127.0.0.1:5432
 ```
 
 This creates the catalog in the `./my-catalog` directory. Data is stored as files on the local filesystem using SlateDB's filesystem object store backend. This is fast (no network latency) but not durable beyond the local machine.
@@ -81,13 +81,13 @@ For production, point SlateDuck at a cloud storage location:
 
 ```bash
 # AWS S3
-AWS_REGION=us-east-1 slateduck --storage s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+AWS_REGION=us-east-1 slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Google Cloud Storage
-slateduck --storage gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Azure Blob Storage
-slateduck --storage az://my-container/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
 ```
 
 The process runs in the foreground by default, logging to stderr. For background operation, use your operating system's process management (systemd, launchd, supervisord).
@@ -96,7 +96,7 @@ The process runs in the foreground by default, logging to stderr. For background
 
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \   # Required: where to store catalog data
+    --catalog s3://bucket/catalog/ \   # Required: where to store catalog data
     --bind 0.0.0.0:5432 \             # Listen address and port (default: 127.0.0.1:5432)
     --tls-cert /path/to/cert.pem \    # Optional: TLS certificate
     --tls-key /path/to/key.pem \      # Optional: TLS private key
@@ -130,7 +130,7 @@ Type=simple
 User=slateduck
 Group=slateduck
 ExecStart=/usr/local/bin/slateduck \
-    --storage s3://my-lakehouse-bucket/catalog/ \
+    --catalog s3://my-lakehouse-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/slateduck/tls/cert.pem \
     --tls-key /etc/slateduck/tls/key.pem \
@@ -339,10 +339,10 @@ Bind SlateDuck to a private interface unless external access is required:
 
 ```bash
 # Only accessible from localhost (development)
-slateduck --storage s3://bucket/catalog/ --bind 127.0.0.1:5432
+slateduck serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
 
 # Only accessible from private network (production)
-slateduck --storage s3://bucket/catalog/ --bind 10.0.1.5:5432
+slateduck serve --catalog s3://bucket/catalog/ --bind 10.0.1.5:5432
 ```
 
 If external access is needed, place SlateDuck behind a reverse proxy or cloud load balancer with TLS termination and IP allowlisting.

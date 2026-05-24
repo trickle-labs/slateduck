@@ -77,7 +77,7 @@ primary_region = "iad"
 
 # Process command
 [processes]
-  app = "--storage s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake"
+  app = "--catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake"
 ```
 
 ### With Auto-Stop (Scale to Zero)
@@ -194,21 +194,21 @@ fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
     --region iad \
     --env SLATEDUCK_STORAGE=s3://my-bucket/catalog/ \
     --env AWS_REGION=us-east-1 \
-    -- --storage s3://my-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake
+    -- --catalog s3://my-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake
 
 # Read replica in Paris
 fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
     --region cdg \
     --env SLATEDUCK_STORAGE=s3://my-bucket-eu/catalog/ \
     --env AWS_REGION=eu-west-1 \
-    -- --storage s3://my-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
+    -- --catalog s3://my-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
 
 # Read replica in Singapore
 fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
     --region sin \
     --env SLATEDUCK_STORAGE=s3://my-bucket-ap/catalog/ \
     --env AWS_REGION=ap-southeast-1 \
-    -- --storage s3://my-bucket-ap/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
+    -- --catalog s3://my-bucket-ap/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
 ```
 
 ### Fly Region Replay (Experimental)
@@ -420,7 +420,7 @@ kill_timeout = "30s"
   SLATEDUCK_METRICS_PORT = "9090"
 
 [processes]
-  app = "--storage s3://my-production-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake"
+  app = "--catalog s3://my-production-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake"
 
 [[services]]
   protocol = "tcp"

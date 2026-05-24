@@ -161,7 +161,7 @@ If you regularly need to query catalog metadata for analytics (data governance d
 
 ```bash
 # Export to NDJSON
-slateduck export --storage s3://bucket/catalog/ --output catalog.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output catalog.ndjson
 
 # Then query with DuckDB
 duckdb -c "SELECT * FROM read_ndjson('catalog.ndjson') WHERE ..."

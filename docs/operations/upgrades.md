@@ -45,13 +45,13 @@ Before upgrading, complete these steps:
 ```bash
 # 1. Check current version and catalog state
 slateduck --version
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 
 # 2. Read the release notes for the target version
 # Pay attention to: format migrations, breaking changes, deprecations
 
 # 3. Take a backup (critical for format migrations)
-slateduck export --storage s3://bucket/catalog/ --output pre-upgrade-backup.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output pre-upgrade-backup.ndjson
 
 # 4. Verify the backup
 wc -l pre-upgrade-backup.ndjson
@@ -77,11 +77,11 @@ chmod +x /usr/local/bin/slateduck
 
 # 3. Start the new version
 systemctl start slateduck
-# or: slateduck serve --storage s3://bucket/catalog/
+# or: slateduck serve --catalog s3://bucket/catalog/
 
 # 4. Verify
 slateduck --version
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 ```
 
 ### Docker
@@ -137,7 +137,7 @@ kubectl rollout status deployment/slateduck
 
 # Verify
 kubectl exec deployment/slateduck -- slateduck --version
-kubectl exec deployment/slateduck -- slateduck inspect --storage s3://bucket/catalog/
+kubectl exec deployment/slateduck -- slateduck inspect --catalog s3://bucket/catalog/
 ```
 
 ### Fly.io
@@ -148,7 +148,7 @@ fly deploy --image ghcr.io/slateduck/slateduck:0.9.0
 
 # Verify
 fly ssh console -C "slateduck --version"
-fly ssh console -C "slateduck inspect --storage s3://bucket/catalog/"
+fly ssh console -C "slateduck inspect --catalog s3://bucket/catalog/"
 ```
 
 ## Format Migrations
@@ -173,10 +173,10 @@ For complex migrations (announced in release notes):
 
 ```bash
 # Run the migration tool explicitly
-slateduck migrate --storage s3://bucket/catalog/ --target-version 2
+slateduck migrate --catalog s3://bucket/catalog/ --target-version 2
 
 # Verify
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 ```
 
 ### Migration Duration
@@ -210,7 +210,7 @@ If a format migration was applied, you cannot simply use the old binary (it will
 1. **Restore from NDJSON backup** (recommended):
    ```bash
    # Initialize a new catalog with the old binary
-   slateduck import --storage s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
+   slateduck import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
    # Point your application to the restored catalog
    ```
 
@@ -245,10 +245,10 @@ For environments requiring minimal disruption:
 
 ```bash
 # Start new instance on a different port
-slateduck serve --storage s3://bucket/catalog/ --bind 0.0.0.0:5433
+slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5433
 
 # Verify it claimed the epoch
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.writer_epoch'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
 
 # Update load balancer to point to new port
 # ...
@@ -272,14 +272,14 @@ Before upgrading production, test in a staging environment:
 
 ```bash
 # Copy production catalog to staging
-slateduck export --storage s3://prod-bucket/catalog/ --output prod-snapshot.ndjson
-slateduck import --storage s3://staging-bucket/catalog/ --input prod-snapshot.ndjson
+slateduck export --catalog s3://prod-bucket/catalog/ --output prod-snapshot.ndjson
+slateduck import --catalog s3://staging-bucket/catalog/ --input prod-snapshot.ndjson
 
 # Upgrade staging
 # ... (follow upgrade procedure)
 
 # Run integration tests against staging
-slateduck verify --storage s3://staging-bucket/catalog/
+slateduck verify --catalog s3://staging-bucket/catalog/
 # Run your application's test suite
 ```
 
@@ -295,7 +295,7 @@ slateduck --version
 # Expected: the target version
 
 # 2. Catalog health
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 # Expected: all entity counts match pre-upgrade values
 
 # 3. Verify connectivity
@@ -320,7 +320,7 @@ After a format migration, run a representative workload to confirm performance c
 
 ```bash
 # Run the benchmark suite against the migrated catalog
-slateduck bench --storage s3://bucket/catalog/ --operations 1000
+slateduck bench --catalog s3://bucket/catalog/ --operations 1000
 
 # Compare with baseline
 # Look for: point-read latency, prefix scan throughput, write batch commit time
@@ -335,7 +335,7 @@ slateduck bench --storage s3://bucket/catalog/ --operations 1000
 This means the new binary requires a format version higher than what exists on disk, and automatic migration did not run. Explicitly trigger migration:
 
 ```bash
-slateduck migrate --storage s3://bucket/catalog/ --target-version 2
+slateduck migrate --catalog s3://bucket/catalog/ --target-version 2
 ```
 
 ### DuckDB Clients Get "Connection Refused" After Upgrade

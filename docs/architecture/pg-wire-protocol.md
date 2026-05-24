@@ -223,7 +223,7 @@ TLS is configured via command-line arguments:
 
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /path/to/certificate.pem \
     --tls-key /path/to/private-key.pem

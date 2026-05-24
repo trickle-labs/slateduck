@@ -123,19 +123,19 @@ Point SlateDuck at your cloud storage location using the appropriate URI scheme:
 === "AWS S3"
 
     ```bash
-    slateduck --storage s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+    slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
     ```
 
 === "Google Cloud Storage"
 
     ```bash
-    slateduck --storage gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+    slateduck serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
     ```
 
 === "Azure Blob Storage"
 
     ```bash
-    slateduck --storage az://my-container/catalog/ --bind 0.0.0.0:5432
+    slateduck serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
     ```
 
 On first start against an empty prefix, SlateDuck initializes a new catalog. This creates the SlateDB manifest file, the initial WAL entry, and the system keys (counters, configuration). The initialization involves approximately 3–5 PUT requests and completes in under a second on all major providers.
@@ -249,7 +249,7 @@ To prove that the catalog is truly durable, stop SlateDuck and restart it:
 ```bash
 # Stop SlateDuck (Ctrl+C or kill the process)
 # Start it again
-slateduck --storage s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 Reconnect from DuckDB and verify your data is still there:
@@ -291,7 +291,7 @@ For interactive workloads (running queries in a notebook, exploring schemas), S3
 If you need the lowest possible latency on AWS, S3 Express One Zone (directory buckets) provides single-digit millisecond access. This is particularly valuable for interactive development workflows where you want catalog operations to feel instantaneous.
 
 ```bash
-slateduck --storage s3express://my-express-bucket--use1-az1--x-s3/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog s3express://my-express-bucket--use1-az1--x-s3/catalog/ --bind 0.0.0.0:5432
 ```
 
 Express One Zone costs more per GB stored and per request than S3 Standard, but for a catalog that typically occupies less than 100 MB, the cost difference is negligible (cents per month). The latency improvement — from ~100ms per operation to ~10ms — dramatically improves the interactive experience.
@@ -304,7 +304,7 @@ For any deployment accessible over a network (not just localhost), you should en
 
 ```bash
 slateduck \
-    --storage s3://my-lakehouse-bucket/catalog/ \
+    --catalog s3://my-lakehouse-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/ssl/certs/slateduck.crt \
     --tls-key /etc/ssl/private/slateduck.key \
@@ -335,10 +335,10 @@ One of the most powerful features of a cloud-native catalog is the ability to de
 
 ```bash
 # Writer in us-east-1
-slateduck --storage s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Reader in eu-west-1 (using cross-region S3 access or bucket replication)
-slateduck --storage s3://my-lakehouse-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only
+slateduck serve --catalog s3://my-lakehouse-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only
 ```
 
 Readers in different regions see a slightly stale view of the catalog (the staleness is bounded by object storage replication lag, typically seconds). For analytics workloads, this is perfectly acceptable and provides dramatically lower query latency for users in distant regions.

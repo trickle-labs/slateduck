@@ -34,7 +34,7 @@ docker run -d \
   -e AWS_ACCESS_KEY_ID=your-key \
   -e AWS_SECRET_ACCESS_KEY=your-secret \
   ghcr.io/slateduck/slateduck:latest \
-  --storage s3://my-bucket/catalog/ \
+  --catalog s3://my-bucket/catalog/ \
   --bind 0.0.0.0:5432
 ```
 
@@ -378,7 +378,7 @@ For AWS credentials in production, prefer IAM roles (ECS task roles, EKS IRSA) o
 ```bash
 docker run --network host \
   ghcr.io/slateduck/slateduck:latest \
-  --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+  --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 Useful for bare-metal deployments where Docker provides isolation but not networking.
@@ -485,7 +485,7 @@ docker run -d \
     -e SLATEDUCK_LOG_FORMAT=json \
     -e RUST_LOG=slateduck=info \
     ghcr.io/slateduck/slateduck:0.8.0 \
-    --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+    --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 JSON logs work natively with Docker's logging drivers (fluentd, gelf, awslogs) and can be parsed by any log aggregation system without custom grok patterns.
@@ -512,7 +512,7 @@ docker run -d \
     --log-opt max-file=3 \
     --name slateduck \
     ghcr.io/slateduck/slateduck:0.8.0 \
-    --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+    --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 ### Correlating Logs with Queries
@@ -524,7 +524,7 @@ docker run -d \
     --name slateduck \
     -e RUST_LOG=slateduck_pgwire=debug,slateduck=info \
     ghcr.io/slateduck/slateduck:0.8.0 \
-    --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+    --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 This produces log lines with session IDs that can be correlated with DuckDB client connections for debugging.
@@ -546,7 +546,7 @@ services:
       - AWS_REGION=us-east-1
       - RUST_LOG=slateduck=debug
     command: >
-      --storage s3://lakehouse/catalog/
+      --catalog s3://lakehouse/catalog/
       --bind 0.0.0.0:5432
       --s3-endpoint http://minio:9000
       --s3-force-path-style

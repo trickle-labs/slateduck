@@ -186,7 +186,7 @@ SELECT * FROM ducklake_schemas WHERE schema_name LIKE 'analytics%';
 **Mitigation:** Export the catalog to NDJSON and query it with DuckDB directly:
 
 ```bash
-slateduck export --storage s3://bucket/catalog/ --output catalog.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output catalog.ndjson
 duckdb -c "SELECT * FROM read_ndjson('catalog.ndjson') WHERE table = 'ducklake_schemas'"
 ```
 

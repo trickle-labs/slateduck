@@ -51,7 +51,7 @@ DuckDB → localhost:5432 → SlateDuck → (internet) → S3
 
 **Configuration:**
 ```bash
-slateduck --storage s3://bucket/catalog/ --bind 127.0.0.1:5432
+slateduck serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
 ```
 
 **Security:** No network exposure. Only processes on the same machine can connect. Ideal for development and testing.
@@ -68,7 +68,7 @@ DuckDB (10.0.1.x) → slateduck.internal:5432 → SlateDuck (10.0.2.x) → VPC E
 
 **Configuration:**
 ```bash
-slateduck --storage s3://bucket/catalog/ --bind 0.0.0.0:5432
+slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 **Security:** Security group rules restrict inbound to port 5432 from the DuckDB client subnet. Outbound restricted to the VPC endpoint for S3.
@@ -106,7 +106,7 @@ DuckDB (anywhere) → (internet) → [LB] → SlateDuck → S3
 **Configuration:**
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/slateduck/cert.pem \
     --tls-key /etc/slateduck/key.pem \

@@ -19,7 +19,7 @@ Over the next several months, the business will evolve: new columns will be need
 Start SlateDuck with local storage for this tutorial. Everything you learn here applies identically to cloud storage — the only difference is the `--storage` path:
 
 ```bash
-slateduck --storage file:///tmp/techmart-lakehouse --bind 127.0.0.1:5432
+slateduck serve --catalog file:///tmp/techmart-lakehouse --bind 127.0.0.1:5432
 ```
 
 In a separate terminal, open DuckDB and connect:
@@ -331,14 +331,14 @@ After several months of operation, the catalog has accumulated many snapshots. M
 
 ```bash
 # Check current state
-slateduck inspect --storage file:///tmp/techmart-lakehouse
+slateduck inspect --catalog file:///tmp/techmart-lakehouse
 ```
 
 This shows you the current snapshot count, storage usage, and retention configuration.
 
 ```bash
 # Advance the retention horizon to 30 days
-slateduck gc advance --storage file:///tmp/techmart-lakehouse --retain-days 30
+slateduck gc advance --catalog file:///tmp/techmart-lakehouse --retain-days 30
 ```
 
 After this command:
@@ -351,7 +351,7 @@ If you also want to reclaim storage (optional and irreversible):
 
 ```bash
 # Physically remove superseded rows older than the horizon
-slateduck excise --storage file:///tmp/techmart-lakehouse
+slateduck excise --catalog file:///tmp/techmart-lakehouse
 ```
 
 Excision deletes key-value pairs from SlateDB that are no longer needed — old versions of columns that have been superseded, data file entries that have been deleted, and snapshot records older than the horizon. This is the only destructive operation in SlateDuck, and it requires explicit invocation.
@@ -361,8 +361,8 @@ Excision deletes key-value pairs from SlateDB that are no longer needed — old 
 Before running GC, you might want to pin specific snapshots that should never be garbage collected — for example, the snapshot at the end of each fiscal quarter:
 
 ```bash
-slateduck pin-snapshot --storage file:///tmp/techmart-lakehouse --snapshot-id 10 --reason "Q1 2024 close"
-slateduck pin-snapshot --storage file:///tmp/techmart-lakehouse --snapshot-id 18 --reason "Q2 2024 close"
+slateduck pin-snapshot --catalog file:///tmp/techmart-lakehouse --snapshot-id 10 --reason "Q1 2024 close"
+slateduck pin-snapshot --catalog file:///tmp/techmart-lakehouse --snapshot-id 18 --reason "Q2 2024 close"
 ```
 
 Pinned snapshots are protected from both horizon advancement and excision. They remain queryable indefinitely until explicitly unpinned.
@@ -372,7 +372,7 @@ Pinned snapshots are protected from both horizon advancement and excision. They 
 At any point, you can inspect the internal state of the catalog to understand its health and contents:
 
 ```bash
-slateduck inspect --storage file:///tmp/techmart-lakehouse
+slateduck inspect --catalog file:///tmp/techmart-lakehouse
 ```
 
 Expected output (approximately):

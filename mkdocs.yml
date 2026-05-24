@@ -138,6 +138,10 @@ nav:
     - Time Travel: concepts/snapshots.md
     - Horizontal Read Scale-Out: concepts/single-writer-many-readers.md
     - Writer Fencing: concepts/writer-fencing.md
+    - Catalog vs Data Plane: concepts/catalog-vs-data.md
+    - Bounded SQL: concepts/bounded-sql.md
+    - Key-Value Mapping: concepts/key-value-mapping.md
+    - Object Store Durability: concepts/object-store-durability.md
     - Fact Store Vision: concepts/fact-store-vision.md
   - Architecture:
     - architecture/index.md
@@ -149,6 +153,7 @@ nav:
     - PG-Wire Protocol: architecture/pg-wire-protocol.md
     - Transaction Model: architecture/transaction-model.md
     - MVCC Implementation: architecture/mvcc-implementation.md
+    - Counter Allocation: architecture/counter-allocation.md
   - Deployment:
     - deployment/index.md
     - Binary: deployment/binary.md
@@ -160,9 +165,15 @@ nav:
     - Lambda / Serverless: deployment/lambda.md
     - Multi-Region: deployment/multi-region.md
     - Networking: deployment/networking.md
-    - TLS: deployment/tls.md
+    - TLS & Authentication: deployment/tls.md
+    - AWS S3: deployment/aws-s3.md
+    - Google Cloud Storage: deployment/gcs.md
+    - Azure Blob Storage: deployment/azure.md
+    - MinIO: deployment/minio.md
+    - Credential Isolation: deployment/credential-isolation.md
   - Operations:
     - operations/index.md
+    - CLI Reference: operations/cli-reference.md
     - Backup & Restore: operations/backup-restore.md
     - Excision: operations/excision.md
     - Export: operations/export.md

@@ -74,7 +74,7 @@ These checks ensure you cannot accidentally delete data that readers still need.
 Always start with a dry run to understand the impact:
 
 ```bash
-slateduck excise --storage s3://bucket/catalog/ --before-snapshot 1000 --dry-run
+slateduck excise --catalog s3://bucket/catalog/ --before-snapshot 1000 --dry-run
 ```
 
 Output:
@@ -103,14 +103,14 @@ Excision Dry Run:
 Before excision, create an NDJSON export as a safety net:
 
 ```bash
-slateduck export --storage s3://bucket/catalog/ --output pre-excision-backup.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output pre-excision-backup.ndjson
 ```
 
 ### Step 3: Execute
 
 ```bash
 slateduck excise \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --before-snapshot 1000 \
     --operator "ops-team@company.com" \
     --reason "GDPR compliance request #12345" \
@@ -133,11 +133,11 @@ Excision completed:
 
 ```bash
 # Confirm the excised data is gone
-slateduck inspect --storage s3://bucket/catalog/ --key "t/5/v/800"
+slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/v/800"
 # Key not found (expected)
 
 # Confirm live data is unaffected
-slateduck inspect --storage s3://bucket/catalog/ --key "t/5/latest"
+slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/latest"
 # Found: table_id=5, name="events", ...
 ```
 
@@ -166,7 +166,7 @@ Every excision creates a permanent audit entry stored under the `0xFF|audit` pre
 ### Viewing Audit History
 
 ```bash
-slateduck audit --storage s3://bucket/catalog/
+slateduck audit --catalog s3://bucket/catalog/
 
 # Output:
 # Timestamp            Type       Rows    Operator
@@ -181,7 +181,7 @@ For GDPR right-to-erasure requests targeting specific entities:
 ```bash
 # Excise all versions of a specific table's metadata
 slateduck excise \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --table-id 42 \
     --all-versions \
     --operator "privacy@company.com" \
@@ -276,7 +276,7 @@ For operators planning excision of large row counts, it is advisable to trigger 
 
 ```bash
 # After excision, force compaction to reclaim space immediately
-slateduck compact --storage s3://bucket/catalog/ --full
+slateduck compact --catalog s3://bucket/catalog/ --full
 ```
 
 ### Concurrent Operations During Excision

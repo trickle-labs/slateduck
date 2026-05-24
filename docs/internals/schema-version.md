@@ -154,7 +154,7 @@ A migration tool exports the catalog state, creates a fresh format-2 catalog, an
 
 ```
 1. Run: slateduck export --format v1 --output catalog-v1.ndjson
-2. Run: slateduck import --format v2 --input catalog-v1.ndjson --storage new-path
+2. Run: slateduck import --format v2 --input catalog-v1.ndjson --catalog new-path
 3. Switch to new catalog path
 4. (Optionally) archive old catalog
 ```

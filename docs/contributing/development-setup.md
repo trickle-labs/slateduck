@@ -174,7 +174,7 @@ For end-to-end testing, run a local SlateDuck instance:
 
 ```bash
 # Start SlateDuck with local filesystem storage
-cargo run -- --storage ./dev-catalog --bind 127.0.0.1:5432
+cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5432
 
 # In another terminal, connect with psql
 psql -h 127.0.0.1 -p 5432 -U slateduck
@@ -204,7 +204,7 @@ mc mb local/slateduck-dev
 AWS_ACCESS_KEY_ID=minioadmin \
 AWS_SECRET_ACCESS_KEY=minioadmin \
 AWS_ENDPOINT_URL=http://localhost:9000 \
-cargo run -- --storage s3://slateduck-dev/catalog/ --bind 127.0.0.1:5432
+cargo run -- serve --catalog s3://slateduck-dev/catalog/ --bind 127.0.0.1:5432
 ```
 
 ## Editor Setup
@@ -366,7 +366,7 @@ If SlateDuck fails to start with "address already in use":
 lsof -i :5432
 
 # Use a different port
-cargo run -- --storage ./dev-catalog --bind 127.0.0.1:5433
+cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5433
 ```
 
 ## Common Development Tasks
@@ -377,7 +377,7 @@ When you need to capture new SQL patterns from DuckDB:
 
 ```bash
 # Start SlateDuck with verbose protocol logging
-RUST_LOG=slateduck_pgwire=trace cargo run -- --storage ./dev-catalog --bind 127.0.0.1:5433
+RUST_LOG=slateduck_pgwire=trace cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5433
 
 # In another terminal, run DuckDB with the new operation
 duckdb -c "
@@ -411,7 +411,7 @@ cargo flamegraph --bench catalog_bench -- --bench prefix_scan
 
 # Or profile the running server
 cargo build --release
-flamegraph -- ./target/release/slateduck --storage ./bench-catalog
+flamegraph -- ./target/release/slateduck serve --catalog ./bench-catalog
 ```
 
 ### Inspecting Storage Contents

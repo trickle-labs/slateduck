@@ -83,6 +83,27 @@ At a deeper level, the fact store vision rests on an observation about how organ
 
 An immutable fact store preserves everything by default and provides temporal queries as the natural read mode. The current state is just the most recent version. The historical state is just an older version. Both are equally accessible, equally fast, equally reliable. This is not a new idea — Datomic, Event Store, and various event-sourcing architectures have explored it — but SlateDuck's contribution is hosting it on commodity object storage with no infrastructure beyond a bucket, using the same operational model (single-writer, infinite readers, audited excision) that has proven correct and practical for the DuckLake use case.
 
+## Why "Fact Store" Rather Than "Event Store"
+
+The terminology matters. An event store records *events* — things that happened. An event store for an e-commerce system might record `OrderPlaced`, `ItemShipped`, `PaymentReceived`. To find the current state of an order, you replay the events. This is powerful but expensive: replay time grows with history length, and you must model every state transition explicitly as an event type.
+
+A fact store records *facts* — assertions about what is true, valid at a specific version. A fact store entry might be `user:42 has email alice@example.com (begin_version=100, end_version=NULL)`. Finding the current state is a key lookup, not a replay. Finding the historical state is the same key lookup with an older version filter. There is no event replay, no projection logic, no materialized view needed.
+
+SlateDuck uses the fact model because catalog data is naturally factual: "table X exists with these columns" is an assertion about a state of affairs, not an event in a stream. The snapshot ID is a version counter, not a timestamp of occurrence. This framing keeps the data model simple, queries fast, and the storage format elegant — there is no event schema to design, no projection to materialize, and no replay budget to worry about.
+
+## Conclusion
+
+The fact store vision is not a product announcement. It is an architectural compass — a direction that explains why certain current decisions are made the way they are, and where the project aspires to go. Today, SlateDuck uses this substrate exclusively for DuckLake. Tomorrow, it might support other schemas. The infrastructure is ready. The abstractions are clean. When the use case arrives, the foundation will be there.
+
+If you are building something that would benefit from an immutable, temporally-queryable, object-storage-backed fact store, we would love to hear about it. Open an issue or discussion on GitHub — that conversation shapes the roadmap more than any internal planning document.
+
+## Further Reading
+
+- **[Catalog Immutability](immutability.md)** — The current implementation of the immutability principle for DuckLake
+- **[Architecture: Crate Structure](../architecture/crate-structure.md)** — How the crate separation supports future schema independence
+- **[Key-Value Mapping](key-value-mapping.md)** — How the 1-byte tag namespace works and why it has room for growth
+- **[Roadmap](../roadmap/index.md)** — The project roadmap including fact store milestones
+
 ## Comparison with Existing Approaches
 
 Several systems have explored immutable fact storage, each with different trade-offs:

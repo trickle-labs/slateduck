@@ -8,19 +8,19 @@ This page covers the export command in detail: all available options, output for
 
 ```bash
 # Export current state to a file
-slateduck export --storage s3://bucket/catalog/ --output catalog.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output catalog.ndjson
 
 # Export at a specific snapshot (point-in-time)
-slateduck export --storage s3://bucket/catalog/ --at-snapshot 1000 --output catalog-at-1000.ndjson
+slateduck export --catalog s3://bucket/catalog/ --at-snapshot 1000 --output catalog-at-1000.ndjson
 
 # Export at a specific timestamp
-slateduck export --storage s3://bucket/catalog/ --at-time "2024-12-15T00:00:00Z" --output catalog-yesterday.ndjson
+slateduck export --catalog s3://bucket/catalog/ --at-time "2024-12-15T00:00:00Z" --output catalog-yesterday.ndjson
 
 # Export to stdout (for piping to other tools)
-slateduck export --storage s3://bucket/catalog/
+slateduck export --catalog s3://bucket/catalog/
 
 # Export directly to S3
-slateduck export --storage s3://bucket/catalog/ --output s3://backup-bucket/exports/2024-12-16.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output s3://backup-bucket/exports/2024-12-16.ndjson
 ```
 
 ## Output Format
@@ -67,17 +67,17 @@ This gives you a clean, consistent point-in-time view of the catalog without any
 
 ```bash
 # Export only the "analytics" schema
-slateduck export --storage s3://bucket/catalog/ --schema analytics --output analytics.ndjson
+slateduck export --catalog s3://bucket/catalog/ --schema analytics --output analytics.ndjson
 
 # Export multiple schemas
-slateduck export --storage s3://bucket/catalog/ --schema analytics --schema marketing --output subset.ndjson
+slateduck export --catalog s3://bucket/catalog/ --schema analytics --schema marketing --output subset.ndjson
 ```
 
 ### Export Specific Tables
 
 ```bash
 # Export metadata for specific tables only
-slateduck export --storage s3://bucket/catalog/ --table analytics.events --table analytics.users --output tables.ndjson
+slateduck export --catalog s3://bucket/catalog/ --table analytics.events --table analytics.users --output tables.ndjson
 ```
 
 ### Export Specific DuckLake Tables (Internal)
@@ -86,10 +86,10 @@ For advanced use cases, export specific internal catalog tables:
 
 ```bash
 # Export only column definitions
-slateduck export --storage s3://bucket/catalog/ --catalog-table ducklake_columns --output columns.ndjson
+slateduck export --catalog s3://bucket/catalog/ --catalog-table ducklake_columns --output columns.ndjson
 
 # Export only data file registrations
-slateduck export --storage s3://bucket/catalog/ --catalog-table ducklake_data_files --output files.ndjson
+slateduck export --catalog s3://bucket/catalog/ --catalog-table ducklake_data_files --output files.ndjson
 ```
 
 ## Import (Restore from Export)
@@ -98,10 +98,10 @@ Create a new catalog from an NDJSON export:
 
 ```bash
 # Import into a new location
-slateduck import --storage s3://bucket/new-catalog/ --input catalog.ndjson
+slateduck import --catalog s3://bucket/new-catalog/ --input catalog.ndjson
 
 # Import with overwrite (replaces existing catalog)
-slateduck import --storage s3://bucket/catalog/ --input catalog.ndjson --overwrite
+slateduck import --catalog s3://bucket/catalog/ --input catalog.ndjson --overwrite
 ```
 
 ### Import Behavior
@@ -117,7 +117,7 @@ slateduck import --storage s3://bucket/catalog/ --input catalog.ndjson --overwri
 During import, a mapping file can be generated showing old → new IDs:
 
 ```bash
-slateduck import --storage s3://bucket/new-catalog/ --input catalog.ndjson --id-map mapping.json
+slateduck import --catalog s3://bucket/new-catalog/ --input catalog.ndjson --id-map mapping.json
 ```
 
 This is useful if external systems reference specific IDs from the original catalog.
@@ -131,7 +131,7 @@ Export regularly and store in a separate location:
 ```bash
 # Daily backup script
 DATE=$(date +%Y-%m-%d)
-slateduck export --storage s3://bucket/catalog/ --output s3://backup-bucket/daily/$DATE.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output s3://backup-bucket/daily/$DATE.ndjson
 
 # Retain 30 days of backups
 aws s3 ls s3://backup-bucket/daily/ | sort | head -n -30 | awk '{print $4}' | xargs -I{} aws s3 rm s3://backup-bucket/daily/{}
@@ -143,10 +143,10 @@ Move from local development to production cloud storage:
 
 ```bash
 # Export from local
-slateduck export --storage ./dev-catalog/ --output migration.ndjson
+slateduck export --catalog ./dev-catalog/ --output migration.ndjson
 
 # Import to S3
-slateduck import --storage s3://production-bucket/catalog/ --input migration.ndjson
+slateduck import --catalog s3://production-bucket/catalog/ --input migration.ndjson
 ```
 
 ### Analysis and Auditing
@@ -177,7 +177,7 @@ Generate a snapshot of catalog state for regulatory review:
 
 ```bash
 # Export at the audit date
-slateduck export --storage s3://bucket/catalog/ \
+slateduck export --catalog s3://bucket/catalog/ \
     --at-time "2024-09-30T23:59:59Z" \
     --output compliance-report-Q3-2024.ndjson
 
@@ -191,8 +191,8 @@ Compare catalog state at two points in time:
 
 ```bash
 # Export at two snapshots
-slateduck export --storage s3://bucket/catalog/ --at-snapshot 500 --output snap500.ndjson
-slateduck export --storage s3://bucket/catalog/ --at-snapshot 600 --output snap600.ndjson
+slateduck export --catalog s3://bucket/catalog/ --at-snapshot 500 --output snap500.ndjson
+slateduck export --catalog s3://bucket/catalog/ --at-snapshot 600 --output snap600.ndjson
 
 # Diff
 diff <(sort snap500.ndjson) <(sort snap600.ndjson) > changes.diff
@@ -245,7 +245,7 @@ DATE=$(date +%Y-%m-%d-%H%M%S)
 OUTPUT="${BACKUP_BUCKET}${DATE}.ndjson"
 
 # Perform the export
-slateduck export --storage "$STORAGE" --output "$OUTPUT"
+slateduck export --catalog "$STORAGE" --output "$OUTPUT"
 
 # Verify the export is non-empty
 SIZE=$(aws s3 ls "$OUTPUT" | awk '{print $3}')
@@ -289,14 +289,14 @@ Export before deployments to create restore points:
 - name: Pre-deploy catalog backup
   run: |
     slateduck export \
-      --storage s3://production/catalog/ \
+      --catalog s3://production/catalog/ \
       --output s3://backups/pre-deploy/${{ github.sha }}.ndjson
     
 - name: Deploy new version
   run: ./deploy.sh
 
 - name: Verify catalog health
-  run: slateduck verify --storage s3://production/catalog/
+  run: slateduck verify --catalog s3://production/catalog/
 ```
 
 ## Troubleshooting Export Issues
@@ -317,7 +317,7 @@ An export that produces zero rows usually means:
 - The specified snapshot or time predates any catalog activity
 - All data was excised before the target snapshot
 
-Verify with `slateduck inspect --storage s3://bucket/catalog/` to confirm the catalog exists and has data at the expected snapshot.
+Verify with `slateduck inspect --catalog s3://bucket/catalog/` to confirm the catalog exists and has data at the expected snapshot.
 
 ### Partial Export (Incomplete Output)
 
@@ -339,10 +339,10 @@ Protect export files with appropriate access controls:
 
 ```bash
 # Encrypt export at rest
-slateduck export --storage s3://bucket/catalog/ | gpg --encrypt --recipient ops@company.com > catalog.ndjson.gpg
+slateduck export --catalog s3://bucket/catalog/ | gpg --encrypt --recipient ops@company.com > catalog.ndjson.gpg
 
 # Use server-side encryption for S3 output
-slateduck export --storage s3://bucket/catalog/ --output s3://backup-bucket/catalog.ndjson --sse aws:kms --sse-kms-key-id alias/backup-key
+slateduck export --catalog s3://bucket/catalog/ --output s3://backup-bucket/catalog.ndjson --sse aws:kms --sse-kms-key-id alias/backup-key
 ```
 
 Export files should be treated with the same security classification as the catalog itself — anyone who can read the export can reconstruct the complete catalog structure.
@@ -363,7 +363,7 @@ Export performance is dominated by the prefix scan of all catalog keys. Larger c
 For large exports, pipe through compression:
 
 ```bash
-slateduck export --storage s3://bucket/catalog/ | gzip > catalog.ndjson.gz
+slateduck export --catalog s3://bucket/catalog/ | gzip > catalog.ndjson.gz
 ```
 
 NDJSON compresses well (70–80% reduction) because of repetitive field names.

@@ -8,7 +8,7 @@ Before diving into specific symptoms, run these three commands to establish base
 
 ```bash
 # 1. Can we reach the catalog at all?
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 
 # 2. What does the error log say?
 slateduck logs --last 50 --level error
@@ -52,7 +52,7 @@ slateduck logs --last 10 | grep "listening"
 
 **Solutions:**
 
-- If SlateDuck is not running, start it: `slateduck serve --storage s3://bucket/catalog/`
+- If SlateDuck is not running, start it: `slateduck serve --catalog s3://bucket/catalog/`
 - If it is listening on `127.0.0.1`, change to `0.0.0.0` for remote access: `--bind 0.0.0.0:5432`
 - If a security group blocks port 5432, add an inbound rule for the client's IP range
 - Verify the DuckDB connection string matches: `ATTACH 'dbname=ducklake host=<correct-host> port=<correct-port>' AS lake (TYPE ducklake)`
@@ -76,7 +76,7 @@ Another SlateDuck instance has taken over the writer role by incrementing the wr
 
 ```bash
 # Check the current epoch
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.writer_epoch'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
 
 # Check how many SlateDuck processes exist
 ps aux | grep slateduck | grep -v grep
@@ -170,10 +170,10 @@ S3 is throttling requests. S3 supports 3,500 PUT/COPY/POST/DELETE and 5,500 GET/
 time aws s3api head-object --bucket bucket --key catalog/MANIFEST --region us-east-1
 
 # Check row counts (high superseded count = scan amplification)
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.counts'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.counts'
 
 # Check if GC is needed
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.retention'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention'
 ```
 
 **Common Causes and Solutions:**
@@ -211,9 +211,9 @@ DuckDB's `ducklake` extension makes multiple catalog round-trips per query: list
 
 ```bash
 # Check how many snapshots per second are being created
-START=$(slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.latest_snapshot')
+START=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
 sleep 10
-END=$(slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.latest_snapshot')
+END=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
 echo "Snapshots/sec: $(( (END - START) / 10 ))"
 ```
 
@@ -233,13 +233,13 @@ echo "Snapshots/sec: $(( (END - START) / 10 ))"
 
 ```bash
 # Run verify with verbose output
-slateduck verify --storage s3://bucket/catalog/ --verbose
+slateduck verify --catalog s3://bucket/catalog/ --verbose
 
 # Preview repairs
-slateduck repair --storage s3://bucket/catalog/ --dry-run
+slateduck repair --catalog s3://bucket/catalog/ --dry-run
 
 # If repairs are available and safe, apply them
-slateduck repair --storage s3://bucket/catalog/
+slateduck repair --catalog s3://bucket/catalog/
 ```
 
 **If repair cannot fix the issue:**
@@ -256,13 +256,13 @@ slateduck repair --storage s3://bucket/catalog/
 
 ```bash
 # What snapshot is the catalog at?
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.latest_snapshot'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot'
 
 # Is the table visible at the current snapshot?
-slateduck inspect --storage s3://bucket/catalog/ --prefix "t/" | grep "table_name"
+slateduck inspect --catalog s3://bucket/catalog/ --prefix "t/" | grep "table_name"
 
 # Has GC advanced past the creation snapshot?
-slateduck inspect --storage s3://bucket/catalog/ --format json | jq '.retention.retain_from'
+slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention.retain_from'
 ```
 
 **Possible Causes:**
@@ -325,7 +325,7 @@ kubectl get deployment slateduck -o yaml | grep -A5 strategy
 ```bash
 # Set log level
 export SLATEDUCK_LOG=debug
-slateduck serve --storage s3://bucket/catalog/
+slateduck serve --catalog s3://bucket/catalog/
 
 # Or for specific modules
 export SLATEDUCK_LOG=slateduck_pgwire=debug,slateduck_catalog=trace
@@ -351,8 +351,8 @@ slateduck logs | grep -i "403\|forbidden\|permission"
 
 If the troubleshooting steps above do not resolve your issue:
 
-1. Run `slateduck inspect --storage <path> --format json` and save the output
-2. Run `slateduck verify --storage <path>` and save the output
+1. Run `slateduck inspect --catalog <path> --format json` and save the output
+2. Run `slateduck verify --catalog <path>` and save the output
 3. Collect the last 100 lines of error logs
 4. Open an issue on GitHub with this information
 

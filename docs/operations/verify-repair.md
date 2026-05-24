@@ -28,16 +28,16 @@ Verify performs a comprehensive read-only scan of the entire catalog, checking e
 
 ```bash
 # Basic verify
-slateduck verify --storage s3://bucket/catalog/
+slateduck verify --catalog s3://bucket/catalog/
 
 # Verbose output (shows every check as it runs)
-slateduck verify --storage s3://bucket/catalog/ --verbose
+slateduck verify --catalog s3://bucket/catalog/ --verbose
 
 # JSON output (for automated pipelines)
-slateduck verify --storage s3://bucket/catalog/ --format json
+slateduck verify --catalog s3://bucket/catalog/ --format json
 
 # Verify at a specific snapshot (historical state)
-slateduck verify --storage s3://bucket/catalog/ --at-snapshot 1000
+slateduck verify --catalog s3://bucket/catalog/ --at-snapshot 1000
 ```
 
 ### What Verify Checks
@@ -192,14 +192,14 @@ Run `slateduck repair --dry-run` to preview fixes for the errors above.
 
 ```bash
 # Always start with dry-run
-slateduck repair --storage s3://bucket/catalog/ --dry-run
+slateduck repair --catalog s3://bucket/catalog/ --dry-run
 
 # Apply repairs (requires --confirm for destructive operations)
-slateduck repair --storage s3://bucket/catalog/ --confirm
+slateduck repair --catalog s3://bucket/catalog/ --confirm
 
 # Apply only specific repair types
-slateduck repair --storage s3://bucket/catalog/ --only counters --confirm
-slateduck repair --storage s3://bucket/catalog/ --only orphans --confirm
+slateduck repair --catalog s3://bucket/catalog/ --only counters --confirm
+slateduck repair --catalog s3://bucket/catalog/ --only orphans --confirm
 ```
 
 ### What Repair Can Fix
@@ -253,8 +253,8 @@ To apply these repairs, run without --dry-run and with --confirm.
 After applying repairs, always re-run verify to confirm the catalog is clean:
 
 ```bash
-slateduck repair --storage s3://bucket/catalog/ --confirm
-slateduck verify --storage s3://bucket/catalog/
+slateduck repair --catalog s3://bucket/catalog/ --confirm
+slateduck verify --catalog s3://bucket/catalog/
 ```
 
 Expected output after successful repair:
@@ -285,29 +285,29 @@ Repair follows strict safety principles:
 
 ```bash
 # SlateDB's WAL ensures consistency, but verify anyway
-slateduck verify --storage s3://bucket/catalog/
+slateduck verify --catalog s3://bucket/catalog/
 
 # Usually clean — SlateDB handles crash recovery
 # If errors found, repair counters (most common issue)
-slateduck repair --storage s3://bucket/catalog/ --only counters --confirm
+slateduck repair --catalog s3://bucket/catalog/ --only counters --confirm
 ```
 
 ### After Failed Upgrade
 
 ```bash
 # Check if the migration left the catalog in a consistent state
-slateduck verify --storage s3://bucket/catalog/
+slateduck verify --catalog s3://bucket/catalog/
 
 # If format_version was updated but data wasn't fully migrated:
 # Restore from pre-upgrade backup
-slateduck import --storage s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
+slateduck import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
 ```
 
 ### After Excision
 
 ```bash
 # Verify that excision didn't leave orphans
-slateduck verify --storage s3://bucket/catalog/
+slateduck verify --catalog s3://bucket/catalog/
 
 # Expected: some warnings about "ended rows beyond retention" — normal
 # Unexpected: referential integrity errors — run repair
@@ -317,7 +317,7 @@ slateduck verify --storage s3://bucket/catalog/
 
 ```bash
 # Weekly cron job
-0 3 * * 0 slateduck verify --storage s3://bucket/catalog/ --format json >> /var/log/slateduck-verify.json
+0 3 * * 0 slateduck verify --catalog s3://bucket/catalog/ --format json >> /var/log/slateduck-verify.json
 ```
 
 ## Performance

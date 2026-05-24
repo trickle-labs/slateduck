@@ -10,7 +10,7 @@ SlateDuck exposes metrics in Prometheus exposition format on a configurable HTTP
 
 ```bash
 slateduck \
-    --storage s3://bucket/catalog/ \
+    --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --metrics-bind 0.0.0.0:9090 \
     --metrics-path /metrics

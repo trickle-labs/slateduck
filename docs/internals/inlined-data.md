@@ -94,13 +94,13 @@ At 4 KB, you capture essentially all "single-row insert" patterns without bloati
 
 ```bash
 # Set inline threshold (bytes)
-SLATEDUCK_INLINE_THRESHOLD_BYTES=4096 slateduck --storage s3://bucket/catalog/
+SLATEDUCK_INLINE_THRESHOLD_BYTES=4096 slateduck serve --catalog s3://bucket/catalog/
 
 # Disable inlining entirely
-SLATEDUCK_INLINE_THRESHOLD_BYTES=0 slateduck --storage s3://bucket/catalog/
+SLATEDUCK_INLINE_THRESHOLD_BYTES=0 slateduck serve --catalog s3://bucket/catalog/
 
 # Aggressive inlining (for workloads with many small files)
-SLATEDUCK_INLINE_THRESHOLD_BYTES=16384 slateduck --storage s3://bucket/catalog/
+SLATEDUCK_INLINE_THRESHOLD_BYTES=16384 slateduck serve --catalog s3://bucket/catalog/
 ```
 
 ## Trade-offs

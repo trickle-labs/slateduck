@@ -35,7 +35,7 @@ duckdb -c "INSTALL ducklake;"
 Open a terminal and start SlateDuck, pointing it at a local directory where the catalog will be stored. The directory does not need to exist — SlateDuck will create it and initialize a fresh catalog:
 
 ```bash
-slateduck --storage file:///tmp/my-lakehouse --bind 127.0.0.1:5432
+slateduck serve --catalog file:///tmp/my-lakehouse --bind 127.0.0.1:5432
 ```
 
 You should see output like this:
@@ -175,7 +175,7 @@ This works because SlateDuck never overwrites or deletes catalog entries during 
 You can inspect the internal state of the catalog using the SlateDuck CLI:
 
 ```bash
-slateduck inspect --storage file:///tmp/my-lakehouse
+slateduck inspect --catalog file:///tmp/my-lakehouse
 ```
 
 Expected output (approximately):

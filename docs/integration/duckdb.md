@@ -320,6 +320,132 @@ SELECT * FROM lake.analytics.events;
 --     except TransactionConflict: retries++; sleep(backoff)
 ```
 
+## Real-World Workflow Examples
+
+### ETL Pipeline: Ingest Daily Parquet Export
+
+A common pattern is a nightly job that deposits Parquet files into an S3 prefix and registers them with SlateDuck so analysts can immediately query them:
+
+```sql
+LOAD ducklake;
+ATTACH 'ducklake:host=slateduck.internal;port=5432' AS lake;
+USE lake;
+
+-- Create the target table if it doesn't exist
+CREATE TABLE IF NOT EXISTS analytics.daily_events (
+    event_date DATE,
+    event_type VARCHAR,
+    user_id BIGINT,
+    amount DECIMAL(18, 4),
+    region VARCHAR
+);
+
+-- Register yesterday's export (DuckDB writes Parquet to S3, then registers metadata with SlateDuck)
+INSERT INTO analytics.daily_events
+SELECT * FROM read_parquet('s3://data-lake/exports/events_2024_03_15.parquet');
+
+-- Verify the load
+SELECT count(*) FROM analytics.daily_events WHERE event_date = '2024-03-15';
+```
+
+After the `INSERT`, the new Parquet file is immediately visible to all other DuckDB instances connected to the same SlateDuck catalog. The analyst's session that was already running sees the new data without reconnecting — snapshot isolation ensures they see a consistent point in time, and advancing to the latest snapshot is as simple as re-running the query.
+
+### Schema Evolution: Adding a Column
+
+DuckLake supports adding columns without rewriting existing data files. Old files return `NULL` for the new column; new files contain actual values:
+
+```sql
+-- Add a new column to an existing table
+ALTER TABLE analytics.daily_events ADD COLUMN campaign_id VARCHAR;
+
+-- Old Parquet files: campaign_id will be NULL
+-- New inserts can include campaign_id values
+INSERT INTO analytics.daily_events
+SELECT *, 'summer-2024' AS campaign_id
+FROM read_parquet('s3://data-lake/exports/events_2024_06_01.parquet');
+
+-- Query works across old and new files
+SELECT campaign_id, count(*)
+FROM analytics.daily_events
+GROUP BY campaign_id
+ORDER BY count(*) DESC;
+-- campaign_id = NULL for rows from old files
+-- campaign_id = 'summer-2024' for rows from the new file
+```
+
+### Time Travel Audit Query
+
+A compliance team needs to verify what the catalog state looked like at the start of Q2 2024:
+
+```sql
+LOAD ducklake;
+ATTACH 'ducklake:host=slateduck.internal;port=5432' AS lake;
+
+-- Find the snapshot closest to April 1, 2024
+-- (In practice you'd look up the snapshot ID from your audit log or a checkpoint)
+
+-- Query the table as it was at snapshot 500
+SELECT *
+FROM lake.analytics.daily_events AT SNAPSHOT 500
+LIMIT 10;
+
+-- Compare row counts across snapshots
+SELECT 
+    'April 1' as period, count(*) as rows
+FROM lake.analytics.daily_events AT SNAPSHOT 500
+UNION ALL
+SELECT 
+    'July 1' as period, count(*) as rows
+FROM lake.analytics.daily_events AT SNAPSHOT 1200;
+```
+
+This does not require any backup restoration, any extra infrastructure, or any special tools — it is just SQL with a snapshot qualifier.
+
+### Snapshot Pinning for Long-Running Reports
+
+If you are running a multi-hour report and want a consistent catalog view even as new data arrives, pin your session to a specific snapshot:
+
+```sql
+-- Start your session pinned to the current latest snapshot
+-- (prevents catalog changes from affecting this query)
+SET ducklake.snapshot = 1247;
+
+-- Now run your long query — catalog state is frozen at snapshot 1247
+SELECT region, sum(amount) as total_revenue
+FROM analytics.daily_events
+GROUP BY region;
+
+-- Even if new files are registered during this query,
+-- this session won't see them
+```
+
+## Operational Best Practices
+
+### Keep DuckDB and SlateDuck Versions Aligned
+
+The DuckLake wire protocol evolves with DuckDB releases. The `ducklake` extension in DuckDB v1.3 may emit SQL patterns that SlateDuck's bounded dispatcher does not recognize if built against the v1.2 protocol. Always test version upgrades in staging before production.
+
+### Minimize ATTACH/DETACH Overhead
+
+Each `ATTACH` call opens a new connection to SlateDuck and reads the catalog manifest. For interactive sessions or dashboards with per-query connections, reuse a long-lived DuckDB connection with a cached `ATTACH` rather than attaching and detaching on every query.
+
+### Partition Large Tables
+
+Very large tables with millions of Parquet files create long `file listing` catalog queries. Partition data files by date or region so that queries with date/region filters only need to list files in the relevant partitions. SlateDuck's file listing is scoped to the queried partition.
+
+### Monitor Catalog Size
+
+As data accumulates over time, the catalog itself grows. Run GC regularly to advance the `retain-from` horizon and run `excise` to physically remove superseded catalog entries:
+
+```bash
+# Monthly GC and excision
+slateduck gc apply --catalog s3://my-bucket/catalog/ --retain-days 90
+slateduck excise plan --catalog s3://my-bucket/catalog/
+slateduck excise apply --catalog s3://my-bucket/catalog/ --yes
+```
+
+A healthy catalog for most workloads stays under 100 MB of SST files with regular GC.
+
 ## Troubleshooting
 
 ### "Cannot attach: connection refused"

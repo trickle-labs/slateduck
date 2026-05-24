@@ -23,21 +23,21 @@ The single highest-impact performance decision is your choice of object storage 
 
 ```bash
 # Local development
-slateduck --storage ./local-catalog/
+slateduck serve --catalog ./local-catalog/
 ```
 
 **Cost-optimized production:** Use S3 Standard (or GCS/Azure equivalent). The 50–150ms write latency and 20–100ms cold-read latency is acceptable for most catalog workloads. The cost is minimal. This is the correct default for new deployments.
 
 ```bash
 # Production with S3 Standard
-slateduck --storage s3://your-bucket/catalogs/production/
+slateduck serve --catalog s3://your-bucket/catalogs/production/
 ```
 
 **Latency-sensitive production:** Use S3 Express One Zone. This reduces all storage-bound operations by 5–10x. The cost is approximately 10x higher than S3 Standard, but for a metadata catalog (typically under 1GB), the absolute cost difference is small ($23/month vs. $300/month for 100GB — and most catalogs are 10–100MB, making the cost difference trivial).
 
 ```bash
 # Low-latency production with S3 Express
-slateduck --storage s3express://your-bucket--use1-az4--x-s3/catalogs/production/
+slateduck serve --catalog s3express://your-bucket--use1-az4--x-s3/catalogs/production/
 ```
 
 **Air-gapped or sovereignty-constrained:** Use MinIO (S3-compatible) deployed within your controlled environment. Latency depends on network distance but is typically 1–5ms for same-datacenter deployments.
@@ -78,7 +78,7 @@ The optimal cache size depends on your catalog's total size and access patterns:
 
 ```bash
 # Set cache size to 256MB
-SLATEDUCK_CACHE_SIZE_MB=256 slateduck --storage s3://bucket/catalog/
+SLATEDUCK_CACHE_SIZE_MB=256 slateduck serve --catalog s3://bucket/catalog/
 
 # Verify cache effectiveness via metrics
 # Look at cache_hit_ratio — should be > 0.9 in steady state
@@ -117,7 +117,7 @@ This seems modest, but for tables with heavy churn:
 Use the inspect tool to measure current amplification:
 
 ```bash
-slateduck inspect --storage s3://bucket/catalog/
+slateduck inspect --catalog s3://bucket/catalog/
 
 # Output includes:
 # Total rows: 45,000
@@ -142,10 +142,10 @@ GC marks old versions as reclaimable by advancing `retain_from`. Excision (compa
 
 ```bash
 # Step 1: Mark old versions as reclaimable
-slateduck gc --storage s3://bucket/catalog/ --retain-snapshots 10
+slateduck gc --catalog s3://bucket/catalog/ --retain-snapshots 10
 
 # Step 2: Physically remove dead rows (reduce SST file sizes)
-slateduck excise --storage s3://bucket/catalog/
+slateduck excise --catalog s3://bucket/catalog/
 ```
 
 After excision, scan amplification drops to 1.0x (only visible rows remain in storage).

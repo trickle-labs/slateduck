@@ -75,10 +75,10 @@ A deep health check verifies that the entire catalog is accessible and internall
 
 ```bash
 # Full catalog inspection
-slateduck inspect --storage s3://bucket/catalog/ --verify
+slateduck inspect --catalog s3://bucket/catalog/ --verify
 
 # Quick version (manifest only)
-slateduck inspect --storage s3://bucket/catalog/ --manifest-only
+slateduck inspect --catalog s3://bucket/catalog/ --manifest-only
 ```
 
 A successful deep check proves:
@@ -99,7 +99,7 @@ SlateDuck exposes a dedicated HTTP health endpoint on the metrics port:
 
 ```bash
 # Enable health endpoint
-slateduck --storage s3://bucket/catalog/ --metrics-bind 0.0.0.0:9090
+slateduck serve --catalog s3://bucket/catalog/ --metrics-bind 0.0.0.0:9090
 ```
 
 Endpoints:
@@ -268,7 +268,7 @@ For read-only replicas, the readiness check should verify that the catalog snaps
 
 ```bash
 # Check that the catalog is not too stale (replica lag)
-slateduck inspect --storage s3://bucket/catalog/ --check-freshness 300
+slateduck inspect --catalog s3://bucket/catalog/ --check-freshness 300
 # Fails if the latest snapshot is older than 300 seconds
 ```
 

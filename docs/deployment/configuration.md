@@ -20,14 +20,14 @@ This means you can set baseline configuration in a TOML file, override per-envir
 The full set of command-line flags:
 
 ```bash
-slateduck [FLAGS] [OPTIONS]
+slateduck serve [FLAGS] [OPTIONS]
 ```
 
 ### Required
 
 | Flag | Description |
 |------|-------------|
-| `--storage PATH` | Object storage path for the catalog. See [path formats](#object-storage-path-format) below. |
+| `--catalog <path>` | Object storage path for the catalog. See [path formats](#object-storage-path-format) below. |
 
 ### Server Options
 
@@ -73,7 +73,7 @@ Environment variables provide the same configuration surface as command-line fla
 
 | Variable | Equivalent Flag | Description |
 |----------|----------------|-------------|
-| `SLATEDUCK_STORAGE` | `--storage` | Object storage path |
+| `SLATEDUCK_CATALOG` | `--catalog` | Object storage path |
 | `SLATEDUCK_BIND` | `--bind` | Listen address and port |
 | `SLATEDUCK_MAX_SESSIONS` | `--max-sessions` | Concurrent session limit |
 | `SLATEDUCK_READ_ONLY` | `--read-only` | Read-only mode (`true`/`false`) |
@@ -140,7 +140,7 @@ Example configuration file:
 # /etc/slateduck/slateduck.toml
 
 [server]
-storage = "s3://my-lakehouse-bucket/catalog/"
+catalog = "s3://my-lakehouse-bucket/catalog/"
 bind = "0.0.0.0:5432"
 max_sessions = 100
 read_only = false
@@ -169,7 +169,7 @@ The TOML file uses the same names as environment variables but with dots replace
 
 ## Object Storage Path Format
 
-The `--storage` flag (or `SLATEDUCK_STORAGE` variable) accepts several path formats:
+The `--catalog` flag (or `SLATEDUCK_CATALOG` variable) accepts several path formats:
 
 | Format | Example | Provider |
 |--------|---------|----------|
@@ -201,7 +201,7 @@ Do not manually modify files under this prefix. SlateDuck manages this layout ex
 ### Local Development (Minimal)
 
 ```bash
-slateduck --storage ./dev-catalog --bind 127.0.0.1:5432
+slateduck serve --catalog ./dev-catalog --bind 127.0.0.1:5432
 ```
 
 No environment variables needed. Data stored as local files.
@@ -210,18 +210,18 @@ No environment variables needed. Data stored as local files.
 
 ```bash
 # All configuration via environment
-export SLATEDUCK_STORAGE=s3://production-bucket/catalog/
+export SLATEDUCK_CATALOG=s3://production-bucket/catalog/
 export SLATEDUCK_BIND=0.0.0.0:5432
 export SLATEDUCK_PASSWORD=secure-random-password
 export SLATEDUCK_LOG_FORMAT=json
 export AWS_REGION=us-east-1
-slateduck
+slateduck serve
 ```
 
 ### Read Replica (Read-Only)
 
 ```bash
-slateduck --storage s3://production-bucket/catalog/ --read-only --bind 0.0.0.0:5432
+slateduck serve --catalog s3://production-bucket/catalog/ --read-only --bind 0.0.0.0:5432
 ```
 
 The server refuses any DDL or DML statements. Multiple read-only instances can connect to the same storage path concurrently.
@@ -229,8 +229,8 @@ The server refuses any DDL or DML statements. Multiple read-only instances can c
 ### High-Security (Mutual TLS + Auth)
 
 ```bash
-slateduck \
-    --storage s3://sensitive-bucket/catalog/ \
+slateduck serve \
+    --catalog s3://sensitive-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /etc/slateduck/tls/server-cert.pem \
     --tls-key /etc/slateduck/tls/server-key.pem \
@@ -245,7 +245,8 @@ slateduck \
 export AWS_ENDPOINT_URL=http://minio.internal:9000
 export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
-slateduck --storage s3://my-bucket/catalog/ --bind 0.0.0.0:5432
+export SLATEDUCK_S3_PATH_STYLE=true
+slateduck serve --catalog s3://my-bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 ## Validation and Diagnostics
@@ -253,7 +254,7 @@ slateduck --storage s3://my-bucket/catalog/ --bind 0.0.0.0:5432
 On startup, SlateDuck validates all configuration and reports errors clearly:
 
 ```
-ERROR: --storage is required but not set
+ERROR: --catalog is required but not set
 ERROR: --tls-cert specified without --tls-key
 ERROR: Cannot access storage path s3://bucket/path/ — Access Denied
 ```
@@ -262,7 +263,7 @@ Use `--log-level debug` to see the full resolved configuration (with secrets mas
 
 ```
 INFO  Configuration resolved:
-INFO    storage: s3://my-bucket/catalog/
+INFO    catalog: s3://my-bucket/catalog/
 INFO    bind: 0.0.0.0:5432
 INFO    max_sessions: 100
 INFO    read_only: false
@@ -272,9 +273,158 @@ INFO    hot_key_cache: true
 INFO    batch_size: 1000
 ```
 
+## Performance Tuning Reference
+
+Most deployments will work well with the defaults, but these settings can have a significant impact in specific scenarios.
+
+### Write Batch Size (`--batch-size`)
+
+SlateDuck accumulates catalog mutations in a batch before committing them to SlateDB. Larger batches mean fewer round trips to object storage per transaction, which reduces latency for write-heavy workloads where many rows change per transaction.
+
+However, larger batches also consume more memory during the commit phase. The default of 1000 is appropriate for most DuckLake workloads where a typical `INSERT` operation registers a small number of Parquet files. If you are running bulk import operations that register tens of thousands of files in a single transaction, consider increasing this to 5000–10000. If you are on memory-constrained hardware, reducing it to 250–500 reduces peak memory use.
+
+```bash
+# For bulk import workloads
+slateduck serve --catalog s3://my-bucket/catalog/ --batch-size 5000
+
+# For memory-constrained hosts (< 512 MB available)
+slateduck serve --catalog s3://my-bucket/catalog/ --batch-size 250
+```
+
+### Hot Key Cache (`--hot-key-cache`)
+
+The hot key cache keeps the most recently read catalog keys in memory. Since DuckDB's `ducklake` extension reads the same schema, table list, and column list at the start of every query session, these keys are accessed far more frequently than individual data file entries.
+
+With the cache enabled (the default), repeated reads of frequently accessed keys avoid object storage round trips. The cache is bounded by the block cache size in SlateDB — it does not grow unboundedly. On memory-constrained deployments where every megabyte counts, disable the cache with `--hot-key-cache false` to release that memory, accepting higher read latency.
+
+### Session Limit (`--max-sessions`)
+
+Each concurrent session uses approximately 1 MB of memory for its connection state, read views, and query parsing buffers. The default limit of 64 supports up to 64 simultaneous DuckDB connections at ~64 MB peak session memory.
+
+For deployments with many short-lived connections (such as dashboards with per-query connections), you may want to increase this. For deployments where each connection is held open for hours (batch jobs, ETL pipelines), the default is generous — you rarely need more than a handful of concurrent long-lived connections.
+
+```bash
+# High-concurrency analytical dashboard
+slateduck serve --catalog s3://my-bucket/catalog/ --max-sessions 256
+
+# Single ETL pipeline, minimize resource use
+slateduck serve --catalog s3://my-bucket/catalog/ --max-sessions 4
+```
+
+### Prefetch Depth (`--prefetch-depth`)
+
+During SST scans (such as listing all data files for a table, or scanning snapshot history), SlateDuck prefetches ahead by this many data blocks. Higher values use more memory but reduce sequential scan latency by overlapping I/O with processing.
+
+At the default of 4, this is invisible for most workloads. If you are running the `export` command frequently over large catalogs, try `--prefetch-depth 8` or `--prefetch-depth 16` to speed up the sequential passes.
+
+### Compaction (`--compaction-interval`)
+
+SlateDB compacts SST files in the background to reduce read amplification and garbage-collect superseded versions. By default, SlateDuck triggers a compaction check every 300 seconds (5 minutes).
+
+Compaction is a background operation — it does not block reads or writes. However, it does consume CPU and generate object storage I/O. On cost-sensitive deployments (where you are paying per S3 API call), you may want to increase the interval to 1800 or 3600 seconds. On write-heavy deployments that generate many small SSTs, you may want to decrease it to 60–120 seconds.
+
+Setting `--compaction-interval 0` disables automatic compaction entirely. You are then responsible for triggering compaction manually. This is not recommended for production deployments.
+
+## Security Configuration Reference
+
+### Password Handling
+
+Avoid passing passwords on the command line. Shell history, process listings (`ps aux`), and container logs can all expose command-line arguments. Use the `SLATEDUCK_AUTH_PASSWORD` environment variable or the TOML file's `[auth]` section instead:
+
+```bash
+# Avoid this (exposed in ps, history)
+slateduck serve --auth-password my-secret-pass
+
+# Prefer this
+export SLATEDUCK_AUTH_PASSWORD=my-secret-pass
+slateduck serve --catalog s3://my-bucket/catalog/
+
+# Or use a secrets manager
+export SLATEDUCK_AUTH_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id slateduck/auth-password --query SecretString --output text)
+slateduck serve --catalog s3://my-bucket/catalog/
+```
+
+### Mutual TLS
+
+When `--tls-ca` is configured, SlateDuck requires every connecting client to present a certificate signed by the specified CA. This means clients can only connect if they have a valid client certificate — password authentication becomes a second factor rather than the only factor.
+
+Mutual TLS is the recommended security configuration for production deployments that are exposed beyond a trusted private network. DuckDB supports client certificates via connection string parameters:
+
+```sql
+ATTACH 'host=slateduck.example.com port=5432 sslmode=verify-full sslcert=client.crt sslkey=client.key sslrootcert=ca.crt'
+  AS my_lakehouse (TYPE ducklake);
+```
+
+### Read-Only Mode
+
+The `--read-only` flag is useful for secondary endpoints that should serve queries without accepting schema changes or data modifications. Read-only instances can connect to the same catalog as the primary read-write instance simultaneously — SlateDB's snapshot isolation ensures they see a consistent view.
+
+One pattern is to expose two endpoints: a read-write endpoint for DuckDB sessions that need to write, and a read-only endpoint for all query-only workloads. This limits the blast radius if a query-only client's credentials are compromised — they can read data but cannot corrupt the catalog.
+
+```bash
+# Primary: read-write
+slateduck serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.1:5432
+
+# Secondary: read-only (separate IP/port, same catalog)
+slateduck serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.2:5432 --read-only
+```
+
+## Logging Configuration
+
+### Log Levels
+
+SlateDuck supports five log levels in increasing verbosity:
+
+| Level | What Is Logged |
+|-------|---------------|
+| `error` | Unrecoverable errors only |
+| `warn` | Potentially concerning conditions (degraded performance, retried operations) |
+| `info` | Normal operational events (startup, shutdown, session open/close, GC runs) |
+| `debug` | Detailed operational information (individual SQL statements, key access patterns) |
+| `trace` | Extremely verbose low-level tracing (SlateDB I/O, key encoding/decoding) |
+
+`info` is the right default for most production deployments. Use `debug` when troubleshooting unexpected behavior. Use `trace` only when diagnosing performance problems or suspected bugs in key encoding — at trace level, log output can overwhelm disk I/O.
+
+### Log Format
+
+`--log-format text` (the default) produces human-friendly color-highlighted output:
+
+```
+2024-06-30T12:01:00.123Z  INFO slateduck_pgwire: New session from 10.0.1.5:49123
+2024-06-30T12:01:00.124Z  INFO slateduck_catalog: Query plan: ListTables schema=analytics
+2024-06-30T12:01:00.231Z  INFO slateduck_pgwire: Session closed after 107ms (3 queries)
+```
+
+`--log-format json` produces structured JSON, one event per line:
+
+```json
+{"timestamp":"2024-06-30T12:01:00.123Z","level":"INFO","target":"slateduck_pgwire","message":"New session","client_addr":"10.0.1.5:49123"}
+```
+
+JSON format is strongly recommended for container deployments where logs are collected by a log aggregation system (Datadog, Grafana Loki, Elastic Stack). JSON events are machine-parseable without regex extraction, and structured fields like `client_addr` and `session_id` remain searchable.
+
+### Fine-Grained Filtering
+
+The `RUST_LOG` environment variable provides per-crate log level control:
+
+```bash
+# Debug the PG wire layer only, keep catalog at info
+RUST_LOG=slateduck_pgwire=debug,slateduck_catalog=info
+
+# Suppress SlateDB noise, debug SlateDuck
+RUST_LOG=slatedb=warn,slateduck=debug
+
+# Full trace for key encoding
+RUST_LOG=slateduck_core=trace,slateduck_catalog=debug
+```
+
+`RUST_LOG` takes precedence over `--log-level` for the specific crates it targets. You can use both together: set `--log-level warn` for low baseline noise, and override specific crates with `RUST_LOG` as needed.
+
 ## Further Reading
 
 - **[Binary Deployment](binary.md)** — Running as a standalone process with systemd
 - **[Docker Deployment](docker.md)** — Container configuration patterns
-- **[TLS](tls.md)** — Certificate management details
+- **[TLS and Authentication](tls.md)** — Certificate management details
 - **[Networking](networking.md)** — Firewall and load balancer configuration
+- **[CLI Reference](../operations/cli-reference.md)** — Full list of commands and options

@@ -28,7 +28,7 @@ The object storage path for the catalog. This is the most important configuratio
 |--------|--------|
 | **Required** | Yes (or `--storage` flag) |
 | **Type** | URI string |
-| **CLI equivalent** | `--storage <path>` |
+| **CLI equivalent** | `--catalog <path>` |
 
 **Valid formats:**
 

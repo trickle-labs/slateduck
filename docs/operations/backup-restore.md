@@ -45,7 +45,7 @@ You need additional backup when:
 NDJSON (Newline-Delimited JSON) export creates a complete, portable snapshot of the catalog in a human-readable format:
 
 ```bash
-slateduck export --storage s3://bucket/catalog/ --output catalog-backup.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output catalog-backup.ndjson
 ```
 
 ### What Gets Exported
@@ -77,10 +77,10 @@ Export the catalog as it appeared at a past point in time:
 
 ```bash
 # Export at snapshot 500
-slateduck export --storage s3://bucket/catalog/ --output backup-snap500.ndjson --at-snapshot 500
+slateduck export --catalog s3://bucket/catalog/ --output backup-snap500.ndjson --at-snapshot 500
 
 # Export at a timestamp
-slateduck export --storage s3://bucket/catalog/ --output backup-yesterday.ndjson --at-time "2024-12-15T00:00:00Z"
+slateduck export --catalog s3://bucket/catalog/ --output backup-yesterday.ndjson --at-time "2024-12-15T00:00:00Z"
 ```
 
 ### Export Size and Performance
@@ -99,7 +99,7 @@ Typical export sizes:
 ```bash
 # Daily backup to a dated file
 BACKUP_PATH="s3://backup-bucket/slateduck/$(date +%Y-%m-%d).ndjson"
-slateduck export --storage s3://bucket/catalog/ --output "$BACKUP_PATH"
+slateduck export --catalog s3://bucket/catalog/ --output "$BACKUP_PATH"
 ```
 
 Kubernetes CronJob:
@@ -121,7 +121,7 @@ spec:
               command:
                 - "sh"
                 - "-c"
-                - "slateduck export --storage s3://bucket/catalog/ --output s3://backup-bucket/slateduck/$(date +%Y-%m-%d).ndjson"
+                - "slateduck export --catalog s3://bucket/catalog/ --output s3://backup-bucket/slateduck/$(date +%Y-%m-%d).ndjson"
           restartPolicy: OnFailure
 ```
 
@@ -131,10 +131,10 @@ Import an NDJSON backup into a fresh (or existing) catalog:
 
 ```bash
 # Restore to a new catalog location
-slateduck import --storage s3://bucket/new-catalog/ --input catalog-backup.ndjson
+slateduck import --catalog s3://bucket/new-catalog/ --input catalog-backup.ndjson
 
 # Restore to the same location (replaces current state)
-slateduck import --storage s3://bucket/catalog/ --input catalog-backup.ndjson --overwrite
+slateduck import --catalog s3://bucket/catalog/ --input catalog-backup.ndjson --overwrite
 ```
 
 ### What Happens During Import
@@ -158,13 +158,13 @@ Checkpoints are lightweight named markers stored within the catalog itself. They
 
 ```bash
 # Before a risky migration
-slateduck checkpoint create --storage s3://bucket/catalog/ --label "before-v2-migration"
+slateduck checkpoint create --catalog s3://bucket/catalog/ --label "before-v2-migration"
 
 # Before bulk data registration
-slateduck checkpoint create --storage s3://bucket/catalog/ --label "pre-load-20241215"
+slateduck checkpoint create --catalog s3://bucket/catalog/ --label "pre-load-20241215"
 
 # Manual checkpoint with description
-slateduck checkpoint create --storage s3://bucket/catalog/ \
+slateduck checkpoint create --catalog s3://bucket/catalog/ \
     --label "release-3.2" \
     --description "Catalog state at release 3.2 deployment"
 ```
@@ -172,7 +172,7 @@ slateduck checkpoint create --storage s3://bucket/catalog/ \
 ### Listing Checkpoints
 
 ```bash
-slateduck checkpoint list --storage s3://bucket/catalog/
+slateduck checkpoint list --catalog s3://bucket/catalog/
 
 # Output:
 # Label                  Snapshot  Created               Description
@@ -184,7 +184,7 @@ slateduck checkpoint list --storage s3://bucket/catalog/
 ### Restoring from Checkpoint
 
 ```bash
-slateduck checkpoint restore --storage s3://bucket/catalog/ --label "before-v2-migration"
+slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "before-v2-migration"
 ```
 
 Restoration works by setting the catalog's visible state back to the checkpoint's snapshot. Critically:
@@ -203,7 +203,7 @@ Checkpoints interact with GC:
 - To allow GC past a checkpoint, delete it first:
 
 ```bash
-slateduck checkpoint delete --storage s3://bucket/catalog/ --label "before-v2-migration"
+slateduck checkpoint delete --catalog s3://bucket/catalog/ --label "before-v2-migration"
 ```
 
 ## Cross-Region Replication
@@ -260,11 +260,11 @@ With versioning enabled, if a SlateDB compaction bug or manual error deletes an 
 1. Identify when corruption occurred (check logs, monitoring)
 2. Restore from checkpoint (if one exists before the corruption):
    ```bash
-   slateduck checkpoint restore --storage s3://bucket/catalog/ --label "last-good"
+   slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "last-good"
    ```
 3. Or restore from NDJSON backup:
    ```bash
-   slateduck import --storage s3://bucket/catalog/ --input last-backup.ndjson --overwrite
+   slateduck import --catalog s3://bucket/catalog/ --input last-backup.ndjson --overwrite
    ```
 
 ### Scenario: Bucket Accidentally Deleted
@@ -288,7 +288,7 @@ With versioning enabled, if a SlateDB compaction bug or manual error deletes an 
    ```
 2. Restore from pre-migration checkpoint:
    ```bash
-   slateduck checkpoint restore --storage s3://bucket/catalog/ --label "pre-migration"
+   slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "pre-migration"
    ```
 
 ## Testing Your Backup Strategy
@@ -297,19 +297,19 @@ Backups that have never been tested are not backups. Periodically verify:
 
 ```bash
 # 1. Export current catalog
-slateduck export --storage s3://bucket/catalog/ --output test-backup.ndjson
+slateduck export --catalog s3://bucket/catalog/ --output test-backup.ndjson
 
 # 2. Import into a test location
-slateduck import --storage s3://bucket/test-restore/ --input test-backup.ndjson
+slateduck import --catalog s3://bucket/test-restore/ --input test-backup.ndjson
 
 # 3. Start a read-only instance against the restored catalog
-slateduck --storage s3://bucket/test-restore/ --bind 127.0.0.1:5433 --read-only
+slateduck serve --catalog s3://bucket/test-restore/ --bind 127.0.0.1:5433 --read-only
 
 # 4. Verify data is accessible
 psql -h localhost -p 5433 -c "SELECT count(*) FROM ducklake_tables"
 
 # 5. Clean up test location
-slateduck destroy --storage s3://bucket/test-restore/ --confirm
+slateduck destroy --catalog s3://bucket/test-restore/ --confirm
 ```
 
 ## Backup Scheduling Recommendations
@@ -326,7 +326,7 @@ slateduck destroy --storage s3://bucket/test-restore/ --confirm
 
 ```bash
 # /etc/cron.d/slateduck-backup
-0 2 * * * slateduck /usr/local/bin/slateduck export --storage s3://prod/catalog/ --output s3://backups/slateduck/$(date +\%Y-\%m-\%d).ndjson 2>&1 | logger -t slateduck-backup
+0 2 * * * slateduck /usr/local/bin/slateduck export --catalog s3://prod/catalog/ --output s3://backups/slateduck/$(date +\%Y-\%m-\%d).ndjson 2>&1 | logger -t slateduck-backup
 ```
 
 ### Backup Monitoring
@@ -351,7 +351,7 @@ You have two restoration approaches:
 Replaces the current catalog with the backup content:
 
 ```bash
-slateduck import --storage s3://bucket/catalog/ --input backup.ndjson --overwrite
+slateduck import --catalog s3://bucket/catalog/ --input backup.ndjson --overwrite
 ```
 
 **Danger:** This destroys any changes made after the backup was taken. All DuckDB clients must reconnect. Use only when the current catalog is known-corrupt.
@@ -361,7 +361,7 @@ slateduck import --storage s3://bucket/catalog/ --input backup.ndjson --overwrit
 Creates a new catalog without affecting the current one:
 
 ```bash
-slateduck import --storage s3://bucket/catalog-restored/ --input backup.ndjson
+slateduck import --catalog s3://bucket/catalog-restored/ --input backup.ndjson
 ```
 
 This allows you to:

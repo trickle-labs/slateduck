@@ -184,7 +184,7 @@ SlateDuck is designed for zero-downtime upgrades when possible — the new insta
 After upgrading, verify catalog health:
 
 ```bash
-slateduck verify --storage s3://bucket/catalog/
+slateduck verify --catalog s3://bucket/catalog/
 ```
 
 This confirms the new binary can read the existing catalog format correctly.

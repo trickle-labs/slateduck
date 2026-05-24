@@ -76,16 +76,16 @@ The `RUST_LOG` environment variable controls logging with fine-grained, per-modu
 
 ```bash
 # Standard production
-RUST_LOG=info slateduck --storage s3://bucket/catalog/
+RUST_LOG=info slateduck serve --catalog s3://bucket/catalog/
 
 # Debug catalog operations only
-RUST_LOG=info,slateduck_catalog=debug slateduck --storage s3://bucket/catalog/
+RUST_LOG=info,slateduck_catalog=debug slateduck serve --catalog s3://bucket/catalog/
 
 # Debug PG wire protocol handling
-RUST_LOG=info,slateduck_pgwire=debug slateduck --storage s3://bucket/catalog/
+RUST_LOG=info,slateduck_pgwire=debug slateduck serve --catalog s3://bucket/catalog/
 
 # Debug everything (noisy, use briefly)
-RUST_LOG=debug slateduck --storage s3://bucket/catalog/
+RUST_LOG=debug slateduck serve --catalog s3://bucket/catalog/
 
 # Multiple specific targets
 RUST_LOG=info,slateduck_catalog=debug,slateduck_sql=debug,slateduck_pgwire=trace slateduck ...
@@ -94,7 +94,7 @@ RUST_LOG=info,slateduck_catalog=debug,slateduck_sql=debug,slateduck_pgwire=trace
 ### CLI Flag
 
 ```bash
-slateduck --storage s3://bucket/catalog/ --log-level info
+slateduck serve --catalog s3://bucket/catalog/ --log-level info
 ```
 
 The `--log-level` flag sets a global level. For per-module control, use `RUST_LOG`.
@@ -117,13 +117,13 @@ SlateDuck's log targets correspond to its crate names:
 For log aggregation systems (Elasticsearch, Loki, CloudWatch Logs, Datadog, Splunk), enable JSON-formatted output:
 
 ```bash
-SLATEDUCK_LOG_FORMAT=json slateduck --storage s3://bucket/catalog/
+SLATEDUCK_LOG_FORMAT=json slateduck serve --catalog s3://bucket/catalog/
 ```
 
 Or with CLI:
 
 ```bash
-slateduck --storage s3://bucket/catalog/ --log-format json
+slateduck serve --catalog s3://bucket/catalog/ --log-format json
 ```
 
 ### JSON Format

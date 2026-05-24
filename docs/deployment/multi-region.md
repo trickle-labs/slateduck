@@ -125,7 +125,7 @@ aws s3api put-bucket-replication \
 ```bash
 # In eu-west-1
 AWS_REGION=eu-west-1 slateduck \
-    --storage s3://my-lakehouse-eu-west-1/catalog/ \
+    --catalog s3://my-lakehouse-eu-west-1/catalog/ \
     --bind 0.0.0.0:5432 \
     --read-only
 ```
@@ -158,7 +158,7 @@ gsutil mb -l US-EAST1+US-WEST1 gs://my-lakehouse/
 
 ```bash
 # Reader in any region (GCS handles routing automatically)
-slateduck --storage gs://my-lakehouse/catalog/ --bind 0.0.0.0:5432 --read-only
+slateduck serve --catalog gs://my-lakehouse/catalog/ --bind 0.0.0.0:5432 --read-only
 ```
 
 ## Setup: Azure Blob Storage
@@ -179,10 +179,10 @@ With RA-GRS, the secondary endpoint is readable:
 
 ```bash
 # Primary (read/write)
-slateduck --storage az://catalog@mylakehouse/ --bind 0.0.0.0:5432
+slateduck serve --catalog az://catalog@mylakehouse/ --bind 0.0.0.0:5432
 
 # Secondary (read-only, use secondary endpoint)
-slateduck --storage az://catalog@mylakehouse-secondary/ --bind 0.0.0.0:5432 --read-only
+slateduck serve --catalog az://catalog@mylakehouse-secondary/ --bind 0.0.0.0:5432 --read-only
 ```
 
 ## Replication Lag
@@ -300,7 +300,7 @@ If the primary region becomes unavailable (regional outage):
    ```bash
    # Stop the read-only instance
    # Restart without --read-only
-   slateduck --storage s3://my-lakehouse-eu-west-1/catalog/ --bind 0.0.0.0:5432
+   slateduck serve --catalog s3://my-lakehouse-eu-west-1/catalog/ --bind 0.0.0.0:5432
    ```
 
 3. **Update DNS:** Point the writer endpoint to the new primary.
@@ -350,19 +350,19 @@ For a typical SlateDuck catalog (10–100 MB of metadata), cross-region replicat
 regions:
   us-east-1:
     role: primary
-    instance: slateduck --storage s3://lakehouse-us/catalog/ --bind 0.0.0.0:5432
+    instance: slateduck serve --catalog s3://lakehouse-us/catalog/ --bind 0.0.0.0:5432
     bucket: lakehouse-us
     replicates_to: [lakehouse-eu, lakehouse-ap]
 
   eu-west-1:
     role: reader
-    instance: slateduck --storage s3://lakehouse-eu/catalog/ --bind 0.0.0.0:5432 --read-only
+    instance: slateduck serve --catalog s3://lakehouse-eu/catalog/ --bind 0.0.0.0:5432 --read-only
     bucket: lakehouse-eu
     receives_from: lakehouse-us
 
   ap-southeast-1:
     role: reader
-    instance: slateduck --storage s3://lakehouse-ap/catalog/ --bind 0.0.0.0:5432 --read-only
+    instance: slateduck serve --catalog s3://lakehouse-ap/catalog/ --bind 0.0.0.0:5432 --read-only
     bucket: lakehouse-ap
     receives_from: lakehouse-us
 ```
