@@ -376,7 +376,7 @@ queries at the block-index level, without reading block data. This gives
 O(1) range counting within a key-prefix range.
 
 Both are *proposed* enhancements, not requirements for Phase 2.0. Tracked
-as open questions in §18.
+as open questions in §19.
 
 ### 3.8 Disaggregated compaction and garbage collection
 
@@ -600,17 +600,16 @@ they are not client-side post-processing.
 ### 4.6 Materialised views
 
 Some queries are too expensive to recompute on every request. The system
-supports **incrementally-maintained materialised views**: a view is
-declared as a query, and on every committed transaction the view is
-updated only for the entities the transaction touched. The view itself is
-stored as facts in a reserved namespace, so it participates in time
-travel and read replication.
+supports **incrementally-maintained materialised views**: a view is declared
+as a SQL query or typed Rust expression, and on every committed transaction
+only the *delta* (the changed facts) is processed — never the full dataset.
+This makes view maintenance cost proportional to the transaction size, not
+the total number of facts.
 
-Implementation: each materialised view registers a *change observer* keyed
-on the attributes it reads. The writer, after committing a transaction,
-runs the observer over the transaction's fact set and emits the view's
-delta as a follow-up transaction. The two transactions share a version so
-the view is always consistent with its source.
+See §11 for the formal delta computation model (Z-sets / DBSP), concrete
+use cases, storage format analysis (Arrow IPC vs. Parquet), and scale-out
+architecture. §11 also covers the two-tier storage strategy and the
+boostrap/replay path for new views.
 
 ---
 
@@ -1227,9 +1226,201 @@ workload that the partitioning pattern cannot serve.
 
 ---
 
-## 11. Federation
+## 11. Incremental View Maintenance (IVM)
 
-### 11.1 Cross-store queries
+### 11.1 The delta computation model
+
+The core insight behind efficient IVM is that every relational operator —
+filter, map, join, group-by, aggregate — has a *linear* counterpart that
+operates on *weighted change sets* rather than full relations. A change
+set (Z-set) is a multiset of records with integer weights: `+1` means the
+record was added, `−1` means it was removed.
+
+Formally: for any query Q over a relation R, there exists an incremental
+query ΔQ such that `Q(R ⊕ ΔR) = Q(R) ⊕ ΔQ(ΔR)`. The cost of running ΔQ
+is proportional to `|ΔR|`, not `|R|`. This property — proved rigorously in
+DBSP (Automatic Incremental View Maintenance for Rich Query Languages,
+VLDB 2023) — holds for the full SQL feature set including joins, recursive
+queries, and window functions.
+
+For the fact store, every committed transaction **is already a Z-set**:
+it contains a set of `(entity, attribute, value, version)` tuples with
+weight `+1` (asserted facts) or `−1` (retractions). There is no impedance
+mismatch between the fact store's native output and the IVM engine's
+native input.
+
+### 11.2 Use cases
+
+The following views are strong candidates for IVM in v2.x and v3.0:
+
+| View | Description | Why IVM |
+|------|-------------|--------|
+| **Entity snapshot** | Latest `{attr → value}` map per entity | The most common read pattern; avoids full EAVT scan per entity |
+| **Namespace rollup** | Fact count by namespace/attribute/time window | Small delta updates a single counter row per bucket |
+| **Access control graph** | Recursive group → member → permission inheritance | Recursive differential dataflow (`iterate`) maintains this in sub-millisecond after any role change |
+| **Referential integrity** | Set of dangling entity references | Anti-join maintained incrementally; violations surface immediately |
+| **Feature store** | ML feature tables (entity → feature vector) | Feature engineering pipelines traditionally batch-only; IVM makes them real-time |
+| **External sync changelog** | Per-entity change log for CDC to Postgres, Kafka, or S3 | View delta IS the CDC event; no separate change-data-capture pipeline needed |
+| **Freshness SLO view** | Per-namespace view staleness in seconds | Simple aggregation over transaction timestamps |
+
+### 11.3 Integration with the writer path
+
+After committing a transaction to SlateDB, the writer publishes the fact
+delta as an Apache Arrow IPC `RecordBatch` to the IVM scheduler. The
+RecordBatch schema is fixed:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ fact_delta RecordBatch schema                                │
+│  entity_id   : UInt64                                        │
+│  attribute   : Utf8 (dictionary-encoded)                     │
+│  value_bytes : Binary                                        │
+│  tx_version  : UInt64                                        │
+│  weight      : Int8   (+1 assert / -1 retract)               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The IVM scheduler routes each batch to the registered view circuits. Each
+circuit is a graph of linear operators that process the delta and emit a
+view delta RecordBatch. The view delta is applied to the view's current
+state.
+
+**In-process path (Phase 2.2):** IVM runs synchronously inside the writer
+process, driven by the same `after_commit` hook that triggers audit fact
+writing. View state lives in memory (with optional NVMe spill).
+
+**Out-of-process path (Phase 3.0):** IVM workers consume from the Buffer
+queue (§8.7) asynchronously. The writer publishes fact deltas as Buffer
+batches; IVM workers drain the queue and maintain view state. This
+decouples IVM latency from write latency.
+
+### 11.4 Storage format: Arrow IPC vs Parquet
+
+Materialised view state needs a storage format that balances interactive
+query latency against analytical compatibility and storage cost.
+
+**Option A — Arrow IPC on NVMe (hot tier):**
+
+- View state stored as memory-mapped Arrow IPC files on the local NVMe
+  PVC (the same disk used by the SlateDB block cache).
+- Zero-copy in-process reads: DuckDB, DataFusion, and the SlateDuck SQL
+  layer can query the view without deserialisation.
+- SIMD-friendly columnar layout — sub-millisecond point lookups for most
+  entity snapshot queries.
+- No compression overhead: Arrow IPC is identical to the in-memory
+  representation, so reads require no decompression pass.
+- Write amplification is low: a view delta is appended as a small
+  RecordBatch, and the hot file is rewritten only when a compaction
+  threshold is reached.
+- **Limitation:** Arrow IPC files are not directly queryable by external
+  tools (Spark, Trino, Snowflake) without conversion.
+
+**Option B — Parquet on object storage (cold tier / lakehouse):**
+
+- View snapshots flushed to S3/GCS/Azure as Parquet files, described by
+  an Iceberg or DuckLake metadata layer.
+- Compressed columnar storage — typically 5–10× smaller than Arrow IPC
+  for the same data.
+- Predicate pushdown and column pruning: analytical engines only read
+  relevant columns and row groups.
+- Queryable by any Parquet-aware tool: DuckDB, Spark, Trino, BigQuery,
+  Snowflake — no ETL pipeline required to connect BI tools.
+- **Limitation:** Parquet writes have higher latency (typically 50–500 ms
+  per file flush) and are not suitable for sub-second view updates.
+
+**Recommendation — two-tier approach:**
+
+```
+ ┌──────────────────────────────────────────────────────────────┐
+ │  IVM worker                                                  │
+ │                                                              │
+ │  fact delta (Arrow IPC RecordBatch)                          │
+ │       │                                                      │
+ │       ▼                                                      │
+ │  DBSP / Z-set operators                                      │
+ │       │                                                      │
+ │       ▼                                                      │
+ │  view delta RecordBatch                                      │
+ │       │                           every N min / M GiB        │
+ │       ├──────── apply ──▶  Arrow IPC on NVMe  ──snapshot──▶  │
+ │       │                   (hot tier, mmap)                   │
+ │       │                                                      │
+ │       └──────────────────────────────────────────────────▶   │
+ │                               Parquet on object storage      │
+ │                               (cold tier, analytics)         │
+ └──────────────────────────────────────────────────────────────┘
+```
+
+- **Hot tier:** Arrow IPC files on NVMe, updated on every view delta.
+  DuckDB's `read_parquet` / `scan_arrow` can query both tiers in one SQL
+  expression. Interactive latency: < 5 ms for entity snapshot queries.
+- **Cold tier:** Parquet snapshots on object storage, flushed every 15
+  minutes or every 1 GiB of view state (whichever comes first). Serves
+  BI tools, historical analytics, and cross-system data sharing.
+- A DuckLake (DuckDB lakehouse) catalog entry advertises both tiers as a
+  single logical table, so consumers use standard SQL with no tier
+  awareness.
+
+### 11.5 Scale-out architecture
+
+IVM workers are stateless with respect to the fact store: they consume the
+fact delta stream and maintain their own view state. This matches the
+disaggregated compaction model (§3.8) and the Buffer queue pattern (§8.7).
+
+**Scale-out properties:**
+
+- **View-level parallelism.** Each registered view can be processed by a
+  separate IVM worker pod. Workers do not coordinate with each other.
+- **Namespace-level parallelism.** A single view over a large namespace
+  can be sharded by entity hash across multiple workers. Each worker
+  maintains its partition of the view state independently.
+- **Bootstrap / catch-up mode.** A new or restarted IVM worker replays
+  the full transaction log (from the SlateDB manifest) to build its
+  initial view state, then switches to incremental mode. Replay cost is
+  linear in transaction count, not entity count.
+- **Exactly-once semantics.** The IVM worker uses the same sequence
+  persistence technique as the Buffer consumer (§8.7): it atomically
+  writes `(view_state_delta, last_processed_tx_version)` to its own
+  SlateDB namespace. On restart it resumes from the last persisted
+  version, ensuring no transaction is applied twice.
+
+```
+ Writer ──fact delta──▶  Object Storage  ──poll──▶  IVM worker A (Entity snapshot)
+                                         ──poll──▶  IVM worker B (Access control graph)
+                                         ──poll──▶  IVM worker C (Feature store)
+```
+
+### 11.6 DBSP crate evaluation
+
+The `dbsp` crate (from the Feldera project) provides a complete Rust
+implementation of the DBSP incremental computation model:
+
+| Capability | Relevance to SlateDuck |
+|------------|------------------------|
+| Full SQL incrementally (joins, aggregates, window functions, recursion) | Enables arbitrary SQL-declared views without hand-writing operators |
+| Datasets larger than RAM via NVMe spill (`FallbackZSet`, `FallbackKeyBatch`) | Handles large entity snapshots without memory pressure |
+| Multi-worker scale-out via timely dataflow | Long-term horizontal partitioning of expensive views |
+| LATENESS annotations for time-series GC | Bounds storage for event/metric views over sliding windows |
+| Ad-hoc queries against materialised state via DataFusion | Consistent with SlateDuck's existing DataFusion integration |
+| MIT licensed, written in Rust | Fits the crate dependency model |
+
+For Phase 2.2, a hand-written Z-set operator set (filter, project, group-by)
+is simpler to integrate and audit. The DBSP crate becomes compelling in
+Phase 3.0 when SQL-declared views need joins and recursive rules.
+
+### 11.7 Evaluation timeline
+
+| Phase | Scope | Deliverable |
+|-------|-------|-------------|
+| 2.2 | In-process entity snapshot view via hand-written Z-set filter+aggregate | Working materialised view over EAVT delta |
+| 2.3 | Out-of-process IVM worker, Arrow IPC hot tier, Parquet cold-tier snapshots | Disaggregated view worker with DuckLake catalog entry |
+| 3.0 | SQL-declared views via DBSP crate, namespace sharding, multi-worker bootstrap | Full IVM with recursive views, feature store pattern |
+
+---
+
+## 12. Federation
+
+### 12.1 Cross-store queries
 
 A query in v2.5+ can reference entities in multiple fact stores:
 
@@ -1243,7 +1434,7 @@ no global transaction — each store contributes its own version to the
 query, and the planner records the cross-store version vector for
 reproducibility.
 
-### 11.2 Time alignment
+### 12.2 Time alignment
 
 Cross-store queries can specify time alignment:
 
@@ -1251,7 +1442,7 @@ Cross-store queries can specify time alignment:
   given wall-clock instant.
 - `as_of(version_vector)` — explicit (store_a@V₁, store_b@V₂) coordinates.
 
-### 11.3 No global coordinator
+### 12.3 No global coordinator
 
 There is no central federation service. Stores discover each other via
 configuration (URLs in a federation manifest), and queries are planned
@@ -1260,9 +1451,9 @@ else in v2.x: a bucket and a binary, nothing more.
 
 ---
 
-## 12. Extraction Boundary and API Surface
+## 13. Extraction Boundary and API Surface
 
-### 12.1 The `slateduck-factstore` crate
+### 13.1 The `slateduck-factstore` crate
 
 ```rust
 pub struct FactStore { /* ... */ }
@@ -1300,7 +1491,7 @@ impl Reader {
 }
 ```
 
-### 12.2 The lakehouse adapter
+### 13.2 The lakehouse adapter
 
 The existing `slateduck-catalog` crate becomes a thin **adapter** on top
 of `slateduck-factstore`. Each of the 28 lakehouse tables maps to a
@@ -1310,7 +1501,7 @@ the v1.x API unchanged for backward compatibility.
 This is a powerful proof point: if the lakehouse catalog itself runs
 cleanly on the generic substrate, every other schema can too.
 
-### 12.3 Compatibility commitment
+### 13.3 Compatibility commitment
 
 - v1.x lakehouse catalogs **upgrade in place** to v2.0 — the on-disk
   format is identical, the adapter speaks the same wire protocol.
@@ -1318,7 +1509,7 @@ cleanly on the generic substrate, every other schema can too.
 - The generic API is **independently versioned**: `slateduck-factstore`
   may reach 1.0 before or after SlateDuck v2.0 ships.
 
-### 12.4 Possible standalone-project promotion
+### 13.4 Possible standalone-project promotion
 
 Once `slateduck-factstore` stabilises (no breaking changes for two minor
 releases, ≥ 2 production users beyond the lakehouse adapter), the crate
@@ -1329,7 +1520,7 @@ in-workspace extraction is sufficient.
 
 ---
 
-## 13. Implementation Phases
+## 14. Implementation Phases
 
 ### Phase 2.0 — Extraction (foundational)
 
@@ -1414,7 +1605,7 @@ in-workspace extraction is sufficient.
 
 ---
 
-## 14. Testing Strategy
+## 15. Testing Strategy
 
 Inherits the v1.x testing pyramid (property + unit + golden + crash +
 performance) and adds:
@@ -1434,7 +1625,7 @@ performance) and adds:
 
 ---
 
-## 15. Performance Targets
+## 16. Performance Targets
 
 ### 15.1 Write path
 
@@ -1469,13 +1660,13 @@ land.
 
 ---
 
-## 16. Risks and Mitigations
+## 17. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Tiered index model adds schema-declaration friction for new adopters | Medium | Medium | Dynamic mode (§7.1) removes the requirement; strict mode can be adopted incrementally. |
 | EAVT-only stores have poor attribute-scan performance | High | Low | By design — §1.2 explicitly excludes bulk analytical aggregations. Materialised views (§4.6) and Parquet export are the recommended escape hatches. |
-| `NEST_ONE` / `NEST_MANY` encoding choice (JSON vs. Arrow) blocks adoption | Medium | Medium | Default to `serde_json::Value` for PG-wire; expose Arrow-typed API for embedded use. See Open Questions §18. |
+| `NEST_ONE` / `NEST_MANY` encoding choice (JSON vs. Arrow) blocks adoption | Medium | Medium | Default to `serde_json::Value` for PG-wire; expose Arrow-typed API for embedded use. See Open Questions §19. |
 | Query planner cannot beat hand-written scans in early benchmarks | High | Medium | Ship the typed API first; defer SQL/rules optimisation until the substrate is stable. |
 | Bi-temporal semantics confuse early adopters | High | Low | Keep bi-temporal opt-in per attribute; default is single-time. |
 | Materialised-view freshness lag breaks user expectations | Medium | High | Bound the lag explicitly (10 ms group-commit window) and expose it as a metric. |
@@ -1486,7 +1677,7 @@ land.
 
 ---
 
-## 17. Success Criteria
+## 18. Success Criteria
 
 v2.x succeeds when:
 
@@ -1505,7 +1696,7 @@ v2.x succeeds when:
 
 ---
 
-## 18. Open Questions
+## 19. Open Questions
 
 - What is the right "tag block" allocation policy for user-defined
   schemas? (Tag ranges, dynamic registration, or both?)
@@ -1514,8 +1705,10 @@ v2.x succeeds when:
   features?
 - How much of the value-type system should be extensible (custom types
   via plugin?) versus closed (the §3.5 list and no more)?
-- Is materialised-view incremental maintenance worth the complexity in
-  v2.x, or should it slip to v3.0?
+- Is materialised-view incremental maintenance (§11) best implemented via
+  the `dbsp` crate in Phase 2.2, via hand-written Z-set operators, or
+  deferred entirely to Phase 3.0? The Phase 2.2 scope (entity snapshot
+  only) likely does not need the full DBSP algebra.
 - Can the federation design hold across object-storage providers (S3 ↔
   GCS ↔ Azure) without performance cliffs?
 - Should counters be per-entity-type or global per-store? (Performance vs.
@@ -1541,7 +1734,7 @@ v2.x succeeds when:
 
 ---
 
-## 19. References
+## 20. References
 
 - [`plans/blueprint.md`](blueprint.md) — v1.x blueprint and the original
   architectural principle (§1.4) and extraction boundary (§5.29).
