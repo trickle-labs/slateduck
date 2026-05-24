@@ -165,26 +165,24 @@ impl pgwire::api::auth::StartupHandler for SlateDuckStartupHandler {
                         .await?;
                 }
             }
-            PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
-                if self.auth.is_enabled() {
-                    let pwd = pwd.into_password()?;
-                    let expected = self.auth.password.as_deref().unwrap_or("").as_bytes();
-                    if ct_bytes_eq(pwd.password.as_bytes(), expected) {
-                        finish_authentication(client, &DefaultServerParameterProvider::default())
-                            .await?;
-                    } else {
-                        let error_info = ErrorInfo::new(
-                            "FATAL".to_owned(),
-                            "28P01".to_owned(),
-                            "Password authentication failed".to_owned(),
-                        );
-                        client
-                            .feed(PgWireBackendMessage::ErrorResponse(ErrorResponse::from(
-                                error_info,
-                            )))
-                            .await?;
-                        client.close().await?;
-                    }
+            PgWireFrontendMessage::PasswordMessageFamily(pwd) if self.auth.is_enabled() => {
+                let pwd = pwd.into_password()?;
+                let expected = self.auth.password.as_deref().unwrap_or("").as_bytes();
+                if ct_bytes_eq(pwd.password.as_bytes(), expected) {
+                    finish_authentication(client, &DefaultServerParameterProvider::default())
+                        .await?;
+                } else {
+                    let error_info = ErrorInfo::new(
+                        "FATAL".to_owned(),
+                        "28P01".to_owned(),
+                        "Password authentication failed".to_owned(),
+                    );
+                    client
+                        .feed(PgWireBackendMessage::ErrorResponse(ErrorResponse::from(
+                            error_info,
+                        )))
+                        .await?;
+                    client.close().await?;
                 }
             }
             _ => {}

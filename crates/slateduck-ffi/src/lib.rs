@@ -3,6 +3,11 @@
 //! This crate provides a stable C ABI over `slateduck-catalog` operations.
 //! All async operations are bridged via a blocking Tokio runtime.
 
+// FFI functions must accept raw pointers from C callers.
+// Null/handle safety is enforced explicitly via validate_catalog() and
+// per-function null checks — not by Rust's type system.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
