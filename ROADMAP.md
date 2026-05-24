@@ -1673,9 +1673,370 @@ Convert roadmap Done status from self-reported to criteria-driven:
 
 ---
 
+## v0.11 — Incremental View Maintenance (Foundations)
+
+> **The defining feature.** Bring first-class incremental materialized views to a lakehouse-on-object-storage. No external streaming system, no Kubernetes operator, no separate database — just stateless workers writing more DuckLake into the same bucket. Companion design documents: [plans/slateduck-differential-dataflow.md](plans/slateduck-differential-dataflow.md) (architecture), [plans/slatedb-differential-dataflow.md](plans/slatedb-differential-dataflow.md) (substrate analysis), and [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) (engineering plan).
+
+### Thesis
+
+DuckLake snapshots, SlateDB SSTs, SlateDuck catalog facts, and differential-dataflow (DD/DBSP) batches are all immutable. Stacking them yields an IVM system whose compute workers are stateless, whose state is content-addressable in object storage, whose sharding is trivial because nothing ever moves between shards, and whose read fan-out is the same as for base tables. This is a capability Iceberg and Delta achieve only with external streaming systems; SlateDuck delivers it as a single binary against an S3 bucket.
+
+v0.11 lands the *foundations* end-to-end at single-shard scope. v0.12 generalizes to sharded scale-out. v0.13 covers joins. v0.14 is operational hardening. After v0.14 the system is ready to be included in the v1.0 GA story.
+
+### Why pre-1.0
+
+Three reasons IVM ships before GA rather than as a v1.x add-on:
+
+1. **It is the defining feature.** SlateDuck without IVM is one of several lakehouse-on-object-storage implementations. SlateDuck with IVM is the only one that materializes derived views without leaving the bucket.
+2. **The architectural seams must be right at GA.** The catalog change-log shape, per-warehouse layout, and snapshot metadata fields that IVM depends on are cheap to design now and expensive to retrofit. Shipping GA without those seams locks in a more painful upgrade path.
+3. **No rush on GA.** Correctness, security, and operational tracks (v0.9.x) take priority for ship readiness; once those land, adding the defining feature before declaring "general availability" produces a v1.0 that means something stronger.
+
+### Catalog Schema Additions
+
+Four new MVCC-versioned tables under freshly allocated tag bytes in [crates/slateduck-core/src/tags.rs](crates/slateduck-core/src/tags.rs):
+
+| Table | Tag (proposed) | MVCC behaviour | Purpose |
+|---|---|---|---|
+| `matviews` | `0x1D` | `Versioned` | View definitions (name, SQL, output table, shard count, freshness target, state URI, lifecycle snapshots) |
+| `matview_deps` | `0x1E` | `AppendOnly` | `(matview_id, base_table_id, used_columns)` — input subscription graph |
+| `matview_checkpoints` | `0x1F` | `AppendOnly` | `(matview_id, shard_id, last_input_snapshot, last_output_snapshot, frontier_time, durable_at)` — per-shard watermark log |
+| `matview_shards` | `0x20` | `MutableSingleton` per `(matview_id, shard_id)` | Lease state (`owner_worker`, `lease_expires_at`, `key_range_lo`, `key_range_hi`) updated via SlateDB CAS |
+
+- [ ] Tag descriptors added to `tags.rs` with documentation, MVCC behaviour, and `status: Implemented`
+- [ ] Protobuf row schemas added to `slateduck-core/src/rows.rs` with `encoding_version = 1`
+- [ ] Wire-level fixtures captured under `tests/fixtures/matview/` for each table
+- [ ] Key-encoding test corpus extended for the new tag bytes (round-trip, ordering, prefix isolation)
+
+### SQL Surface
+
+Bounded SQL extension in `slateduck-sql` — the inner `<select>` is parsed but stored verbatim; only the new statement shells are validated by pgwire.
+
+```sql
+CREATE INCREMENTAL MATERIALIZED VIEW v
+  WITH (shard_count = 1, freshness = '5s')
+  AS <select>;
+
+DROP    INCREMENTAL MATERIALIZED VIEW v;
+ALTER   INCREMENTAL MATERIALIZED VIEW v SET (freshness = '10s');
+REFRESH INCREMENTAL MATERIALIZED VIEW v FULL;
+
+SHOW    MATERIALIZED VIEWS;
+SHOW    MATVIEW SHARDS FOR v;
+EXPLAIN MATERIALIZED VIEW v;             -- shows compiled DBSP plan
+SELECT  matview_lag('v');                -- freshness lag in ms
+```
+
+- [ ] Grammar additions to `slateduck-sql` with happy-path and error-path tests
+- [ ] PG-wire dispatcher routes each new statement to a `CatalogWriter` method
+- [ ] `EXPLAIN MATERIALIZED VIEW` returns the DBSP operator tree as a textual plan
+- [ ] All new statement shapes covered by the v0.6.x wire-corpus replay harness
+
+### `slateduck-ivm` Crate (New)
+
+A new workspace crate hosting the IVM runtime. Single-shard scope in v0.11.
+
+```
+crates/slateduck-ivm/
+├── Cargo.toml
+├── src/
+│   ├── lib.rs
+│   ├── source.rs        # MatviewInputSource over DuckLake data files
+│   ├── circuit.rs       # DBSP circuit compilation from stored view SQL
+│   ├── trace.rs         # Persistent trace adapter (DBSP-bundled object-store backend in v0.11)
+│   ├── worker.rs        # Lease acquisition, circuit driver, checkpoint advance
+│   ├── output.rs        # Per-shard Parquet writer + catalog commit
+│   └── bin/
+│       └── slateduck-ivm.rs
+└── tests/
+    └── integration_tests.rs
+```
+
+- [ ] `dbsp` (Feldera) crate added as workspace dependency, version-pinned with a vendored compatibility shim in `circuit.rs`
+- [ ] `MatviewInputSource` reads append-only base tables filtered to a key range, emitting `(row, snapshot_id, +1)` deltas
+- [ ] `SlateDbTrace` (Phase A: DBSP-bundled persistence; native impl deferred to v0.14)
+- [ ] Worker event loop: poll catalog → acquire lease → drive circuit → durable batch → append checkpoint
+- [ ] Output writer emits one Parquet file per cycle, commits via existing `CatalogWriter` snapshot path
+- [ ] `slateduck-ivm serve --catalog-path … --state-prefix … --worker-id … --shard-limit 1` CLI matches `slateduck-pgwire` ergonomics
+
+### Catalog API Additions
+
+In `slateduck-catalog`:
+
+- [ ] `CatalogWriter::create_matview(name, view_sql, output_table_id, shard_count, freshness_ms) -> MatviewId`
+- [ ] `CatalogWriter::drop_matview(matview_id)` (logical drop via `dropped_at_snapshot`)
+- [ ] `CatalogWriter::update_matview_checkpoint(matview_id, shard_id, input_snapshot, output_snapshot, frontier)`
+- [ ] `CatalogWriter::claim_matview_shard(matview_id, shard_id, worker_id, lease_ttl) -> ClaimResult` (CAS via `DbTransaction` + `SerializableSnapshot`)
+- [ ] `CatalogReader::list_matviews()`, `get_matview(id)`, `list_shards_for_worker(worker_id)`, `read_checkpoint_history(matview_id)`
+- [ ] All new methods covered by property tests (creation idempotence, lease exclusivity, checkpoint monotonicity)
+
+### End-to-End Demo
+
+Acceptance demo encoded as a single test:
+
+1. Open a fresh SlateDuck warehouse on LocalFS.
+2. Create base table `events(id BIGINT, occurred_at TIMESTAMP, event_type VARCHAR)`.
+3. Bulk-insert 1M rows across 30 catalog snapshots.
+4. Execute `CREATE INCREMENTAL MATERIALIZED VIEW events_by_day AS SELECT date_trunc('day', occurred_at) AS day, event_type, count(*) AS n FROM events GROUP BY 1, 2 WITH (shard_count = 1, freshness = '2s');`.
+5. Start one `slateduck-ivm` worker.
+6. Verify backfill completes; `SELECT * FROM events_by_day` returns correct counts.
+7. Insert another 10k events across 5 snapshots.
+8. Within 5 s, `events_by_day` reflects the new counts.
+9. Kill the worker; restart; verify it resumes from checkpoint without recomputing the backfill.
+
+- [ ] Test passes deterministically on LocalFS, MinIO, and S3 Standard
+- [ ] Documented in `docs/operations/incremental-materialized-views.md`
+
+### Documentation
+
+- [ ] `docs/concepts/incremental-views.md` — what an IVM is, freshness semantics, snapshot alignment
+- [ ] `docs/architecture/ivm-plane.md` — three-plane architecture diagram and explanation
+- [ ] `docs/operations/incremental-materialized-views.md` — operator playbook: create, drop, refresh, monitor
+- [ ] `docs/reference/sql-ivm.md` — full SQL grammar reference for the new statements
+- [ ] `docs/design-decisions/ivm-on-immutable-substrate.md` — the immutability argument and why this is the right place to build IVM
+
+### Acceptance Criteria
+
+- [ ] Single-shard `GROUP BY` IVM holds correct contents across 100 catalog snapshots of input
+- [ ] Worker restart without checkpoint loss: kill -9 followed by restart resumes from `last_output_snapshot` without recomputing prior work
+- [ ] Freshness target honoured: median publish-to-visible lag ≤ target on LocalFS and S3 Express
+- [ ] TPC-H Q1 maintained against a streaming `lineitem` source with sub-second freshness for batches of ≤ 100 rows
+- [ ] All v0.11 tests pass under MinIO and on S3 Standard
+- [ ] Wire corpus regenerated to include the four new statement shapes
+- [ ] Implementation doc [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) reflects the shipped design
+
+### Deliverables
+
+- [ ] `slateduck-ivm` crate published in the workspace
+- [ ] Catalog schema additions and tag-allocation update
+- [ ] SQL grammar extension and pgwire routing
+- [ ] End-to-end single-shard demo test green
+- [ ] Documentation set published under `docs/`
+
+---
+
+## v0.12 — IVM Scale-Out (Sharding & Lease Management)
+
+> Generalize v0.11's single-shard runtime to N-shard horizontal scale-out within a single view. This phase pays off the central claim of the IVM design: that immutability makes sharded streaming computation cheap.
+
+### Sharding Model
+
+Each matview owns `shard_count` shards. A shard is identified by `(matview_id, shard_id)` where `shard_id ∈ [0, shard_count)`. Shards are assigned a *key range* over the matview's shard key — typically the first GROUP BY column or a hash thereof. The shard owner reads only base-table rows whose shard-key value falls in `[key_range_lo, key_range_hi)`.
+
+- [ ] Key range computed deterministically from `shard_count` and shard-key column statistics at view creation
+- [ ] `matview_shards` populated atomically with the view's first catalog snapshot
+- [ ] Shard-key column auto-detected from view SQL; explicit override via `WITH (shard_key = '<column>')`
+- [ ] Per-shard SlateDB state store at `{state_prefix}/matviews/{matview_id}/shards/{shard_id}/`
+
+### Lease & Heartbeat Protocol
+
+- [ ] `claim_matview_shard` CAS protocol with TTL (default 30 s)
+- [ ] Worker heartbeat extends lease every TTL/3; missed heartbeat lets another worker claim
+- [ ] Worker IDs are durable across restarts via `--worker-id` (no random UUIDs in production)
+- [ ] Lease history retained for 24 h for forensic debugging
+- [ ] Test: kill -9 a worker holding 4 shards; verify a second worker acquires all 4 within 2× TTL
+
+### Per-Shard Checkpoint Independence
+
+- [ ] Each shard advances `last_input_snapshot` independently
+- [ ] Output mode `consistent` (default): output snapshot waits for all shards
+- [ ] Output mode `per_shard`: shards publish independently; reader merges
+- [ ] `MATVIEW_LAG('v')` returns max lag across shards
+- [ ] `SHOW MATVIEW SHARDS FOR v` returns per-shard owner, lease expiry, last input snapshot, lag
+
+### Per-Shard Parquet Output
+
+- [ ] Each shard writes one Parquet file per output cycle; data files registered to the output table
+- [ ] Output table partitioning aligned with shard key when possible (pruning benefit at read time)
+- [ ] Compaction policy for output data files: configurable via `WITH (output_compaction = '1h' | 'never')`
+- [ ] Cleanup of superseded per-shard data files via existing DuckLake GC
+
+### Sharded Scale-Out Demo
+
+- [ ] TPC-H Q1 with `shard_count = 8` maintained against streaming `lineitem`, achieving ≥ 6× ingest throughput vs v0.11 single-shard baseline
+- [ ] Linear scaling demonstrated for 1 → 2 → 4 → 8 → 16 shards on a 1 TB synthetic input
+- [ ] Cost report: S3 PUT volume per million input rows at each shard count
+- [ ] Documented sweet-spot recommendations in `docs/operations/incremental-materialized-views.md`
+
+### Re-Sharding
+
+- [ ] `ALTER INCREMENTAL MATERIALIZED VIEW v SET (shard_count = 16)` triggers a parallel rebuild of the view at the new shard count; cutover when caught up
+- [ ] Old and new view versions coexist until cutover; old version GC'd after retention window
+- [ ] Tested across snapshot boundaries: re-sharding during active ingest does not lose updates
+
+### Acceptance Criteria
+
+- [ ] 8-shard `GROUP BY` view maintains correctness across 1000 input snapshots
+- [ ] Kill-and-restart of a worker holding multiple shards results in zero data loss and ≤ 2× TTL recovery latency
+- [ ] Linear ingest scaling 1 → 16 shards within ±15 %
+- [ ] Re-sharding from 1 → 8 shards completes for a 100 GB base table without service interruption
+- [ ] No regression in v0.11 single-shard tests
+- [ ] Per-shard observability surfaces visible in `SHOW MATVIEW SHARDS` and exported metrics
+
+### Deliverables
+
+- [ ] Lease + heartbeat protocol shipped and stress-tested
+- [ ] Per-shard SlateDB state stores under `{state_prefix}/matviews/.../shards/.../`
+- [ ] Re-sharding via `ALTER` shipped
+- [ ] Sharded scale-out benchmark report in `benchmarks/v0.12-ivm-scaleout.json`
+- [ ] Operator playbook expanded with sharding guidance
+
+---
+
+## v0.13 — IVM Joins
+
+> Extend the IVM runtime from single-input aggregations to multi-input joins. Covers the three join strategies described in the design document: broadcast small-side, co-partitioned, and re-shuffled.
+
+### Broadcast Join Support
+
+The common case: join a large fact table with one or more dimension tables. Dimension tables are broadcast to every shard.
+
+- [ ] Detect broadcast candidates at view creation: input estimated row count below `WITH (broadcast_threshold = N)` (default 1M rows)
+- [ ] Replicate broadcast inputs into each shard's state store at backfill; incremental updates propagated to all shards
+- [ ] Bounded memory: broadcast inputs above threshold reject view creation with a clear error message
+- [ ] Tested with TPC-H Q3 (`orders ⋈ lineitem ⋈ customer`) where `customer` and `nation` are broadcast
+
+### Co-Partitioned Join Support
+
+When both inputs share the same shard key, joins are local. No exchange required.
+
+- [ ] Detect co-partitioned joins via shard-key analysis in the SQL plan
+- [ ] Both inputs read filtered to the same key range
+- [ ] Local hash join via DBSP's join operator
+- [ ] Tested with TPC-H Q4 (`orders ⋈ lineitem` on `o_orderkey = l_orderkey` with `shard_key = orderkey`)
+
+### Re-Shuffle Exchange
+
+When neither broadcast nor co-partitioning applies, one side is re-partitioned at the join boundary.
+
+- [ ] Insert exchange operator that writes intermediate state to a temporary SlateDB region keyed by the join key
+- [ ] Reader on the other side reads the matching key range from the intermediate region
+- [ ] Cost: one extra round-trip through SlateDB per join input; documented as the most expensive option
+- [ ] Tested with TPC-H Q5 (`customer ⋈ orders ⋈ lineitem ⋈ supplier ⋈ nation ⋈ region`)
+
+### Join Plan Selection
+
+- [ ] `EXPLAIN MATERIALIZED VIEW v` shows chosen join strategy per operator
+- [ ] `WITH (join_strategy = 'broadcast' | 'co_partition' | 'reshuffle')` overrides per-view default
+- [ ] Cost-based planner selects strategy automatically when not overridden
+
+### Delete Propagation in Joins
+
+- [ ] `(-1)` updates from delete files propagate correctly through join operators
+- [ ] Documented limitation: high-volume delete campaigns over joined views may require `REFRESH ... FULL`
+
+### Acceptance Criteria
+
+- [ ] TPC-H Q3 maintained incrementally with broadcast `nation`/`region`
+- [ ] TPC-H Q5 maintained incrementally with explicit `WITH (shard_key = …)` on co-partitionable side
+- [ ] Re-shuffle exchange operator correctness verified by golden-output comparison against DuckDB single-shot execution
+- [ ] No correctness regression for v0.11/v0.12 single-input views
+- [ ] Per-join-strategy cost numbers published in `benchmarks/v0.13-ivm-joins.json`
+
+### Deliverables
+
+- [ ] Three join strategies shipped behind a common DBSP join operator interface
+- [ ] Plan-selection logic in `slateduck-ivm/src/circuit.rs`
+- [ ] TPC-H Q3 / Q4 / Q5 maintained as continuous integration tests
+- [ ] Documentation updated with join sizing guidance
+
+---
+
+## v0.14 — IVM Operational Hardening
+
+> Production-ready IVM. Cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.14 the IVM track is folded into the v1.0 GA story.
+
+### Native `SlateDbTrace` Implementation
+
+Replace DBSP's bundled persistence with a native trace implementation directly over SlateDB. This is the deferred work from v0.11; it unlocks the cost optimizations below.
+
+- [ ] `SlateDbTrace` implements DBSP's persistent `Trace`, `Batch`, and `Cursor` traits
+- [ ] Frontier advancement mapped to SlateDB compaction
+- [ ] Direct mapping of DBSP batch boundaries to SlateDB SST flushes
+- [ ] Benchmark: native trace ≥ 1.5× faster than v0.11 baseline at equal correctness
+- [ ] Property-tested against DBSP's reference in-memory trace
+
+### Cost Optimization
+
+The naive implementation flushes a SlateDB batch on every input snapshot, generating thousands of small SSTs per day per shard. Mitigations:
+
+- [ ] Coalesce flushes: only flush when `time-since-last-flush > freshness/2` *and* buffered work exists
+- [ ] `await_durable = false` for non-checkpoint writes; `await_durable = true` only at checkpoint boundaries
+- [ ] Aggressive compaction policy for matview state stores (configurable per matview)
+- [ ] Documented cost model: API calls per million input rows × shard count × freshness, with empirical numbers on S3 Standard, S3 Express, GCS, R2
+
+### Backpressure & Per-Shard Publication Modes
+
+- [ ] Backpressure protocol: workers stall ingest when output plane is N snapshots behind (default N = 100)
+- [ ] Per-shard `output_mode = 'per_shard'` publishes individual shard frontiers; query layer merges
+- [ ] Skewed-shard detection: emit warning when one shard's lag exceeds 5× the median
+- [ ] Hot-key mitigation guidance in operator playbook
+
+### Delete-File Support
+
+- [ ] Input source emits `(row, -1)` updates for rows newly covered by delete files
+- [ ] Aggregations over deletable base tables correctly subtract deleted rows
+- [ ] Documented constraint: large delete campaigns may require `REFRESH ... FULL` for non-monoidal aggregates
+- [ ] Tested with DuckLake delete files at various scales
+
+### Schema Evolution
+
+- [ ] Adding a column to a base table the view does not reference: no-op
+- [ ] Adding a column the view does reference: view marked stale, requires `REFRESH ... FULL`
+- [ ] Column type change: view marked stale
+- [ ] Renaming a column referenced by a view: view marked stale (re-creation required)
+- [ ] All stale states surfaced in `SHOW MATERIALIZED VIEWS` with a clear `status` column
+
+### Exactly-Once Output Snapshots
+
+- [ ] Each output snapshot tagged with `(matview_id, target_frontier)` in its catalog metadata
+- [ ] `CatalogWriter` CAS prevents a duplicate snapshot for the same `(matview_id, target_frontier)`
+- [ ] Worker restart mid-output-commit cannot produce duplicate data files
+- [ ] Tested under fault injection: kill -9 during every Parquet write and catalog commit step
+
+### Observability
+
+- [ ] Per-matview metrics: `ivm_lag_ms`, `ivm_throughput_rps`, `ivm_state_size_bytes`, `ivm_s3_puts_total`, `ivm_s3_gets_total`, per shard
+- [ ] OpenTelemetry traces from input read → DBSP circuit → state write → output commit
+- [ ] `slateduck-ivm doctor` CLI: reports stuck shards, expired leases, lagging frontiers, cost outliers
+- [ ] Prometheus exporter compatible with existing `slateduck-pgwire` observability story
+
+### `REFRESH ... FULL` & Repair
+
+- [ ] `REFRESH INCREMENTAL MATERIALIZED VIEW v FULL` drops state stores, rebuilds from scratch in parallel
+- [ ] `slateduck-ivm repair --matview v --shard N` recomputes a single shard from base data
+- [ ] Repair operations leave a durable audit trail in `matview_checkpoints`
+
+### Fault Injection Test Suite
+
+- [ ] `fail-parallel` harness covers: worker death mid-batch, mid-commit, mid-output; lease expiry races; S3 partial failures; SlateDB compaction during checkpoint
+- [ ] All scenarios survive a 1-hour soak test without correctness loss
+- [ ] Documented in `docs/contributing/testing.md`
+
+### Acceptance Criteria
+
+- [ ] Native `SlateDbTrace` 1.5× faster than v0.11 on TPC-H Q1 streaming benchmark
+- [ ] Steady-state S3 PUT cost ≤ 2× SlateDB's bare-substrate cost for the same write volume
+- [ ] All fault-injection scenarios pass deterministically
+- [ ] `slateduck-ivm doctor` correctly identifies every fault class in the test suite
+- [ ] Continuous-soak test: TPC-H Q1 maintained for 24 h with zero correctness drift
+- [ ] All v0.11-v0.13 acceptance tests still pass
+
+### Deliverables
+
+- [ ] Native `SlateDbTrace` shipped
+- [ ] Cost-optimization knobs documented and defaulted sensibly
+- [ ] Observability surface complete (metrics, traces, `doctor` CLI)
+- [ ] `REFRESH ... FULL` and per-shard repair shipped
+- [ ] Fault-injection test suite green
+- [ ] `benchmarks/v0.14-ivm-hardening.json` published
+- [ ] Final IVM operator playbook in `docs/operations/incremental-materialized-views.md`
+- [ ] IVM design retrospective in `docs/design-decisions/ivm-retrospective.md` capturing what survived from the design and what changed
+
+---
+
 ## v1.0 — General Availability
 
-> Formal TPC-H @ SF10/SF100 benchmark publication, S3 Express acceptance gate, and GA sign-off.
+> Formal TPC-H @ SF10/SF100 benchmark publication, S3 Express acceptance gate, IVM correctness gate, and GA sign-off.
 
 ### Full Benchmark Suite
 
@@ -1707,6 +2068,7 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 6. All 28 DuckLake v1.0 catalog tables implemented, tag-allocated, fixture-covered, and explicitly status-tracked in `tags.rs`.
 7. Phase 0 validation gates pass on LocalFS, MinIO, S3 Standard, and S3 Express; results documented.
 8. `mkdocs build --strict` green; documentation site live with no stub pages.
+9. **IVM GA gate.** v0.11–v0.14 acceptance tests all green: single-shard demo, 8-shard scale-out, TPC-H Q1/Q3/Q5 maintained incrementally, 24 h soak with zero correctness drift, fault-injection suite passing, native `SlateDbTrace` benchmarked, operator playbook complete. IVM is a v1.0 surface, not a v1.x experiment.
 
 ### Deliverables
 
