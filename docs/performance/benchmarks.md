@@ -251,8 +251,8 @@ For a DuckLake catalog serving an analytics workload:
 
 We maintain a history of benchmark results to track performance over time:
 
-- **[Phase 2 Baseline](../../benchmarks/phase-2-baseline.json)** — Initial benchmark results from the Phase 2 milestone
-- **[v0.7 Performance Report](../../benchmarks/v07-performance-report.json)** — Current release benchmark data
+- **[Phase 2 Baseline](https://github.com/trickle-labs/slateduck/blob/main/benchmarks/phase-2-baseline.json)** — Initial benchmark results from the Phase 2 milestone
+- **[v0.7 Performance Report](https://github.com/trickle-labs/slateduck/blob/main/benchmarks/v07-performance-report.json)** — Current release benchmark data
 
 ## Further Reading
 

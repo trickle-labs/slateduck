@@ -227,5 +227,5 @@ DuckDB's `ducklake` extension works identically against all backends. Your SQL q
 
 - **[vs. Alternatives](vs-alternatives.md)** — Detailed performance numbers
 - **[Benchmarks](benchmarks.md)** — Reproduce the comparison yourself
-- **[Getting Started: Installation](../getting-started/installation.md)** — Try SlateDuck in 5 minutes
+- **[Getting Started: Quickstart](../getting-started/quickstart.md)** — Try SlateDuck in 5 minutes
 - **[Deployment: Configuration](../deployment/configuration.md)** — Production setup guidance
