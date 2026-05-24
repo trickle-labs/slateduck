@@ -1742,6 +1742,15 @@ A materialized view's output is a **normal DuckLake table** — the same Parquet
 - [ ] `DROP … CASCADE` drops the matview, its output table, and all output data files (scheduled for GC)
 - [ ] Stale matviews (schema change on base table) surface a `status = 'stale'` marker in `SHOW MATERIALIZED VIEWS` but output table remains queryable at its last-valid state
 
+**Query semantics during backfill, stale, and time-travel:**
+
+- During initial backfill (matview status `backfilling`), `SELECT * FROM v` returns whatever rows the output table currently contains — **partial results from completed batches, never an error**. The matview's `status` and `last_output_snapshot` are exposed via `SHOW MATERIALIZED VIEWS` and the helper function `matview_status('v') -> ('backfilling'|'fresh'|'stale'|'dropped_dependency', last_output_snapshot, lag_ms)` so applications can gate on readiness without polling
+- `SELECT * FROM v AT SNAPSHOT <id>` resolves to a snapshotted read of the output table at the *catalog* snapshot `<id>`. If `<id>` predates the matview's first output snapshot, the query returns an empty result (the matview did not exist yet) — never an error. Operators are warned in docs that time-travel against a matview reflects when the *materialization* observed the data, not when the underlying input was first written
+- Schema-change-induced staleness (column added/renamed in the view's output projection) makes the matview `stale`; the output table remains readable at its prior schema until a successful `REFRESH ... FULL`. A schema change that *reorders or retypes* output columns rewrites the output table under a new `(output_table_id, schema_version)` pair so existing Parquet readers are not misaligned mid-flight (see v0.14: Schema Evolution)
+- [ ] `matview_status()` helper available from v0.11; documented in `docs/reference/sql-ivm.md`
+- [ ] Time-travel against a matview before its first output snapshot returns empty (regression test)
+- [ ] During-backfill query returns monotonically growing partial result (regression test)
+
 ### View Dependency Cascades
 
 The `matview_deps` table tracks which base tables each view reads. This enables:
@@ -1814,6 +1823,20 @@ crates/slateduck-ivm/
 - [ ] Worker event loop: poll catalog → acquire lease → drive circuit → durable batch → append checkpoint
 - [ ] Output writer emits one Parquet file per cycle, commits via existing `CatalogWriter` snapshot path
 - [ ] `slateduck-ivm serve --catalog-path … --state-prefix … --worker-id … --shard-limit 1` CLI matches `slateduck-pgwire` ergonomics
+
+**Worker startup (discovery → claim → drive) protocol:**
+
+At boot, the worker has no in-memory state. It must transparently rejoin a running fleet without colliding with peers.
+
+1. **Discover.** Call `list_matviews()` and for each non-dropped matview, `list_shards_for_worker(matview_id)` filtered by status `unowned` or `lease_expired`
+2. **Sort by oldest lag.** Prefer shards with the largest `now - last_output_snapshot.committed_at` so under-served work is picked up first
+3. **Claim (bounded).** For each candidate shard, call `claim_matview_shard(matview_id, shard_id, worker_id, lease_ttl)` until `--shard-limit` is reached. CAS via `DbTransaction` + `SerializableSnapshot` guarantees that two workers booting simultaneously cannot both win the same `(matview_id, shard_id)`; the loser receives `LeaseTaken` and skips to the next candidate
+4. **Drive.** Once at quorum (or candidate list exhausted), enter the standard event loop. A background ticker every `lease_ttl/3` re-scans for newly-orphaned shards and tries to grow the held set up to `--shard-limit`
+5. **Renew.** Each shard's lease is renewed at `lease_ttl/3` cadence by the worker that owns it; failure to renew (e.g. catalog write outage) releases the shard locally before the lease expires server-side, preventing split-brain
+
+- [ ] Two-worker race test: both boot within 100 ms, claim the same matview; CAS resolves deterministically and no shard is double-owned
+- [ ] Discovery is idempotent — restarting a worker with the same `--worker-id` re-acquires its prior shards without recompute
+- [ ] `slateduck-ivm doctor` (v0.14) reports any shard that has been `unowned` for more than `2 × lease_ttl`
 
 ### Catalog API Additions
 
@@ -2028,6 +2051,32 @@ The naive implementation flushes a SlateDB batch on every input snapshot, genera
 - [ ] `await_durable = false` for non-checkpoint writes; `await_durable = true` only at checkpoint boundaries
 - [ ] Aggressive compaction policy for matview state stores (configurable per matview)
 - [ ] Documented cost model: API calls per million input rows × shard count × freshness, with empirical numbers on S3 Standard, S3 Express, GCS, R2
+
+**`--cost-mode` propagation to IVM workers.** v0.9's `--cost-mode {conservative|balanced|latency}` flag (originally scoped to `slateduck-pgwire`) is extended to `slateduck-ivm serve`. Mode-to-default mapping:
+
+| Knob | conservative | balanced (default) | latency |
+|------|-------------|--------------------|---------|
+| Flush coalescing window | `freshness` | `freshness/2` | `freshness/4` |
+| `await_durable` for non-checkpoint writes | false | false | false |
+| `await_durable` at checkpoint | true | true | true |
+| State-store compaction trigger | aggressive | default | lazy |
+| Cost budget warning threshold | 1.0× budget | 1.5× budget | 2.0× budget |
+
+Per-view `WITH (...)` options always override mode defaults. Documented in `docs/operations/ivm-cost-control.md`.
+
+- [ ] `slateduck-ivm serve --cost-mode=...` accepted and honoured
+- [ ] Mode defaults documented per knob; per-view overrides take precedence
+- [ ] Cost-mode interaction matrix tested in cost-model regression suite
+
+### State Store Backup & Restore
+
+The v0.4 checkpoint API backs up the catalog. Per-shard IVM state stores under `--state-prefix` are **not** included in catalog checkpoints (they are derivative state, recomputable from base data) but operators still need a backup procedure to avoid expensive full rebuilds after object-store corruption or accidental prefix deletion.
+
+- [ ] `slateduck-ivm backup --matview v --shard N --destination s3://...` issues SlateDB's native `Checkpoint` against the shard's state store and writes a manifest to the destination
+- [ ] `slateduck-ivm restore --matview v --shard N --source s3://...` rehydrates a state store from a backup; the next worker to claim the shard's lease resumes from the restored frontier
+- [ ] If a state store is missing entirely at lease-claim time, the worker emits `WARN`-level `state_store_missing` and waits for an operator decision (auto-rebuild gated behind `--auto-rebuild-on-loss` flag, default off) — never silently recomputes terabytes of state
+- [ ] Documented backup cadence guidance: daily for large matviews; on-demand before any infra migration
+- [ ] `docs/operations/ivm-backup-restore.md` published
 
 ### Cost Guardrails (User-Facing)
 
@@ -2295,6 +2344,8 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 8. `mkdocs build --strict` green; documentation site live with no stub pages.
 9. **IVM GA gate.** v0.11–v0.15 acceptance tests all green: single-shard demo, 8-shard scale-out, TPC-H Q1/Q3/Q5 maintained incrementally, window functions correct (partition-local and total-order), recursive CTEs stable under fixed-point iteration, correlated subqueries decorrelated, non-deterministic function capture reproducible on repair, WASM UDFs sandboxed under fuel + memory limits, 24 h soak with zero correctness drift, fault-injection suite passing, native `SlateDbTrace` benchmarked, operator playbook complete. IVM is feature-complete at v1.0: any SQL view that can be written against a static DuckDB table can be maintained incrementally by SlateDuck.
 10. **Real-world validation gate.** At least 30 days of dogfood deployment on a realistic workload (see Cross-Cutting Concerns: Real-World Validation Policy). Friction log reviewed and all blocking findings resolved. One external-to-the-team developer has successfully deployed IVM using only published docs.
+11. **IVM documentation gate.** Every IVM-track docs deliverable from v0.11–v0.15 is published and non-stub: `docs/concepts/incremental-views.md`, `docs/architecture/ivm-plane.md`, `docs/operations/incremental-materialized-views.md`, `docs/operations/ivm-cost-control.md`, `docs/operations/ivm-backup-restore.md`, `docs/operations/ivm-upgrades.md`, `docs/reference/sql-ivm.md`, `docs/design-decisions/ivm-on-immutable-substrate.md`, `docs/design-decisions/dbsp-dependency.md`, `docs/design-decisions/ivm-retrospective.md`, and a first-time-user tutorial under `docs/getting-started/first-materialized-view.md` that takes a user from `slateduck serve` to a working incremental view in < 15 minutes. `mkdocs build --strict` green.
+12. **Migration path from existing DuckLake deployments.** A documented and tested migration tool (`slateduck migrate-from-ducklake --source postgres://... --catalog s3://...`) reads an existing PostgreSQL- or SQLite-backed DuckLake catalog, replays its current snapshot into a fresh SlateDuck catalog (data files are not copied — they remain at their original object-store paths and are referenced by the new catalog), and emits a verification report. `docs/operations/migration-from-ducklake.md` covers cutover, rollback, and known-incompatibility surfaces. End-to-end tested against both PostgreSQL- and SQLite-backed source catalogs at SF1 scale.
 
 ### Deliverables
 
@@ -2587,7 +2638,13 @@ The IVM track (v0.11–v0.15) depends on the `dbsp` crate from [Feldera](https:/
    - Alternative: [arroyo](https://github.com/ArroyoSystems/arroyo) (Rust, streaming SQL)
    - Decision: proceed with DBSP, proceed with alternative, or vendor from day one
 
-**Document the decision in `docs/design-decisions/dbsp-dependency.md` before v0.11 alpha.**
+6. **Circuit compilation versioning.** Compiled DBSP circuits are derived from `view_sql` and the DBSP version active at compilation time. A DBSP minor/major upgrade may change operator semantics, serialized state layouts, or trace formats. To survive upgrades safely:
+   - Every `MatviewRow` carries a `circuit_compilation_version` field: `(dbsp_semver, slateduck_ivm_semver, compiled_at_snapshot)`
+   - On worker boot, if a held shard's `circuit_compilation_version` is older than the running worker's, the worker enters `recompile_pending` status, recompiles the circuit, validates by replaying the last N checkpoints from input snapshots (without overwriting output), and only then takes over
+   - If recompilation produces incompatible state layouts (detected by a self-check on the first recovered batch), the matview is marked `stale_dbsp_upgrade` and requires `REFRESH ... FULL`. Operators see this in `SHOW MATERIALIZED VIEWS` and the release notes for every DBSP-touching upgrade enumerate which view shapes are forward-compatible
+   - Upgrade docs: every release that bumps `dbsp` includes a compatibility matrix ("views using only filter/map/aggregate are forward-compatible; views using window functions require REFRESH FULL") in `CHANGELOG.md` and `docs/operations/ivm-upgrades.md`
+
+**Document the decision in `docs/design-decisions/dbsp-dependency.md` before v0.11 alpha. The circuit-versioning contract lives in the same document and is updated on every DBSP bump.**
 
 ### Real-World Validation Policy
 
