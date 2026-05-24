@@ -1316,12 +1316,12 @@ linked from other pages and from error messages.
 
 ```yaml
 site_name: SlateDuck Documentation
-site_url: https://geir-gronmo.github.io/slateduck/
+site_url: https://trickle-labs.github.io/slateduck/
 site_description: >-
   A DuckLake catalog on SlateDB — your entire lakehouse in a single S3 bucket,
   no database server required.
-repo_name: geir-gronmo/slateduck
-repo_url: https://github.com/geir-gronmo/slateduck
+repo_name: trickle-labs/slateduck
+repo_url: https://github.com/trickle-labs/slateduck
 edit_uri: edit/main/docs/
 
 theme:
@@ -1422,7 +1422,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/geir-gronmo/slateduck
+      link: https://github.com/trickle-labs/slateduck
   generator: false
   status:
     new: Recently added
@@ -1856,12 +1856,12 @@ operators are not following outdated guidance.
 
 ```yaml
 site_name: SlateDuck Documentation
-site_url: https://geir-gronmo.github.io/slateduck/
+site_url: https://trickle-labs.github.io/slateduck/
 site_description: >-
   A DuckLake catalog on SlateDB — your entire lakehouse in a single S3 bucket,
   no database server required.
-repo_name: geir-gronmo/slateduck
-repo_url: https://github.com/geir-gronmo/slateduck
+repo_name: trickle-labs/slateduck
+repo_url: https://github.com/trickle-labs/slateduck
 edit_uri: edit/main/docs/
 
 theme:
@@ -1962,7 +1962,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/geir-gronmo/slateduck
+      link: https://github.com/trickle-labs/slateduck
   generator: false
   status:
     new: Recently added

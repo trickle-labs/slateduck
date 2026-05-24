@@ -84,7 +84,7 @@ The sidecar's SQL layer (`slateduck-sql`) is deliberately bounded: it implements
 ### Build
 
 ```bash
-git clone https://github.com/geir-gronmo/slateduck
+git clone https://github.com/trickle-labs/slateduck
 cd slateduck
 cargo build --release
 ```
