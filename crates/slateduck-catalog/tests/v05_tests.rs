@@ -38,7 +38,7 @@ async fn create_and_list_views() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let views = reader.list_views(schema_id).await.unwrap();
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].view_id, view_id);
@@ -69,12 +69,12 @@ async fn drop_view_makes_invisible() {
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
     // Visible at snapshot 1
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let views1 = reader1.list_views(schema_id).await.unwrap();
     assert_eq!(views1.len(), 1);
 
     // Not visible at snapshot 2
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let views2 = reader2.list_views(schema_id).await.unwrap();
     assert_eq!(views2.len(), 0);
 
@@ -96,10 +96,10 @@ async fn view_creation_increments_schema_version() {
         .unwrap();
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let s1 = reader1.get_snapshot().await.unwrap().unwrap();
 
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let s2 = reader2.get_snapshot().await.unwrap().unwrap();
 
     assert!(s2.schema_version > s1.schema_version);
@@ -122,7 +122,7 @@ async fn create_and_list_macros() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let macros = reader.list_macros(schema_id).await.unwrap();
     assert_eq!(macros.len(), 1);
     assert_eq!(macros[0].macro_id, macro_id);
@@ -150,7 +150,7 @@ async fn macro_with_impl_and_params() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let impls = reader.list_macro_impls(macro_id).await.unwrap();
     assert_eq!(impls.len(), 1);
     assert_eq!(impls[0].definition, "x + 1");
@@ -185,10 +185,10 @@ async fn drop_macro_makes_invisible() {
         .unwrap();
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     assert_eq!(reader1.list_macros(schema_id).await.unwrap().len(), 1);
 
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     assert_eq!(reader2.list_macros(schema_id).await.unwrap().len(), 0);
 
     store.close().await.unwrap();
@@ -215,7 +215,7 @@ async fn set_and_list_tags() {
     writer.set_tag(table_id, "retention", "90d").await.unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let tags = reader.list_tags(table_id).await.unwrap();
     assert_eq!(tags.len(), 2);
 
@@ -241,14 +241,14 @@ async fn remove_tag_makes_invisible() {
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
 
     // Remove the tag — need the begin_snapshot from when it was set
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let tags = reader1.list_tags(table_id).await.unwrap();
     let tag_begin = tags[0].begin_snapshot;
 
     writer.remove_tag(table_id, "env", tag_begin).await.unwrap();
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let tags2 = reader2.list_tags(table_id).await.unwrap();
     assert_eq!(tags2.len(), 0);
 
@@ -274,7 +274,7 @@ async fn set_and_list_column_tags() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let tags = reader.list_column_tags(table_id, col_id).await.unwrap();
     assert_eq!(tags.len(), 1);
     assert_eq!(tags[0].tag_key, "pii");
@@ -302,7 +302,7 @@ async fn remove_column_tag_makes_invisible() {
         .unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let tags = reader1.list_column_tags(table_id, col_id).await.unwrap();
     let tag_begin = tags[0].begin_snapshot;
 
@@ -312,7 +312,7 @@ async fn remove_column_tag_makes_invisible() {
         .unwrap();
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let tags2 = reader2.list_column_tags(table_id, col_id).await.unwrap();
     assert_eq!(tags2.len(), 0);
 
@@ -358,7 +358,7 @@ async fn upsert_and_list_file_variant_stats() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let stats = reader
         .list_file_variant_stats(table_id, col_id)
         .await
@@ -393,7 +393,7 @@ async fn schedule_and_list_file_deletion() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let scheduled = reader.list_files_scheduled_for_deletion().await.unwrap();
     assert_eq!(scheduled.len(), 1);
     assert_eq!(scheduled[0].data_file_id, file_id);

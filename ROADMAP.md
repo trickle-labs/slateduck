@@ -57,7 +57,7 @@ binding on every roadmap release below.
 | **v0.9 — Production Readiness** | K8s deployment, writer routing and failover, performance tuning, cost analysis, migration and corpus tooling | **Done** |
 | **v0.9.1 — Write Protocol Correctness** | Atomic snapshot commits, stale-counter fix, `UPDATE end_snapshot` key resolution, writer protocol spec | **Done** |
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | **Done** |
-| **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | Planning |
+| **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, GA sign-off | Planning |
 | **v0.10.0 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery semantics, metadata key namespacing | Planning |
@@ -1314,80 +1314,80 @@ Every FFI entrypoint dereferences caller-supplied pointers without null or owner
 
 `gc_apply()` advances `retain-from`, but `CatalogReader::read_at()` and PG-Wire snapshot reads never consult it. Snapshots below the floor remain readable despite being operationally hidden.
 
-- [ ] Read the current `retain-from` value at reader open time (or validate on every `read_at()` call)
-- [ ] Return `SQLSTATE 22023` (snapshot out of retention window) when a client requests a snapshot below `retain-from`
-- [ ] Add tests that verify `read_at(hidden_snapshot)` returns the retention error after `gc_apply()`
-- [ ] Update `docs/concepts/snapshots.md` to document the visibility floor semantics
+- [x] Read the current `retain-from` value at reader open time (or validate on every `read_at()` call)
+- [x] Return `SQLSTATE 22023` (snapshot out of retention window) when a client requests a snapshot below `retain-from`
+- [x] Add tests that verify `read_at(hidden_snapshot)` returns the retention error after `gc_apply()`
+- [x] Update `docs/concepts/snapshots.md` to document the visibility floor semantics
 
 ### Fix Excision Safety at `retain_from == 0` (F-06)
 
 `excise_plan()` sets `is_safe = retain_from >= before_snapshot || retain_from == 0`. The `retain_from == 0` branch permits physical deletion before retention has ever been set, inverting the safety logic.
 
-- [ ] Change the safety check to require `retain_from > 0 && retain_from >= before_snapshot`
-- [ ] Apply the same corrected condition to `excise_plan()` `is_safe` field
-- [ ] Add a test that `excise_apply()` fails when `retain_from == 0` regardless of `before_snapshot`
-- [ ] Document the required sequence in `docs/operations/garbage-collection.md`: advance `retain-from` first, then excise
+- [x] Change the safety check to require `retain_from > 0 && retain_from >= before_snapshot`
+- [x] Apply the same corrected condition to `excise_plan()` `is_safe` field
+- [x] Add a test that `excise_apply()` fails when `retain_from == 0` regardless of `before_snapshot`
+- [x] Document the required sequence in `docs/operations/garbage-collection.md`: advance `retain-from` first, then excise
 
 ### Fix Checkpoint Restore Snapshot ID Reuse (F-07)
 
 `restore_checkpoint()` only resets `next_snapshot_id` to `checkpoint.snapshot_id + 1`. Facts written after the checkpoint remain in the catalog; new writes reuse post-checkpoint snapshot IDs, creating a split timeline.
 
-- [ ] Implement logical restore: write a new snapshot that marks all facts created after `checkpoint.snapshot_id` as ended, hiding post-checkpoint facts from new writes while preserving historical reads
-- [ ] Guarantee post-restore snapshot IDs are strictly greater than all pre-restore IDs (no reuse)
-- [ ] Add tests: write facts, checkpoint, write more facts, restore, write new facts — verify pre-checkpoint facts visible, between-checkpoint facts hidden, and post-restore facts visible without ID collisions
-- [ ] Document the logical restore model in `docs/operations/backup-restore.md`
+- [x] Implement logical restore: write a new snapshot that marks all facts created after `checkpoint.snapshot_id` as ended, hiding post-checkpoint facts from new writes while preserving historical reads
+- [x] Guarantee post-restore snapshot IDs are strictly greater than all pre-restore IDs (no reuse)
+- [x] Add tests: write facts, checkpoint, write more facts, restore, write new facts — verify pre-checkpoint facts visible, between-checkpoint facts hidden, and post-restore facts visible without ID collisions
+- [x] Document the logical restore model in `docs/operations/backup-restore.md`
 
 ### Typed Import Validation (F-09)
 
 `import_catalog()` uses `unwrap_or(0)` / `unwrap_or("")` / `unwrap_or(true)` throughout; the hand-rolled base64 decoder silently maps every invalid byte to `0`.
 
-- [ ] Replace per-field `serde_json::Value` extraction with typed per-table structs and `serde` deserialization
-- [ ] Return a structured import error including line number and table name on any field parse failure
-- [ ] Replace the hand-rolled base64 decoder with the `base64` crate and fail explicitly on invalid input
-- [ ] Add import tests with deliberately malformed NDJSON: missing required field, wrong type, invalid base64 payload
+- [x] Replace per-field `serde_json::Value` extraction with typed per-table structs and `serde` deserialization
+- [x] Return a structured import error including line number and table name on any field parse failure
+- [x] Replace the hand-rolled base64 decoder with the `base64` crate and fail explicitly on invalid input
+- [x] Add import tests with deliberately malformed NDJSON: missing required field, wrong type, invalid base64 payload
 
 ### Fix `rebuild_catalog()` Missing Table Row (F-10)
 
 `rebuild_catalog()` registers data files with `table_id = 1` but never writes a `TableRow` for table `1`, producing a catalog where data files cannot be reached through table queries.
 
-- [ ] Write schema and table rows for each inferred table before registering its data files
-- [ ] Set `next_catalog_id` and `next_file_id` from actual max IDs, not hard-coded `1` / `file_id`
-- [ ] Run `verify_catalog()` at the end of `rebuild_catalog()` and return an error if verification fails
-- [ ] Add a test that rebuild output is queryable through `CatalogReader`: list schemas → list tables → list data files → non-empty results
+- [x] Write schema and table rows for each inferred table before registering its data files
+- [x] Set `next_catalog_id` and `next_file_id` from actual max IDs, not hard-coded `1` / `file_id`
+- [x] Run `verify_catalog()` at the end of `rebuild_catalog()` and return an error if verification fails
+- [x] Add a test that rebuild output is queryable through `CatalogReader`: list schemas → list tables → list data files → non-empty results
 
 ### Fix Float NaN Comparison in Pruning (F-07 medium)
 
 `compare_floats()` uses `partial_cmp().unwrap_or(Ordering::Equal)`. NaN comparisons return `Equal`, making file pruning non-deterministic.
 
-- [ ] Replace `unwrap_or(Ordering::Equal)` with fail-closed behaviour: return `Ordering::Greater` (keep the file) or propagate a `TypeCompareError::NanComparison` variant
-- [ ] Add tests for NaN in predicate, min-value, and max-value positions
+- [x] Replace `unwrap_or(Ordering::Equal)` with fail-closed behaviour: return `Ordering::Greater` (keep the file) or propagate a `TypeCompareError::NanComparison` variant
+- [x] Add tests for NaN in predicate, min-value, and max-value positions
 
 ### Fix `pg_migrate()` Unescaped SQL Output (F-08 medium)
 
 SQL strings in `row_to_pg_insert()` are built with `format!("... '{}' ...", value)` without SQL literal escaping.
 
-- [ ] Add a `sql_literal_escape(s: &str) -> String` helper that doubles single quotes
-- [ ] Apply it to every string field in `row_to_pg_insert()`
-- [ ] Add tests for names containing single quotes and backslashes
+- [x] Add a `sql_literal_escape(s: &str) -> String` helper that doubles single quotes
+- [x] Apply it to every string field in `row_to_pg_insert()`
+- [x] Add tests for names containing single quotes and backslashes
 
 ### Snapshot Lifecycle State-Machine Specification (F-31)
 
 GC, excision, and checkpoint docs and code do not share a consistent model of when a snapshot is committed, retained, hidden, excised, or restored.
 
-- [ ] Write a formal snapshot lifecycle spec in `docs/architecture/transaction-model.md` defining each state and the valid transitions
-- [ ] Verify every operational command (`gc plan/apply`, `excise plan/apply`, `checkpoint create/restore`, `repair`) respects the spec
-- [ ] Update operational docs to reference the spec
+- [x] Write a formal snapshot lifecycle spec in `docs/architecture/transaction-model.md` defining each state and the valid transitions
+- [x] Verify every operational command (`gc plan/apply`, `excise plan/apply`, `checkpoint create/restore`, `repair`) respects the spec
+- [x] Update operational docs to reference the spec
 
 ### Deliverables
 
-- [ ] `read_at(snapshot)` returns `SQLSTATE 22023` for snapshots below `retain-from`
-- [ ] `excise_apply()` rejects invocation when `retain_from == 0` or `retain_from < before_snapshot`
-- [ ] Checkpoint restore does not reuse snapshot IDs; post-checkpoint facts are hidden, not deleted
-- [ ] `import_catalog()` returns a typed error with line number and table name for any malformed row; base64 errors return a decode error
-- [ ] `rebuild_catalog()` produces a catalog that passes `verify_catalog()` and returns non-empty tables and files via `CatalogReader`
-- [ ] NaN pruning comparisons fail closed (keep file) instead of returning `Equal`
-- [ ] `pg_migrate()` output correctly escapes single quotes in all string fields
-- [ ] Snapshot lifecycle state-machine documented in `docs/architecture/transaction-model.md`
+- [x] `read_at(snapshot)` returns `SQLSTATE 22023` for snapshots below `retain-from`
+- [x] `excise_apply()` rejects invocation when `retain_from == 0` or `retain_from < before_snapshot`
+- [x] Checkpoint restore does not reuse snapshot IDs; post-checkpoint facts are hidden, not deleted
+- [x] `import_catalog()` returns a typed error with line number and table name for any malformed row; base64 errors return a decode error
+- [x] `rebuild_catalog()` produces a catalog that passes `verify_catalog()` and returns non-empty tables and files via `CatalogReader`
+- [x] NaN pruning comparisons fail closed (keep file) instead of returning `Equal`
+- [x] `pg_migrate()` output correctly escapes single quotes in all string fields
+- [x] Snapshot lifecycle state-machine documented in `docs/architecture/transaction-model.md`
 
 ---
 

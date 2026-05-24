@@ -4,6 +4,7 @@
 
 use slatedb::Db;
 use slateduck_core::keys;
+use slateduck_core::rows::*;
 use slateduck_core::tags::*;
 use slateduck_core::values;
 
@@ -99,8 +100,8 @@ pub async fn list_checkpoints(db: &Db) -> CatalogResult<Vec<CheckpointInfo>> {
     Ok(checkpoints)
 }
 
-/// Restore catalog to a checkpoint by resetting the retain-from and snapshot counter.
-/// Note: This is a logical restore — it makes the catalog read at the checkpoint's snapshot.
+/// Restore catalog to a checkpoint by hiding post-checkpoint facts and advancing
+/// the snapshot counter so new writes cannot reuse historical snapshot IDs.
 pub async fn restore_checkpoint(db: &Db, checkpoint_id: u64) -> CatalogResult<CheckpointInfo> {
     // Find the checkpoint
     let key = checkpoint_key(checkpoint_id);
@@ -111,10 +112,26 @@ pub async fn restore_checkpoint(db: &Db, checkpoint_id: u64) -> CatalogResult<Ch
 
     let meta: CheckpointMetadata = values::decode_value(&data)?;
 
-    // Reset the snapshot counter to restore point + 1
-    // This effectively makes new writes continue from the restored snapshot
+    // Read the current next_snapshot_id. This is the "hide snapshot": facts created
+    // after the checkpoint will have their end_snapshot set to this value, hiding
+    // them from reads at or after hide_snapshot.
     let counter_key = keys::key_counter(COUNTER_NEXT_SNAPSHOT_ID);
-    db.put(&counter_key, &values::encode_counter(meta.snapshot_id + 1))
+    let hide_snapshot = match db.get(&counter_key).await? {
+        Some(data) => values::decode_counter(&data)?,
+        None => meta.snapshot_id + 1,
+    };
+
+    // If no snapshots were written after the checkpoint, just advance to avoid
+    // any future counter ambiguity.
+    if hide_snapshot > meta.snapshot_id + 1 {
+        // Hide all post-checkpoint versioned facts so they are invisible at
+        // snapshot IDs >= hide_snapshot.
+        hide_post_checkpoint_facts(db, meta.snapshot_id, hide_snapshot).await?;
+    }
+
+    // Set next_snapshot_id to hide_snapshot + 1 so new writes start from a
+    // fresh, strictly-increasing ID and cannot collide with existing history.
+    db.put(&counter_key, &values::encode_counter(hide_snapshot + 1))
         .await?;
 
     Ok(CheckpointInfo {
@@ -123,6 +140,144 @@ pub async fn restore_checkpoint(db: &Db, checkpoint_id: u64) -> CatalogResult<Ch
         snapshot_id: meta.snapshot_id,
         label: meta.label,
     })
+}
+
+/// Scan all versioned rows and set `end_snapshot = hide_snapshot` for any row
+/// whose `begin_snapshot > checkpoint_snapshot_id`.  This prevents those facts
+/// from appearing in reads at snapshot IDs >= hide_snapshot, while keeping them
+/// readable via their original historical snapshot IDs.
+async fn hide_post_checkpoint_facts(
+    db: &Db,
+    checkpoint_snapshot_id: u64,
+    hide_snapshot: u64,
+) -> CatalogResult<()> {
+    // Schema rows
+    {
+        let prefix = keys::prefix_for_tag(TAG_SCHEMA);
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: SchemaRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    // Table rows
+    {
+        let prefix = keys::prefix_for_tag(TAG_TABLE);
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: TableRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    // Column rows
+    {
+        let prefix = keys::prefix_for_tag(TAG_COLUMN);
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: ColumnRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    // View rows
+    {
+        let prefix = keys::prefix_for_tag(TAG_VIEW);
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: ViewRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    // Macro rows
+    {
+        let prefix = keys::prefix_for_tag(TAG_MACRO);
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: MacroRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    // Inlined insert rows
+    {
+        let prefix = vec![TAG_INLINED_ROWS, INLINED_SUBTYPE_INSERT];
+        let mut iter = db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let mut row: InlinedInsertRow = values::decode_value(&kv.value)?;
+            if row.begin_snapshot > checkpoint_snapshot_id
+                && row
+                    .end_snapshot
+                    .map_or(true, |e| e > checkpoint_snapshot_id)
+            {
+                row.end_snapshot = Some(hide_snapshot);
+                db.put(&kv.key, &values::encode_value(&row)).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

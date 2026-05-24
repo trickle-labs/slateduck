@@ -40,6 +40,14 @@ pub enum CatalogError {
     },
     #[error("repair refused: {0}")]
     RepairRefused(String),
+    #[error("snapshot {requested} is below the retention floor {retain_from} (SQLSTATE 22023)")]
+    SnapshotOutOfRetention { requested: u64, retain_from: u64 },
+    #[error("import error at line {line} (table {table}): {message}")]
+    Import {
+        line: usize,
+        table: String,
+        message: String,
+    },
     #[error("internal error: {0}")]
     Internal(String),
 }

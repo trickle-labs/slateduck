@@ -73,8 +73,16 @@ impl CatalogStore {
     }
 
     /// Create a reader bound to a specific DuckLake snapshot.
-    pub fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogReader {
-        CatalogReader::new(self.db.clone(), dl_snapshot_id)
+    /// Rejects snapshots below the current `retain-from` floor (SQLSTATE 22023).
+    pub async fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogResult<CatalogReader> {
+        let retain_from = crate::gc::read_retain_from(&self.db).await?;
+        if retain_from > 0 && dl_snapshot_id.as_u64() < retain_from {
+            return Err(crate::error::CatalogError::SnapshotOutOfRetention {
+                requested: dl_snapshot_id.as_u64(),
+                retain_from,
+            });
+        }
+        Ok(CatalogReader::new(self.db.clone(), dl_snapshot_id))
     }
 
     /// Create a reader for the latest snapshot.

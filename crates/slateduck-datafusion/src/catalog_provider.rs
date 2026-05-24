@@ -72,7 +72,10 @@ impl CatalogProvider for SlateDuckCatalogProvider {
                     handle.block_on(async {
                         let store = store.read().await;
                         let reader = match snapshot_id {
-                            Some(sid) => store.read_at(sid),
+                            Some(sid) => match store.read_at(sid).await {
+                                Ok(r) => r,
+                                Err(_) => return vec![],
+                            },
                             None => store.read_latest(),
                         };
                         reader
@@ -138,7 +141,10 @@ impl SchemaProvider for SlateDuckSchemaProvider {
                     handle.block_on(async {
                         let store = store.read().await;
                         let reader = match snapshot_id {
-                            Some(sid) => store.read_at(sid),
+                            Some(sid) => match store.read_at(sid).await {
+                                Ok(r) => r,
+                                Err(_) => return vec![],
+                            },
                             None => store.read_latest(),
                         };
                         let schemas = reader.list_schemas().await.unwrap_or_default();
@@ -166,7 +172,10 @@ impl SchemaProvider for SlateDuckSchemaProvider {
     async fn table(&self, name: &str) -> datafusion::error::Result<Option<Arc<dyn TableProvider>>> {
         let store = self.store.read().await;
         let reader = match self.snapshot_id {
-            Some(sid) => store.read_at(sid),
+            Some(sid) => store
+                .read_at(sid)
+                .await
+                .map_err(|e| DataFusionError::External(Box::new(e)))?,
             None => store.read_latest(),
         };
 

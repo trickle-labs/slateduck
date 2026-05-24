@@ -81,7 +81,10 @@ async fn execute_classified<'a>(
         StatementKind::SelectSchemas => {
             let s = store.lock().await;
             let snap_id = get_snapshot_param(params);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let schemas = reader.list_schemas().await.map_err(SlateDuckError::from)?;
             Ok(vec![make_schemas_response(schemas)])
         }
@@ -89,7 +92,10 @@ async fn execute_classified<'a>(
             let s = store.lock().await;
             let schema_id = params.get_u64(0).unwrap_or(0);
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let tables = reader
                 .list_tables(schema_id)
                 .await
@@ -100,7 +106,10 @@ async fn execute_classified<'a>(
             let s = store.lock().await;
             let table_id = params.get_u64(0).unwrap_or(0);
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let result = reader
                 .describe_table(table_id)
                 .await
@@ -112,7 +121,10 @@ async fn execute_classified<'a>(
             let s = store.lock().await;
             let table_id = params.get_u64(0).unwrap_or(0);
             let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let files = reader
                 .list_data_files(table_id)
                 .await
@@ -124,7 +136,10 @@ async fn execute_classified<'a>(
             let table_id = params.get_u64(0).unwrap_or(0);
             let column_id = params.get_u64(1).unwrap_or(0);
             let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let predicate = params.get(3).unwrap_or("");
             let col_type = slateduck_core::types::DuckLakeType::Varchar;
             let file_ids = reader
@@ -160,7 +175,10 @@ async fn execute_classified<'a>(
         }
         StatementKind::SelectFirstSnapshot => {
             let s = store.lock().await;
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(1));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(1))
+                .await
+                .map_err(SlateDuckError::from)?;
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             if let Some(snap) = snap {
                 Ok(vec![make_snapshot_row_response(snap)])
@@ -173,7 +191,10 @@ async fn execute_classified<'a>(
             let table_id = params.get_u64(0).unwrap_or(0);
             let limit = params.get_u64(1).unwrap_or(u64::MAX);
             let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
-            let reader = s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id));
+            let reader = s
+                .read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                .await
+                .map_err(SlateDuckError::from)?;
             let mut files = reader
                 .list_data_files(table_id)
                 .await

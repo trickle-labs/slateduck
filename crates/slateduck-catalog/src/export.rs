@@ -252,7 +252,7 @@ pub async fn export_catalog<W: Write>(
                     "table_id": row.table_id,
                     "schema_version": row.schema_version,
                     "row_id": row.row_id,
-                    "payload": base64_encode(&row.payload),
+                    "payload": base64_encode_crate(&row.payload),
                     "begin_snapshot": row.begin_snapshot,
                     "end_snapshot": row.end_snapshot,
                 }),
@@ -271,153 +271,180 @@ pub async fn export_catalog<W: Write>(
 }
 
 /// Import catalog rows from an NDJSON reader into a fresh catalog.
+/// Returns a typed `ImportError` with line number on malformed input.
 pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<ImportResult> {
+    use base64::Engine as _;
+
     let mut rows_imported = 0u64;
     let mut tables_seen = std::collections::HashSet::new();
+    let mut line_no = 0usize;
+
+    // Helper closures capture line_no and table name for error context.
+    macro_rules! req_u64 {
+        ($data:expr, $field:expr, $table:expr) => {
+            $data[$field].as_u64().ok_or_else(|| CatalogError::Import {
+                line: line_no,
+                table: $table.to_string(),
+                message: format!("missing or invalid u64 field '{}'", $field),
+            })?
+        };
+    }
+    macro_rules! req_str {
+        ($data:expr, $field:expr, $table:expr) => {
+            $data[$field]
+                .as_str()
+                .ok_or_else(|| CatalogError::Import {
+                    line: line_no,
+                    table: $table.to_string(),
+                    message: format!("missing or invalid string field '{}'", $field),
+                })?
+                .to_string()
+        };
+    }
 
     for line in reader.lines() {
+        line_no += 1;
         let line = line.map_err(|e| CatalogError::SlateDb(e.to_string()))?;
         if line.trim().is_empty() {
             continue;
         }
 
         let exported: ExportedRow =
-            serde_json::from_str(&line).map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            serde_json::from_str(&line).map_err(|e| CatalogError::Import {
+                line: line_no,
+                table: "unknown".to_string(),
+                message: format!("JSON parse error: {e}"),
+            })?;
 
         tables_seen.insert(exported.table.clone());
+        let d = &exported.data;
+        let tbl = exported.table.as_str();
 
-        match exported.table.as_str() {
+        match tbl {
             "ducklake_snapshot" => {
-                let snapshot_id = exported.data["snapshot_id"].as_u64().unwrap_or(0);
+                let snapshot_id = req_u64!(d, "snapshot_id", tbl);
                 let row = SnapshotRow {
                     snapshot_id,
-                    schema_version: exported.data["schema_version"].as_u64().unwrap_or(0),
-                    snapshot_time: exported.data["snapshot_time"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    author: exported.data["author"].as_str().map(|s| s.to_string()),
-                    message: exported.data["message"].as_str().map(|s| s.to_string()),
+                    schema_version: req_u64!(d, "schema_version", tbl),
+                    snapshot_time: req_str!(d, "snapshot_time", tbl),
+                    author: d["author"].as_str().map(|s| s.to_string()),
+                    message: d["message"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_snapshot(snapshot_id);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_schema" => {
-                let schema_id = exported.data["schema_id"].as_u64().unwrap_or(0);
+                let schema_id = req_u64!(d, "schema_id", tbl);
                 let row = SchemaRow {
                     schema_id,
-                    schema_name: exported.data["schema_name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    begin_snapshot: exported.data["begin_snapshot"].as_u64().unwrap_or(0),
-                    end_snapshot: exported.data["end_snapshot"].as_u64(),
+                    schema_name: req_str!(d, "schema_name", tbl),
+                    begin_snapshot: req_u64!(d, "begin_snapshot", tbl),
+                    end_snapshot: d["end_snapshot"].as_u64(),
                 };
                 let key = keys::key_schema(schema_id);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_table" => {
-                let table_id = exported.data["table_id"].as_u64().unwrap_or(0);
-                let schema_id = exported.data["schema_id"].as_u64().unwrap_or(0);
-                let begin_snapshot = exported.data["begin_snapshot"].as_u64().unwrap_or(0);
+                let table_id = req_u64!(d, "table_id", tbl);
+                let schema_id = req_u64!(d, "schema_id", tbl);
+                let begin_snapshot = req_u64!(d, "begin_snapshot", tbl);
                 let row = TableRow {
                     table_id,
                     schema_id,
-                    table_name: exported.data["table_name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
+                    table_name: req_str!(d, "table_name", tbl),
                     begin_snapshot,
-                    end_snapshot: exported.data["end_snapshot"].as_u64(),
-                    data_path: exported.data["data_path"].as_str().map(|s| s.to_string()),
+                    end_snapshot: d["end_snapshot"].as_u64(),
+                    data_path: d["data_path"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_table(schema_id, table_id, begin_snapshot);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_column" => {
-                let column_id = exported.data["column_id"].as_u64().unwrap_or(0);
-                let table_id = exported.data["table_id"].as_u64().unwrap_or(0);
-                let begin_snapshot = exported.data["begin_snapshot"].as_u64().unwrap_or(0);
+                let column_id = req_u64!(d, "column_id", tbl);
+                let table_id = req_u64!(d, "table_id", tbl);
+                let begin_snapshot = req_u64!(d, "begin_snapshot", tbl);
                 let row = ColumnRow {
                     column_id,
                     table_id,
-                    column_name: exported.data["column_name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    data_type: exported.data["data_type"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    column_index: exported.data["column_index"].as_u64().unwrap_or(0),
+                    column_name: req_str!(d, "column_name", tbl),
+                    data_type: req_str!(d, "data_type", tbl),
+                    column_index: req_u64!(d, "column_index", tbl),
                     begin_snapshot,
-                    end_snapshot: exported.data["end_snapshot"].as_u64(),
-                    default_value: exported.data["default_value"]
-                        .as_str()
-                        .map(|s| s.to_string()),
-                    is_nullable: exported.data["is_nullable"].as_bool().unwrap_or(true),
+                    end_snapshot: d["end_snapshot"].as_u64(),
+                    default_value: d["default_value"].as_str().map(|s| s.to_string()),
+                    is_nullable: d["is_nullable"].as_bool().ok_or_else(|| {
+                        CatalogError::Import {
+                            line: line_no,
+                            table: tbl.to_string(),
+                            message: "missing or invalid bool field 'is_nullable'".to_string(),
+                        }
+                    })?,
                 };
                 let key = keys::key_column(table_id, column_id, begin_snapshot);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_data_file" => {
-                let data_file_id = exported.data["data_file_id"].as_u64().unwrap_or(0);
-                let table_id = exported.data["table_id"].as_u64().unwrap_or(0);
+                let data_file_id = req_u64!(d, "data_file_id", tbl);
+                let table_id = req_u64!(d, "table_id", tbl);
                 let row = DataFileRow {
                     data_file_id,
                     table_id,
-                    path: exported.data["path"].as_str().unwrap_or("").to_string(),
-                    file_format: exported.data["file_format"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string(),
-                    row_count: exported.data["row_count"].as_u64().unwrap_or(0),
-                    file_size_bytes: exported.data["file_size_bytes"].as_u64().unwrap_or(0),
-                    snapshot_id: exported.data["snapshot_id"].as_u64().unwrap_or(0),
-                    footer_size: exported.data["footer_size"].as_str().map(|s| s.to_string()),
+                    path: req_str!(d, "path", tbl),
+                    file_format: req_str!(d, "file_format", tbl),
+                    row_count: req_u64!(d, "row_count", tbl),
+                    file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
+                    snapshot_id: req_u64!(d, "snapshot_id", tbl),
+                    footer_size: d["footer_size"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_data_file(table_id, data_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_delete_file" => {
-                let delete_file_id = exported.data["delete_file_id"].as_u64().unwrap_or(0);
-                let data_file_id = exported.data["data_file_id"].as_u64().unwrap_or(0);
+                let delete_file_id = req_u64!(d, "delete_file_id", tbl);
+                let data_file_id = req_u64!(d, "data_file_id", tbl);
                 let row = DeleteFileRow {
                     delete_file_id,
                     data_file_id,
-                    path: exported.data["path"].as_str().unwrap_or("").to_string(),
-                    row_count: exported.data["row_count"].as_u64().unwrap_or(0),
-                    file_size_bytes: exported.data["file_size_bytes"].as_u64().unwrap_or(0),
-                    snapshot_id: exported.data["snapshot_id"].as_u64().unwrap_or(0),
+                    path: req_str!(d, "path", tbl),
+                    row_count: req_u64!(d, "row_count", tbl),
+                    file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
+                    snapshot_id: req_u64!(d, "snapshot_id", tbl),
                 };
                 let key = keys::key_delete_file(data_file_id, delete_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             "ducklake_inlined_insert" => {
-                let table_id = exported.data["table_id"].as_u64().unwrap_or(0);
-                let schema_version = exported.data["schema_version"].as_u64().unwrap_or(0);
-                let row_id = exported.data["row_id"].as_u64().unwrap_or(0);
-                let payload = base64_decode(exported.data["payload"].as_str().unwrap_or(""));
+                let table_id = req_u64!(d, "table_id", tbl);
+                let schema_version = req_u64!(d, "schema_version", tbl);
+                let row_id = req_u64!(d, "row_id", tbl);
+                let payload_b64 = req_str!(d, "payload", tbl);
+                let payload = base64::engine::general_purpose::STANDARD
+                    .decode(&payload_b64)
+                    .map_err(|e| CatalogError::Import {
+                        line: line_no,
+                        table: tbl.to_string(),
+                        message: format!("invalid base64 in 'payload': {e}"),
+                    })?;
                 let row = InlinedInsertRow {
                     table_id,
                     schema_version,
                     row_id,
                     payload,
-                    begin_snapshot: exported.data["begin_snapshot"].as_u64().unwrap_or(0),
-                    end_snapshot: exported.data["end_snapshot"].as_u64(),
+                    begin_snapshot: req_u64!(d, "begin_snapshot", tbl),
+                    end_snapshot: d["end_snapshot"].as_u64(),
                 };
                 let key = keys::key_inlined_insert(table_id, schema_version, row_id);
                 db.put(&key, &values::encode_value(&row)).await?;
                 rows_imported += 1;
             }
             _ => {
-                tracing::warn!("Unknown table in import: {}", exported.table);
+                tracing::warn!("Unknown table in import at line {line_no}: {tbl}");
             }
         }
     }
@@ -450,16 +477,18 @@ pub fn pg_migrate<R: BufRead, W: Write>(reader: R, writer: &mut W) -> CatalogRes
 }
 
 /// Rebuild a catalog from Parquet files in the data path.
-/// Synthesizes a minimal catalog with one snapshot, one schema, and tables inferred from paths.
+/// Synthesizes a minimal catalog with one snapshot, one schema, one table,
+/// and data files for every path supplied.
 pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u64> {
     use crate::init;
+    use crate::verify;
 
     // Initialize counters
     let _counters = init::initialize_catalog(db).await?;
 
     let mut file_count = 0u64;
 
-    // Create a default schema
+    // Create a default schema (schema_id = 1)
     let schema_id = 1u64;
     let schema_row = SchemaRow {
         schema_id,
@@ -470,12 +499,22 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
     let key = keys::key_schema(schema_id);
     db.put(&key, &values::encode_value(&schema_row)).await?;
 
-    // Create tables from paths (one table per unique directory)
-    let table_id = 1u64;
-    let mut file_id = 1u64;
+    // Create the default table (table_id = 2, because catalog IDs 1..=2 are used)
+    let table_id = 2u64;
+    let table_row = TableRow {
+        table_id,
+        schema_id,
+        table_name: "default".to_string(),
+        begin_snapshot: 1,
+        end_snapshot: None,
+        data_path: None,
+    };
+    let key = keys::key_table(schema_id, table_id, 1);
+    db.put(&key, &values::encode_value(&table_row)).await?;
 
+    // Register data files under the default table
+    let mut file_id = 1u64;
     for path in data_paths {
-        // Register as a data file in a default table
         let row = DataFileRow {
             data_file_id: file_id,
             table_id,
@@ -503,86 +542,36 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
     let key = keys::key_snapshot(1);
     db.put(&key, &values::encode_value(&snapshot_row)).await?;
 
-    // Update counters
+    // Update counters: next_snapshot = 2, next_catalog_id = table_id + 1 = 3,
+    // next_file_id = file_id (already incremented past the last used id)
     let counter_key = keys::key_counter(COUNTER_NEXT_SNAPSHOT_ID);
     db.put(&counter_key, &values::encode_counter(2)).await?;
     let counter_key = keys::key_counter(COUNTER_NEXT_CATALOG_ID);
-    db.put(
-        &counter_key,
-        &values::encode_counter(schema_id + table_id + 1),
-    )
-    .await?;
+    db.put(&counter_key, &values::encode_counter(table_id + 1))
+        .await?;
     let counter_key = keys::key_counter(COUNTER_NEXT_FILE_ID);
     db.put(&counter_key, &values::encode_counter(file_id))
         .await?;
+
+    // Verify the rebuilt catalog is coherent
+    verify::verify_catalog(db).await?;
 
     Ok(file_count)
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-fn base64_encode(data: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut s = String::with_capacity(data.len() * 4 / 3 + 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        let chars = match chunk.len() {
-            3 => 4,
-            2 => 3,
-            _ => 2,
-        };
-        for i in 0..chars {
-            let idx = ((triple >> (6 * (3 - i))) & 0x3F) as u8;
-            let _ = write!(s, "{}", B64_CHARS[idx as usize] as char);
-        }
-        for _ in chars..4 {
-            s.push('=');
-        }
-    }
-    s
+/// Encode bytes as standard base64 using the `base64` crate.
+fn base64_encode_crate(data: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(data)
 }
 
-fn base64_decode(s: &str) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let bytes: Vec<u8> = s
-        .bytes()
-        .filter(|&b| b != b'=')
-        .map(|b| B64_DECODE[b as usize])
-        .collect();
-
-    for chunk in bytes.chunks(4) {
-        if chunk.len() >= 2 {
-            let b0 = (chunk[0] as u32) << 18;
-            let b1 = (chunk[1] as u32) << 12;
-            let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-            let b3 = chunk.get(3).copied().unwrap_or(0) as u32;
-            let triple = b0 | b1 | (b2 << 6) | b3;
-            buf.push(((triple >> 16) & 0xFF) as u8);
-            if chunk.len() >= 3 {
-                buf.push(((triple >> 8) & 0xFF) as u8);
-            }
-            if chunk.len() >= 4 {
-                buf.push((triple & 0xFF) as u8);
-            }
-        }
-    }
-    buf
+/// Escape a string value for use inside a SQL single-quoted literal.
+/// Doubles any embedded single quotes per the SQL standard.
+fn sql_escape(s: &str) -> String {
+    s.replace('\'', "''")
 }
-
-const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-const B64_DECODE: [u8; 256] = {
-    let mut table = [0u8; 256];
-    let mut i = 0;
-    while i < 64 {
-        table[B64_CHARS[i] as usize] = i as u8;
-        i += 1;
-    }
-    table
-};
 
 fn row_to_pg_insert(exported: &ExportedRow) -> String {
     match exported.table.as_str() {
@@ -591,14 +580,14 @@ fn row_to_pg_insert(exported: &ExportedRow) -> String {
                 "INSERT INTO ducklake_snapshot (snapshot_id, schema_version, snapshot_time) VALUES ({}, {}, '{}');",
                 exported.data["snapshot_id"],
                 exported.data["schema_version"],
-                exported.data["snapshot_time"].as_str().unwrap_or("")
+                sql_escape(exported.data["snapshot_time"].as_str().unwrap_or(""))
             )
         }
         "ducklake_schema" => {
             format!(
                 "INSERT INTO ducklake_schema (schema_id, schema_name, begin_snapshot, end_snapshot) VALUES ({}, '{}', {}, {});",
                 exported.data["schema_id"],
-                exported.data["schema_name"].as_str().unwrap_or(""),
+                sql_escape(exported.data["schema_name"].as_str().unwrap_or("")),
                 exported.data["begin_snapshot"],
                 exported.data["end_snapshot"].as_u64().map_or("NULL".to_string(), |v| v.to_string())
             )
@@ -608,7 +597,7 @@ fn row_to_pg_insert(exported: &ExportedRow) -> String {
                 "INSERT INTO ducklake_table (table_id, schema_id, table_name, begin_snapshot, end_snapshot) VALUES ({}, {}, '{}', {}, {});",
                 exported.data["table_id"],
                 exported.data["schema_id"],
-                exported.data["table_name"].as_str().unwrap_or(""),
+                sql_escape(exported.data["table_name"].as_str().unwrap_or("")),
                 exported.data["begin_snapshot"],
                 exported.data["end_snapshot"].as_u64().map_or("NULL".to_string(), |v| v.to_string())
             )
@@ -618,8 +607,8 @@ fn row_to_pg_insert(exported: &ExportedRow) -> String {
                 "INSERT INTO ducklake_column (column_id, table_id, column_name, data_type, column_index, begin_snapshot, end_snapshot, is_nullable) VALUES ({}, {}, '{}', '{}', {}, {}, {}, {});",
                 exported.data["column_id"],
                 exported.data["table_id"],
-                exported.data["column_name"].as_str().unwrap_or(""),
-                exported.data["data_type"].as_str().unwrap_or(""),
+                sql_escape(exported.data["column_name"].as_str().unwrap_or("")),
+                sql_escape(exported.data["data_type"].as_str().unwrap_or("")),
                 exported.data["column_index"],
                 exported.data["begin_snapshot"],
                 exported.data["end_snapshot"].as_u64().map_or("NULL".to_string(), |v| v.to_string()),
@@ -631,13 +620,13 @@ fn row_to_pg_insert(exported: &ExportedRow) -> String {
                 "INSERT INTO ducklake_data_file (data_file_id, table_id, path, file_format, row_count, file_size_bytes, snapshot_id) VALUES ({}, {}, '{}', '{}', {}, {}, {});",
                 exported.data["data_file_id"],
                 exported.data["table_id"],
-                exported.data["path"].as_str().unwrap_or(""),
-                exported.data["file_format"].as_str().unwrap_or(""),
+                sql_escape(exported.data["path"].as_str().unwrap_or("")),
+                sql_escape(exported.data["file_format"].as_str().unwrap_or("")),
                 exported.data["row_count"],
                 exported.data["file_size_bytes"],
                 exported.data["snapshot_id"]
             )
         }
-        _ => format!("-- Unsupported table: {}", exported.table),
+        _ => format!("-- Unsupported table: {}", sql_escape(&exported.table)),
     }
 }

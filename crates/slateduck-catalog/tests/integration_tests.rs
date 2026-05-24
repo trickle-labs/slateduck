@@ -40,7 +40,7 @@ async fn catalog_reopen_preserves_state() {
 
     // Reopen
     let store = CatalogStore::open(opts).await.unwrap();
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1);
     assert_eq!(schemas[0].schema_name, "test_schema");
@@ -61,7 +61,7 @@ async fn create_schema_and_table() {
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1);
 
@@ -97,7 +97,7 @@ async fn add_and_describe_columns() {
 
     let _snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(SnapshotId::new(1));
+    let reader = store.read_at(SnapshotId::new(1)).await.unwrap();
     let desc = reader.describe_table(table_id).await.unwrap().unwrap();
     let (table, columns) = desc;
     assert_eq!(table.table_name, "users");
@@ -122,12 +122,12 @@ async fn drop_schema_makes_invisible() {
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
     // Visible at snapshot 1
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let schemas1 = reader1.list_schemas().await.unwrap();
     assert_eq!(schemas1.len(), 1);
 
     // Not visible at snapshot 2
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let schemas2 = reader2.list_schemas().await.unwrap();
     assert_eq!(schemas2.len(), 0);
 
@@ -169,7 +169,7 @@ async fn register_data_files() {
 
     let snap = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader = store.read_at(snap);
+    let reader = store.read_at(snap).await.unwrap();
     let files = reader.list_data_files(table_id).await.unwrap();
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].data_file_id, file1);
@@ -208,12 +208,12 @@ async fn inlined_insert_and_delete() {
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
     // At snapshot 1, both rows visible
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let rows1 = reader1.list_inlined_inserts(table_id).await.unwrap();
     assert_eq!(rows1.len(), 2);
 
     // At snapshot 2, only row 1 visible
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let rows2 = reader2.list_inlined_inserts(table_id).await.unwrap();
     assert_eq!(rows2.len(), 1);
     assert_eq!(rows2[0].row_id, 1);
@@ -231,7 +231,7 @@ async fn schema_version_increments_on_ddl() {
     let _schema_id = writer.create_schema("s1").await.unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader1 = store.read_at(snap1);
+    let reader1 = store.read_at(snap1).await.unwrap();
     let s1 = reader1.get_snapshot().await.unwrap().unwrap();
     assert_eq!(s1.schema_version, 1);
 
@@ -241,7 +241,7 @@ async fn schema_version_increments_on_ddl() {
     let snap2 = writer.create_snapshot(None, None).await.unwrap();
 
     // Another schema change
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let s2 = reader2.get_snapshot().await.unwrap().unwrap();
     assert_eq!(s2.schema_version, 2); // create_schema + create_table both trigger
 
@@ -252,7 +252,7 @@ async fn schema_version_increments_on_ddl() {
         .unwrap();
     let snap3 = writer.create_snapshot(None, None).await.unwrap();
 
-    let reader3 = store.read_at(snap3);
+    let reader3 = store.read_at(snap3).await.unwrap();
     let s3 = reader3.get_snapshot().await.unwrap().unwrap();
     // Data-only op doesn't call mark_schema_changed, so version stays
     assert_eq!(s3.schema_version, 2);
@@ -361,7 +361,7 @@ async fn file_column_stats_and_pruning() {
         .unwrap();
 
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    let reader = store.read_at(snap);
+    let reader = store.read_at(snap).await.unwrap();
 
     let col_type = DuckLakeType::Integer {
         signed: true,

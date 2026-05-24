@@ -112,6 +112,7 @@ fn catalog_error_sqlstate(e: &CatalogError) -> &'static str {
         CatalogError::ValueTooLarge { .. } => "54001",
         CatalogError::TransactionConflict(_) => "40001",
         CatalogError::Value(_) => "22P02",
+        CatalogError::SnapshotOutOfRetention { .. } => "22023",
         _ => "XX000",
     }
 }

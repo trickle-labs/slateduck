@@ -186,7 +186,7 @@ async fn abandoned_writer_leaves_no_phantom_rows() {
     );
 
     // Base snapshot (read_at) must still be readable and show no tables
-    let reader_base = store.read_at(base_snap);
+    let reader_base = store.read_at(base_snap).await.unwrap();
     let base_tables = reader_base.list_tables(schema_id).await.unwrap();
     assert!(
         base_tables.is_empty(),
@@ -224,7 +224,7 @@ async fn all_staged_mutations_visible_after_create_snapshot() {
     let snap = writer.create_snapshot(None, None).await.unwrap();
     store.commit_writer(&writer);
 
-    let reader = store.read_at(snap);
+    let reader = store.read_at(snap).await.unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     assert_eq!(schemas.len(), 1, "schema must be visible");
 
@@ -276,7 +276,7 @@ async fn find_table_schema_id_returns_correct_schema() {
     store.commit_writer(&w2);
 
     // After drop, table must not be visible at the new snapshot
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let tables = reader2.list_tables(schema_id).await.unwrap();
     assert!(
         tables.is_empty(),
@@ -284,7 +284,7 @@ async fn find_table_schema_id_returns_correct_schema() {
     );
 
     // But it IS visible at the original snapshot (MVCC immutability)
-    let reader_old = store.read_at(snap);
+    let reader_old = store.read_at(snap).await.unwrap();
     let old_tables = reader_old.list_tables(schema_id).await.unwrap();
     assert_eq!(
         old_tables.len(),
@@ -332,13 +332,13 @@ async fn find_column_table_id_returns_correct_table() {
     store.commit_writer(&w2);
 
     // After drop, column must not be visible at the new snapshot
-    let reader2 = store.read_at(snap2);
+    let reader2 = store.read_at(snap2).await.unwrap();
     let desc = reader2.describe_table(table_id).await.unwrap();
     let (_, cols) = desc.unwrap();
     assert!(cols.is_empty(), "dropped column must not be visible");
 
     // But it IS visible at the original snapshot
-    let reader_old = store.read_at(snap);
+    let reader_old = store.read_at(snap).await.unwrap();
     let desc_old = reader_old.describe_table(table_id).await.unwrap();
     let (_, old_cols) = desc_old.unwrap();
     assert_eq!(old_cols.len(), 1, "column visible at original snapshot");
@@ -386,7 +386,7 @@ async fn writer_protocol_conformance_no_duplicate_ids_under_simulated_failure() 
     );
 
     // 2. t2 is visible at snap2
-    let reader = store.read_at(snap2);
+    let reader = store.read_at(snap2).await.unwrap();
     let tables = reader.list_tables(schema_id).await.unwrap();
     assert_eq!(tables.len(), 2, "t1 and t2 must be visible at snap2");
     assert!(

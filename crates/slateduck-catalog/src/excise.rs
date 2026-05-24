@@ -62,8 +62,8 @@ pub struct ExciseAuditEntry {
 pub async fn excise_plan(db: &Db, before_snapshot: u64) -> CatalogResult<ExcisePlan> {
     let retain_from = gc::read_retain_from(db).await?;
 
-    // Safety check: retain-from must be >= before_snapshot
-    let is_safe = retain_from >= before_snapshot || retain_from == 0;
+    // Safety check: retain-from must be set and >= before_snapshot
+    let is_safe = retain_from > 0 && retain_from >= before_snapshot;
 
     let mut version_rows_eligible = 0u64;
 
@@ -99,8 +99,8 @@ pub async fn excise_apply(
 ) -> CatalogResult<ExciseResult> {
     let retain_from = gc::read_retain_from(db).await?;
 
-    // Safety: refuse if retain-from hasn't been advanced past the excision point
-    if retain_from > 0 && retain_from < before_snapshot {
+    // Safety: refuse if retain-from is unset or hasn't been advanced past the excision point
+    if retain_from == 0 || retain_from < before_snapshot {
         return Err(CatalogError::ExcisionUnsafe {
             retain_from,
             before_snapshot,

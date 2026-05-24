@@ -259,3 +259,61 @@ Every write session follows a strict, non-negotiable lifecycle:
 - **[Architecture Overview](overview.md)** — Where the transaction model fits in the overall system
 - **[Concepts: MVCC & Snapshots](../concepts/mvcc.md)** — The conceptual foundation for snapshot isolation
 - **[Internals: Crash Safety](../internals/crash-safety.md)** — Detailed analysis of crash scenarios and durability guarantees
+
+---
+
+## Snapshot Lifecycle State Machine (F-31)
+
+Every snapshot ID passes through a well-defined set of states.  All operational
+commands (`gc plan/apply`, `excise plan/apply`, `checkpoint create/restore`,
+`repair`) operate on these state transitions.
+
+### States
+
+| State | Meaning |
+|---|---|
+| **Committed** | `create_snapshot()` completed; rows are visible to `read_at(id)` |
+| **Retained** | id ≥ `retain-from`; `read_at(id)` permitted |
+| **Below floor** | id < `retain-from`; `read_at(id)` returns `SQLSTATE 22023` |
+| **Excised** | Physical keys deleted by `excise_apply()`; id no longer addressable |
+| **Checkpointed** | Snapshot state saved by `create_checkpoint()` |
+| **Restored** | Post-checkpoint facts hidden; new writes continue from `hide_snapshot + 1` |
+
+### Required Operation Sequence
+
+GC and excision must follow this strict sequence to preserve safety:
+
+1. **`gc_apply(retain_from)`** — Advance the `retain-from` floor.  Sets the
+   minimum snapshot ID that may be read.  Always safe; never deletes bytes.
+2. **`excise_apply(before_snapshot)`** — Physically delete facts older than the
+   floor.  Requires `retain_from > 0 && retain_from >= before_snapshot`.
+   Rejected with `ExcisionUnsafe` if `retain_from == 0` (floor not yet set) or
+   `retain_from < before_snapshot` (floor lags behind the requested cut point).
+
+Skipping step 1 and calling `excise_apply()` directly is a safety violation and
+will always fail, regardless of `before_snapshot`.
+
+### Checkpoint Restore Contract
+
+`restore_checkpoint(id)` performs a **logical restore**, not a byte-level
+rollback:
+
+1. All versioned facts (`ducklake_schema`, `ducklake_table`, `ducklake_column`,
+   `ducklake_view`, `ducklake_macro`, inlined inserts) whose
+   `begin_snapshot > checkpoint.snapshot_id` receive `end_snapshot = hide_snapshot`.
+   They are hidden from reads at IDs ≥ `hide_snapshot` but remain readable at
+   their original historical snapshot IDs.
+2. `COUNTER_NEXT_SNAPSHOT_ID` is set to `hide_snapshot + 1`, ensuring new writes
+   start from a strictly-increasing ID that cannot collide with any pre-existing
+   snapshot.
+
+This design prevents the split-timeline bug where new writes would reuse snapshot
+IDs already present in the catalog, causing non-deterministic read results.
+
+### Invariants Verified by `verify_catalog`
+
+- Every `ducklake_table` row references an existing `ducklake_schema`.
+- Every `ducklake_column` row references an existing `ducklake_table`.
+- Every `ducklake_data_file` row references an existing `ducklake_table`.
+- All MVCC rows with `end_snapshot IS NOT NULL` satisfy `end_snapshot > begin_snapshot`.
+- All counter values are ≥ the maximum ID found in their respective tables.

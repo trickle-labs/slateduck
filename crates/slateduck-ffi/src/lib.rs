@@ -382,7 +382,19 @@ pub extern "C" fn slateduck_list_schemas(
             };
         }
     };
-    let reader = cat.store.read_at(SnapshotId::new(snapshot_id));
+    let reader = match cat
+        .runtime
+        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
+    {
+        Ok(r) => r,
+        Err(e) => {
+            write_error(err, SlateduckError::from_catalog_error(e));
+            return SlateduckSchemaList {
+                schemas: ptr::null_mut(),
+                count: 0,
+            };
+        }
+    };
 
     let result = cat.runtime.block_on(reader.list_schemas());
     match result {
@@ -431,7 +443,19 @@ pub extern "C" fn slateduck_list_tables(
             };
         }
     };
-    let reader = cat.store.read_at(SnapshotId::new(snapshot_id));
+    let reader = match cat
+        .runtime
+        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
+    {
+        Ok(r) => r,
+        Err(e) => {
+            write_error(err, SlateduckError::from_catalog_error(e));
+            return SlateduckTableList {
+                tables: ptr::null_mut(),
+                count: 0,
+            };
+        }
+    };
 
     let result = cat.runtime.block_on(reader.list_tables(schema_id));
     match result {
@@ -478,7 +502,19 @@ pub extern "C" fn slateduck_describe_table(
             };
         }
     };
-    let reader = cat.store.read_at(SnapshotId::new(snapshot_id));
+    let reader = match cat
+        .runtime
+        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
+    {
+        Ok(r) => r,
+        Err(e) => {
+            write_error(err, SlateduckError::from_catalog_error(e));
+            return SlateduckColumnList {
+                columns: ptr::null_mut(),
+                count: 0,
+            };
+        }
+    };
 
     let result = cat.runtime.block_on(reader.describe_table(table_id));
     match result {
@@ -543,7 +579,19 @@ pub extern "C" fn slateduck_list_data_files(
             };
         }
     };
-    let reader = cat.store.read_at(SnapshotId::new(snapshot_id));
+    let reader = match cat
+        .runtime
+        .block_on(cat.store.read_at(SnapshotId::new(snapshot_id)))
+    {
+        Ok(r) => r,
+        Err(e) => {
+            write_error(err, SlateduckError::from_catalog_error(e));
+            return SlateduckFileList {
+                files: ptr::null_mut(),
+                count: 0,
+            };
+        }
+    };
 
     let result = cat.runtime.block_on(reader.list_data_files(table_id));
     match result {

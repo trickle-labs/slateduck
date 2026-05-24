@@ -41,6 +41,8 @@ pub enum TypeCompareError {
     UnsupportedType(String),
     #[error("failed to parse value '{value}' as {type_name}")]
     ParseError { value: String, type_name: String },
+    #[error("NaN comparison is undefined; treated as keep-file (SQLSTATE 22023)")]
+    NanComparison,
 }
 
 /// Result of a pruning comparison.
@@ -104,7 +106,7 @@ pub fn type_aware_compare(
                 value: right.to_string(),
                 type_name: "float".to_string(),
             })?;
-            Ok(compare_floats(l, r))
+            Ok(compare_floats(l, r)?)
         }
         DuckLakeType::Timestamp { .. } | DuckLakeType::Date | DuckLakeType::Time { .. } => {
             // Timestamps, dates, and times are compared lexicographically in ISO format
@@ -159,22 +161,32 @@ pub fn prune_file(
         });
     }
 
-    // If min > predicate → prune
+    // If min > predicate → prune (NaN comparison fails closed: keep the file)
     if let Some(min) = min_value {
         if !min.is_empty() {
-            let cmp = type_aware_compare(predicate_value, min, col_type)?;
-            if cmp == Ordering::Less {
-                return Ok(PruneResult::Prune);
+            match type_aware_compare(predicate_value, min, col_type) {
+                Err(TypeCompareError::NanComparison) => return Ok(PruneResult::Keep),
+                Err(e) => return Err(e),
+                Ok(cmp) => {
+                    if cmp == Ordering::Less {
+                        return Ok(PruneResult::Prune);
+                    }
+                }
             }
         }
     }
 
-    // If max < predicate → prune
+    // If max < predicate → prune (NaN comparison fails closed: keep the file)
     if let Some(max) = max_value {
         if !max.is_empty() {
-            let cmp = type_aware_compare(predicate_value, max, col_type)?;
-            if cmp == Ordering::Greater {
-                return Ok(PruneResult::Prune);
+            match type_aware_compare(predicate_value, max, col_type) {
+                Err(TypeCompareError::NanComparison) => return Ok(PruneResult::Keep),
+                Err(e) => return Err(e),
+                Ok(cmp) => {
+                    if cmp == Ordering::Greater {
+                        return Ok(PruneResult::Prune);
+                    }
+                }
             }
         }
     }
@@ -215,9 +227,10 @@ fn parse_float(s: &str) -> Result<f64, ()> {
     }
 }
 
-/// Compare two f64 values, with NaN handled separately.
-fn compare_floats(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+/// Compare two f64 values, returning an error if either operand is NaN.
+/// Callers should treat NanComparison as "keep the file" (fail-closed).
+fn compare_floats(a: f64, b: f64) -> Result<Ordering, TypeCompareError> {
+    a.partial_cmp(&b).ok_or(TypeCompareError::NanComparison)
 }
 
 /// Parse a boolean string.
