@@ -63,10 +63,10 @@ binding on every roadmap release below.
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Done |
-| **v0.13.1 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification with auxiliary columns, volatility validation, property-based "differential ≡ full" oracle | Planning |
-| **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak, multi-view DAG | Planning |
-| **v0.15 — IVM Feature Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries, recursive CTEs, non-det capture, WASM UDFs | Planning |
-| **v0.16 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, mixed frontiers, extension schema support | Planning |
+| **v0.13.1 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification (BOOL_AND/OR semi-algebraic), volatility validation (hardcoded table), property-based \"differential ≡ full\" oracle. **Blocks v0.14+** | Planning |
+| **v0.14 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Planning |
+| **v0.15 — IVM Feature Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator), non-det capture, WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated), ref-counted DISTINCT (MAX semantics) | Planning |
+| **v0.16 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2140,27 +2140,54 @@ The foundational correctness harness that all future IVM tests depend on: after 
 - [ ] `VOLATILE` function at view creation returns `SQLSTATE 0A000`
 - [ ] Property-based oracle passes 1 000 random DML sequences against TPC-H Q1
 
+### Testing: Tier 6b-correctness
+
+- [ ] **Tier 6b-correctness — IVM correctness tests** (`crates/slateduck-ivm/tests/correctness_tests.rs`): EC-01 phantom-row regression, aggregate tier AVG drift, aggregate tier MIN/MAX delete-of-extremum, BOOL_AND/OR delete-of-deciding-input, volatility gate VOLATILE rejection, volatility gate STABLE acceptance, property-based oracle 1000-sequence TPC-H Q1, coalesced-batch S_pre reconstruction
+- [ ] All Tier 6b-correctness tests run on every PR (standard runner)
+
 ### Deliverables
 
-- [ ] `join.rs` EC-01 Part 1a/1b/2/3 split with L₀ CTE caching
+- [ ] `join.rs` EC-01 Part 1a/1b/2/3 split with L₀ CTE caching (includes per-window provenance assertion)
 - [ ] `plan.rs` `AggregateTier` enum and per-`AggregateKind` tier annotation
 - [ ] `trace.rs` auxiliary column storage for algebraic aggregates (AVG/STDDEV)
-- [ ] `trace.rs` group-rescan path for semi-algebraic and group-rescan tier aggregates
-- [ ] `plan.rs` `IvmPlan::compile` volatility gate (VOLATILE reject / STABLE warn)
+- [ ] `trace.rs` semi-algebraic auxiliary columns: `count_true`/`count_nonnull` for BOOL_AND/OR, per-bit counts for BIT_AND/OR/XOR
+- [ ] `trace.rs` group-rescan path for semi-algebraic (on extremum/deciding-input delete) and group-rescan tier aggregates
+- [ ] `volatility.rs` hardcoded volatility lookup table (generated from DuckDB `duckdb_functions()`)
+- [ ] `plan.rs` `IvmPlan::compile` volatility gate (VOLATILE reject / STABLE warn / unknown → VOLATILE)
 - [ ] `slateduck-testkit` `IvmOracle` helper + `proptest` DML strategies
+- [ ] Tier 6b-correctness test suite green in CI
 - [ ] TPC-H Q1 property-based correctness test green in CI
 
 ---
 
 ## v0.14 — IVM Operational Hardening
 
-> Production-ready IVM. Cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.14 the IVM track is folded into the v1.0 GA story.
+> **Dependency:** Requires v0.13.1 (IvmOracle correctness harness) merged to `main` before this work begins. All correctness acceptance criteria in v0.14 use the `IvmOracle` to verify differential ≡ full.
+
+> Production-ready IVM. Multi-view DAG coordination (first), cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.14 the IVM track is folded into the v1.0 GA story.
+
+### Multi-View DAG and Frontier Coordination
+
+> **Must be implemented first.** The DAG and frontier coordination layer is foundational to correctness for all multi-view workloads — including the 24-hour soak test and the cost-mode regression suite later in this release. All subsequent v0.14 sections may assume DAG ordering is in place.
+
+Foundation for views that read from other materialized views (`CREATE INCREMENTAL MATERIALIZED VIEW b AS SELECT … FROM a` where `a` is itself a materialized view). Without topological ordering and diamond detection, convergent views compute deltas against inconsistent intermediate state. See [plans/pg-trickle.md](plans/pg-trickle.md) §5.
+
+- [ ] New `crates/slateduck-ivm/src/dag.rs`: Kahn's topological sort (O(V+E)) over the view dependency graph; guarantees upstream views are fully refreshed before any downstream consumer reads their delta
+- [ ] Diamond detection: during topo-sort, track the set of ancestor root nodes per node; a node reachable from the same root via two or more paths is a diamond apex; O(V+E)
+- [ ] Persist view dependency edges in `slateduck-catalog` (tag in existing matview key range; see `plans/blueprint.md` §9.1)
+- [ ] Frontier vector clocks in `state_store.rs`: `BTreeMap<SourceId, Sequence>` per view per shard, persisted durably; worker reads on (re)start and skips CDC events with `seq ≤ frontier[source]`
+- [ ] Diamond `Slowest` consistency policy: a convergence view (diamond apex D) refreshes only when **all** upstream views have advertised `frontier ≥ F` via their state stores; purely frontier-driven, no SAVEPOINT or advisory lock needed
+- [ ] `EXPLAIN MATERIALIZED VIEW v` extended to show dependency graph, detected diamonds, and current frontier per source
+- [ ] Unit test: diamond topology (A→B, A→C, B→D, C→D); assert D never refreshes with mismatched B/C frontiers
 
 ### Native `SlateDbTrace` Implementation
 
 Replace DBSP's bundled persistence with a native trace implementation directly over SlateDB. This is the deferred work from v0.11; it unlocks the cost optimizations below.
 
-- [ ] `SlateDbTrace` implements DBSP's persistent `Trace`, `Batch`, and `Cursor` traits
+> **Risk: DBSP trait stability.** DBSP uses GATs internally; some `Trace`, `Batch`, and `Cursor` traits may not be object-safe in stable Rust or may not expose a stable public implementation API. If the traits are not publicly implementable without forking DBSP, the fallback is a `SlateDbBatch` adapter wrapping DBSP's in-memory batch with SlateDB-backed spill-to-disk on memory pressure. Spike this integration first (1-day timebox) before committing to full trait implementation.
+
+- [ ] **Spike (1 day):** Verify DBSP `Trace`, `Batch`, `Cursor` traits are implementable externally without forking; document findings
+- [ ] `SlateDbTrace` implements DBSP's persistent `Trace`, `Batch`, and `Cursor` traits (or fallback adapter if spike shows infeasibility)
 - [ ] Frontier advancement mapped to SlateDB compaction
 - [ ] Direct mapping of DBSP batch boundaries to SlateDB SST flushes
 - [ ] Benchmark: native trace ≥ 1.5× faster than v0.11 baseline at equal correctness
@@ -2206,8 +2233,8 @@ The v0.4 checkpoint API backs up the catalog. Per-shard IVM state stores under `
 IVM can generate real S3 API costs at scale. Users need visibility and protection *before* they get an unexpected bill.
 
 - [ ] **Cost estimator at view creation.** `EXPLAIN MATERIALIZED VIEW v` includes estimated monthly S3 API cost based on: input rate (from recent snapshot commit frequency), shard count, freshness target, and empirical cost-per-million-rows from the v0.14 cost model
-- [ ] **Per-view cost budget.** `WITH (monthly_cost_limit = '$50')` option; workers throttle freshness (relax from 5 s toward 60 s) when projected cost exceeds budget. Clear warning surfaced in `SHOW MATERIALIZED VIEWS`
-- [ ] **Automatic freshness degradation.** When cost exceeds budget, freshness widens gracefully rather than stopping the view. Workers reduce flush frequency proportionally. View remains correct, just staler
+- [ ] **Per-view cost budget.** `WITH (monthly_cost_limit = '$50')` option; when projected cost exceeds budget, surface warning in `SHOW MATERIALIZED VIEWS` and emit Prometheus alert
+- [ ] **Opt-in freshness degradation.** `WITH (degrade_freshness_on_budget = true)` (default **false**); when enabled AND cost exceeds budget, freshness widens gracefully (from 5 s toward 60 s) rather than stopping the view. Workers reduce flush frequency proportionally. View remains correct, just staler. **Default behaviour without this flag: view continues at declared freshness and operator is alerted; no silent SLA change**
 - [ ] **Per-worker cost tracking.** `slateduck_ivm_estimated_monthly_cost{matview, shard}` metric; `slateduck-ivm doctor` reports per-view projected monthly cost
 - [ ] **Cost ceiling alert.** If any view's projected monthly cost exceeds the budget by 2× (burst scenario), emit `WARN`-level log and Prometheus alert. No automatic stop (correctness over cost), but operator visibility is immediate
 - [ ] **Documentation.** `docs/operations/ivm-cost-control.md`: how to estimate costs before creating views, how budgets work, how to diagnose cost spikes, rules of thumb (freshness↑ = cost↓, shards↓ = cost↓)
@@ -2271,17 +2298,22 @@ IVM can generate real S3 API costs at scale. Users need visibility and protectio
 - [ ] All Tier 7 tests are pre-release gate (run on tag push, not every PR)
 - [ ] All Tier 9 security tests run on the standard large runner (MinIO covers credential isolation; no real AWS required)
 
-### Multi-View DAG and Frontier Coordination
+### PG-Wire Rate Limiting
 
-Foundation for views that read from other materialized views (`CREATE INCREMENTAL MATERIALIZED VIEW b AS SELECT … FROM a` where `a` is itself a materialized view). Without topological ordering and diamond detection, convergent views compute deltas against inconsistent intermediate state. See [plans/pg-trickle.md](plans/pg-trickle.md) §5.
+The Tier 9 security tests include a brute-force rate limiting check. This section provides the corresponding implementation.
 
-- [ ] New `crates/slateduck-ivm/src/dag.rs`: Kahn's topological sort (O(V+E)) over the view dependency graph; guarantees upstream views are fully refreshed before any downstream consumer reads their delta
-- [ ] Diamond detection: during topo-sort, track the set of ancestor root nodes per node; a node reachable from the same root via two or more paths is a diamond apex; O(V+E)
-- [ ] Persist view dependency edges in `slateduck-catalog` (tag in existing matview key range; see `plans/blueprint.md` §9.1)
-- [ ] Frontier vector clocks in `state_store.rs`: `BTreeMap<SourceId, Sequence>` per view per shard, persisted durably; worker reads on (re)start and skips CDC events with `seq ≤ frontier[source]`
-- [ ] Diamond `Slowest` consistency policy: a convergence view (diamond apex D) refreshes only when **all** upstream views have advertised `frontier ≥ F` via their state stores; purely frontier-driven, no SAVEPOINT or advisory lock needed
-- [ ] `EXPLAIN MATERIALIZED VIEW v` extended to show dependency graph, detected diamonds, and current frontier per source
-- [ ] Unit test: diamond topology (A→B, A→C, B→D, C→D); assert D never refreshes with mismatched B/C frontiers
+- [ ] Per-IP connection rate limiter in `slateduck-pgwire`: token-bucket with configurable burst (default 10 connections/s, burst 20)
+- [ ] Per-IP failed-auth rate limiter: after 5 consecutive failed authentication attempts from the same IP within 60 s, reject with `SQLSTATE 08004` and `WARN`-level log for 5 minutes
+- [ ] Configurable via `--rate-limit-connections-per-sec` and `--rate-limit-auth-failures` CLI flags
+- [ ] Rate limit state is per-process (in-memory `DashMap<IpAddr, TokenBucket>`); not shared across replicas
+
+### CI Infrastructure for Tier 7 Network Tests
+
+The toxiproxy Testcontainers network fault injection tests require Docker. This section tracks the infrastructure prerequisite.
+
+- [ ] `.github/workflows/ci.yml` Tier 7 job uses `ubuntu-latest` with Docker (native, no DinD needed — GitHub Actions ubuntu runners have Docker pre-installed)
+- [ ] Tier 7 network tests gated behind `--features fault-injection` AND `cfg(target_os = "linux")` — skipped on macOS CI (no Testcontainers Docker socket on macOS Actions runners)
+- [ ] Document in `docs/contributing/testing.md`: Tier 7 network tests require Linux CI runner with Docker; local macOS developers can run them with Docker Desktop
 
 ### Acceptance Criteria
 
@@ -2294,12 +2326,17 @@ Foundation for views that read from other materialized views (`CREATE INCREMENTA
 - [ ] IVM worker K8s deployment pattern tested with 4-worker pool and rolling updates
 - [ ] **Tier 6d hardening tests green** (4 tests including repair and exactly-once output)
 - [ ] **Tier 7 fault injection suite green** on every pre-release tag: catalog faults (4), IVM worker faults (4), network faults via toxiproxy (4)
-- [ ] **Tier 9 security suite green**: credential isolation, TLS, auth, SQL injection guards — 14 tests total
+- [ ] **Tier 9 security suite green**: credential isolation, TLS, auth, SQL injection guards, rate limiting — 14 tests total
 - [ ] **Tier 10 benchmark regression < 10%** on weekly CI run vs `benchmarks/phase-2-baseline.json`
+- [ ] **Multi-View DAG:** diamond topology test passes; D never refreshes with inconsistent upstream frontiers
+- [ ] **Rate limiting:** 6th failed auth from same IP within 60 s rejected with `SQLSTATE 08004`
 
 ### Deliverables
 
-- [ ] Native `SlateDbTrace` shipped
+- [ ] Native `SlateDbTrace` shipped (or fallback adapter if DBSP traits not externally implementable)
+- [ ] `dag.rs` Multi-View DAG with Kahn topo-sort, diamond detection, and `Slowest` policy
+- [ ] Frontier vector clocks in `state_store.rs` with durable persistence
+- [ ] PG-wire rate limiter (connection + auth failure) in `slateduck-pgwire`
 - [ ] Cost-optimization knobs documented and defaulted sensibly
 - [ ] Observability surface complete (metrics, traces, `doctor` CLI)
 - [ ] `REFRESH ... FULL` and per-shard repair shipped
@@ -2367,6 +2404,9 @@ A top-level `ORDER BY` implies a total order on the output; Parquet is physicall
 
 **Implementation approach.** Decorrelation via algebraic rewrites (same technique DataFusion uses for batch evaluation). Correlated `EXISTS` → semi-join; correlated scalar → left join + aggregation. After decorrelation the circuit contains only regular joins and aggregations.
 
+> **New dependency:** This adds `datafusion-optimizer` (and transitively `datafusion-expr`, `datafusion-common`, `arrow`) as a compile dependency of `slateduck-ivm`. The DataFusion optimizer crate is Apache-2.0 licensed (compatible). The transitive dependency tree adds ~40 crates. Pin to a specific DataFusion release (currently 45.x) and document the version in `Cargo.toml` workspace dependencies.
+
+- [ ] Add `datafusion-optimizer` to workspace `Cargo.toml` `[workspace.dependencies]` with pinned version
 - [ ] Decorrelation pass in `plan.rs` via DataFusion's `PullUpCorrelatedPredicates` / `DecorrelatePredicateSubquery` rewrites
 - [ ] `EXISTS`, `NOT EXISTS`, `IN (SELECT …)`, `NOT IN (SELECT …)` → semi/anti-join
 - [ ] Scalar correlated subquery in SELECT list → left join + aggregation
@@ -2379,12 +2419,15 @@ A top-level `ORDER BY` implies a total order on the output; Parquet is physicall
 
 **Implementation approach.** Map to DBSP's `iterate` operator: base case is the seed; recursive term is the iterate body; termination detected by frontier advancement (output = input at fixed point).
 
+**Cross-shard convergence.** DBSP's `iterate` computes a local fixed point per shard. For recursive queries whose fixed point depends on global properties (e.g., transitive closure of a graph partitioned across shards), local ≠ global fixed point. Solution: recursive CTEs run on a **single coordinator shard** that receives a global shuffle of all edges/rows participating in the recursion. This is the same approach DBSP's distributed runtime uses. For large graphs, `shard_count = 1` is auto-enforced at view creation with a clear message; for bounded-depth recursions (`CONNECT BY` with `max_depth ≤ D`), sharded execution is allowed because each iteration only needs local + 1-hop-neighbour data (communicated via the existing reshuffle join path).
+
 - [ ] Recursive CTEs identified in the SQL plan (cycles in CTE dependency graph)
 - [ ] Lowered to DBSP `iterate` operators
+- [ ] **Global convergence:** unbounded recursive CTEs enforce `shard_count = 1` (coordinator receives global shuffle); clear error if user specifies `shard_count > 1`
+- [ ] **Bounded recursion fast path:** `CONNECT BY`-style depth-bounded expansion (org-chart / BOM queries) with `max_depth` may use sharded execution via per-hop reshuffle
 - [ ] Bounded iteration: configurable `max_iterations` (default 100); exceeding it sets view to `Stale` and alerts
-- [ ] `CONNECT BY`-style depth-bounded expansion (org-chart / BOM queries)
 - [ ] Non-recursive `WITH` (already handled in v0.11 as inline subquery expansion) unchanged
-- [ ] Transitive closure over a 1M-edge graph maintained incrementally as edges are added and removed
+- [ ] Transitive closure over a 1M-edge graph maintained incrementally as edges are added and removed (single-shard coordinator)
 - [ ] Incremental per-batch latency ≤ 5× the non-recursive baseline for the same operator count
 
 ### Non-Deterministic Functions with Capture Semantics
@@ -2407,10 +2450,12 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] `CREATE FUNCTION name(arg_type, …) RETURNS type LANGUAGE WASM AS '…'` DDL surface
 - [ ] `DROP FUNCTION`, `ALTER FUNCTION … REPLACE` (bumps `udf_id`; views pin to specific `udf_id` at creation)
 - [ ] WASM execution via `wasmtime` embedded in `slateduck-ivm`; sandboxed (no I/O, no network, bounded fuel + memory)
+- [ ] **Per-batch pooled instance model:** A single `wasmtime::Instance` is created per UDF per batch and reused across all rows in that batch (not per-row allocation). Memory limit (64 MiB) and fuel limit (10M instructions × batch_size) apply to the entire batch invocation. Instance is dropped after the batch completes. This avoids 64 MiB × rows-per-batch blowup
+- [ ] Pin `wasmtime` to a specific major version in `Cargo.toml` (fuel API breaks between wasmtime majors); document version constraint
 - [ ] `deterministic = true` annotation required; non-deterministic UDFs rejected at view creation with a clear error
 - [ ] UDF versioning: view pins to `udf_id` at creation; `ALTER INCREMENTAL MATERIALIZED VIEW v USING FUNCTION f VERSION N` migrates and triggers `REFRESH … FULL`
 - [ ] Argument and return types limited to Arrow-compatible scalars: BOOLEAN, INT8–INT64, FLOAT32/FLOAT64, UTF8, BINARY, DATE32, TIMESTAMP
-- [ ] Fuel limit: 10M instructions per row; memory limit: 64 MiB per invocation; violation → clean error, not panic
+- [ ] Per-row fuel sub-budget: 10M instructions; if any single row exhausts its fuel slice, clean error naming the row and UDF — batch aborted, no partial output
 - [ ] WASM module validates against a whitelist of allowed WASI imports (none for pure functions)
 - [ ] Tested with a custom tokenizer UDF over event strings maintained incrementally
 - [ ] `docs/reference/udfs.md`: authoring guide, WASM compilation instructions (Rust → wasm32-unknown-unknown), determinism contract, version migration
@@ -2423,7 +2468,8 @@ A set of targeted optimizations derived from pg-trickle's production experience 
 
 - [ ] `CostMode::Adaptive` variant in `config.rs`
 - [ ] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
-- [ ] Query complexity multiplier table: `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
+- [ ] Query complexity multiplier table: initial values `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
+- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.15-adaptive-calibration.json`
 - [ ] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
 
 **Change-buffer compaction.** Consecutive INSERT/DELETE pairs on the same `row_id` cancel out; applying this before writing to the trace cuts buffer size 50–90% on high-update workloads.
@@ -2458,8 +2504,11 @@ A set of targeted optimizations derived from pg-trickle's production experience 
 
 - [ ] Add `__sd_ref_count: i64` auxiliary column to `IvmTrace` for views containing `DISTINCT` or `UNION DISTINCT` / `INTERSECT` / `EXCEPT`
 - [ ] INSERT increments `__sd_ref_count`; DELETE decrements; row visible in output only when `__sd_ref_count > 0`
-- [ ] `UNION DISTINCT`: union of ref counts; `INTERSECT`: minimum of counts; `EXCEPT`: subtraction of counts
+- [ ] `UNION DISTINCT`: `MAX(count_A, count_B)` — a row is present once if it appears in *either* operand, regardless of duplicates within each side. **Not addition** (that would be `UNION ALL`)
+- [ ] `INTERSECT`: `MIN(count_A, count_B)` — row present only when both sides contribute
+- [ ] `EXCEPT`: `count_A - count_B`, clamped to 0 — row present when left contributes more than right subtracts
 - [ ] Correctness test: insert same row 3×, delete 2×; confirm exactly one output row
+- [ ] Correctness test: `UNION DISTINCT` of two relations both containing the same row → exactly one output row (not two)
 
 ### Extended Operator Support Matrix
 
@@ -2494,7 +2543,7 @@ A set of targeted optimizations derived from pg-trickle's production experience 
 
 - [ ] Every operator in the matrix passes a correctness test against a DuckDB single-shot reference query over the same input data
 - [ ] Partition-local `ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` maintained correctly for 1000 input snapshots; throughput within 15% of equivalent aggregation
-- [ ] Transitive closure over 1M edges processes 10k-edge incremental batches in ≤ 10 s
+- [ ] Transitive closure over 1M edges processes 10k-edge incremental batches in ≤ 10 s (single-shard coordinator; global shuffle)
 - [ ] `LIMIT 100 ORDER BY value DESC` view correctly maintains the global top-100 across 1000 input snapshots
 - [ ] `now()` capture: repaired shard re-uses stored captured value, not re-sampled; output is bit-identical to original
 - [ ] WASM UDF exceeding fuel/memory limit returns a clean error; no worker panic, no view corruption
@@ -2508,17 +2557,19 @@ A set of targeted optimizations derived from pg-trickle's production experience 
 - [ ] Predicate-pushdown confirmed: CDC bytes read proportional to WHERE-matching rows, not total delta size
 - [ ] Append-only fast path shows ≥ 25% throughput improvement on a pure-INSERT TPC-H Q1 variant
 - [ ] DISTINCT reference counting correct: insert-3×-delete-2× produces exactly one output row
+- [ ] `UNION DISTINCT` reference counting correct: same row in both operands → exactly one output row (MAX semantics, not addition)
+- [ ] Unbounded recursive CTE rejects `shard_count > 1` at view creation with clear error
 - [ ] All 10 test tiers green (Tiers 1–7 and 9–10 from prior phases; Tier 8 from this phase)
 
 ### Deliverables
 
 - [ ] `SlateDbOrderedTrace` implementation
 - [ ] Merge-sort output writer in the output plane
-- [ ] Decorrelation pass in `plan.rs`
-- [ ] DBSP `iterate` integration for recursive CTEs
+- [ ] Decorrelation pass in `plan.rs` (using `datafusion-optimizer` pinned in workspace deps)
+- [ ] DBSP `iterate` integration for recursive CTEs (single-shard coordinator for unbounded; sharded for bounded-depth)
 - [ ] Non-deterministic function capture with per-batch seed storage
 - [ ] `matview_udfs` catalog table (tag `0x21`) and `CREATE/DROP/ALTER FUNCTION` SQL surface
-- [ ] `wasmtime` integration in `slateduck-ivm` with fuel + memory sandboxing
+- [ ] `wasmtime` integration in `slateduck-ivm` with per-batch pooled instances, fuel + memory sandboxing (pinned wasmtime major version)
 - [ ] Tier 8 scale + soak test suite (`tests/scale/`) with TPC-H catalog, IVM streaming, and 24 h soak tests
 - [ ] Self-hosted EC2 runner configuration documented in `docs/contributing/testing.md`
 - [ ] TPC-DS Q4/Q11/Q14/Q47/Q49 streaming benchmark suite in `benches/`
@@ -2526,6 +2577,7 @@ A set of targeted optimizations derived from pg-trickle's production experience 
 - [ ] `docs/reference/udfs.md` authoring guide
 - [ ] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage
 - [ ] `CostMode::Adaptive` with per-view rolling cost statistics in `config.rs` and `worker.rs`
+- [ ] `benchmarks/v0.15-adaptive-calibration.json` with empirical crossover data for multiplier table
 - [ ] Change-buffer compaction in `source.rs`
 - [ ] Predicate pushdown and semi-join key pre-filter in `plan.rs` and `join.rs`
 - [ ] Append-only fast path detection in `IvmTrace`
@@ -2610,9 +2662,13 @@ pg-trickle's event-driven scheduler wakes up immediately when a `NOTIFY pgt_sour
 
 pg-trickle issues `CREATE TABLE IF NOT EXISTS pgtrickle.pgt_ducklake_provenance (…)` and `INSERT INTO pgtrickle.pgt_ducklake_provenance (…)` against the catalog database at install time. SlateDuck's bounded SQL dispatcher currently returns `SQLSTATE 0A000` for user-schema DDL/DML.
 
-**Implementation (minimal-viable):** Add a reserved extension-metadata key range (tag `0x23`) and handle `CREATE TABLE IF NOT EXISTS <extension_schema>.<table>` DDL for known extension schemas. Support `INSERT`, `SELECT`, `DELETE` against these tables.
+**Implementation decision: first-class catalog objects (tag `0x23`).** The SQLite-sidecar alternative was rejected because it creates a second durability domain (sidecar can desync from catalog on crash), complicates backup/restore, and is not queryable via the standard PG-wire path without a second code path. First-class objects are more work upfront but architecturally sound.
 
-**Alternative (lower-effort):** Provide a configuration shim in SlateDuck's `slateduck-pgwire` that silently ACKs `pgtrickle.*` writes and stores them in a sidecar SQLite file. Document this as the supported compatibility mode.
+- [ ] Reserved extension-metadata key range: tag `0x23` with sub-tags per extension schema (e.g., `0x23 | 0x01` for `pgtrickle`)
+- [ ] `CREATE TABLE IF NOT EXISTS <extension_schema>.<table>` DDL handled in `slateduck-sql` bounded dispatcher for registered extension schemas
+- [ ] `INSERT`, `SELECT`, `DELETE` against extension schema tables routed through normal catalog read/write paths
+- [ ] Extension schema registration: `slateduck-pgwire --extension-schemas pgtrickle` CLI flag; unknown schemas still return `0A000`
+- [ ] Extension table schema is fixed at creation; `ALTER TABLE` on extension tables returns `0A000` (pg-trickle doesn't need it)
 
 **Acceptance criteria:**
 - [ ] pg-trickle installs without errors against SlateDuck
@@ -2632,14 +2688,18 @@ When DuckLake per-file Parquet encryption is enabled, `INSERT INTO ducklake_data
 
 For stream tables that read from both SlateDuck-backed DuckLake tables and PostgreSQL heap tables, the frontier must be a vector clock over heterogeneous source types.
 
+> **Clarification: SlateDuck stores frontier values opaquely.** SlateDuck does not interpret WAL LSNs — it has no PostgreSQL replication knowledge. pg-trickle passes its own frontier JSON blob (containing WAL LSNs for PG sources and snapshot IDs for DuckLake sources) through the extension schema tables (Gap 5). SlateDuck's role is: (1) store the blob durably, (2) return it on read, (3) use the DuckLake snapshot component to coordinate its own GC (Gap 3). The `WalLsn` variant in the frontier type is opaque bytes that SlateDuck persists but never parses.
+
 **Implementation:**
-- Extend frontier type in `state_store.rs`: `BTreeMap<SourceId, SourceFrontier>` where `SourceFrontier` is `{SequenceNumber(u64) | DuckLakeSnapshot(i64) | WalLsn(u64)}`.
-- `plan.rs` must resolve each source's frontier type from `MatviewInputSource` variant.
-- Serialize frontier as JSON (matching pg-trickle's `{"ducklake:lake.events": {"snapshot_id": 42}, "wal:postgres": {"lsn": "…"}}` format) for cross-system observability.
+- Extend frontier type in `state_store.rs`: `BTreeMap<SourceId, SourceFrontier>` where `SourceFrontier` is `{SequenceNumber(u64) | DuckLakeSnapshot(i64) | Opaque(Vec<u8>)}`.
+- `plan.rs` resolves DuckLake sources to `DuckLakeSnapshot`; all others stored as `Opaque`.
+- Serialize frontier as JSON for observability; opaque values serialized as base64.
+- pg-trickle is responsible for interpreting its own opaque frontier values; SlateDuck guarantees durability and atomic read/write only.
 
 **Acceptance criteria:**
-- [ ] View definition mixing DuckLake source + PG heap source plans and refreshes correctly
-- [ ] Frontier serialized as JSON, visible in `pgt_stream_tables.frontier`
+- [ ] View definition mixing DuckLake source + opaque PG frontier stores and retrieves correctly
+- [ ] Frontier serialized as JSON, visible in `pgt_stream_tables.frontier`; opaque values base64-encoded
+- [ ] Round-trip test: store arbitrary bytes as opaque frontier, read back, bytes identical
 
 ### pg-trickle Compatibility Test Suite
 
@@ -2674,9 +2734,9 @@ All of the following must be green before v0.16 is tagged:
 - [ ] Stable `rowid` implementation in `crates/slateduck-catalog/src/writer.rs` and `crates/slateduck-ivm/src/parquet.rs`
 - [ ] Snapshot lease catalog tag `0x22` + `slateduck.hold_snapshot()` / `release_snapshot()` SQL API
 - [ ] `LISTEN`/`NOTIFY`/`UNLISTEN` in `crates/slateduck-pgwire/src/`
-- [ ] Extension schema compatibility shim for `pgtrickle.*` tables
+- [ ] Extension schema first-class catalog objects (tag `0x23`) with `CREATE TABLE IF NOT EXISTS` / `INSERT` / `SELECT` / `DELETE` support
 - [ ] Encryption key column audit + fixture
-- [ ] Mixed frontier support in `crates/slateduck-ivm/src/state_store.rs` and `plan.rs`
+- [ ] Mixed frontier support in `crates/slateduck-ivm/src/state_store.rs` and `plan.rs` (opaque frontier for non-DuckLake sources)
 - [ ] Compatibility test suite: `tests/compat/pgtrickle_*.rs`
 - [ ] `docs/operations/pgtrickle-compatibility.md`
 - [ ] DuckLake Spec Upgrade Policy updated to include pg-trickle `CHANGELOG.md` in review process
