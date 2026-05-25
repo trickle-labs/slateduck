@@ -61,6 +61,9 @@ pub enum SlateDuckError {
 
     #[error("missing required parameter '{name}' (SQLSTATE 22023)")]
     MissingParam { name: String },
+
+    #[error("{message} (SQLSTATE {code})")]
+    SqlState { code: String, message: String },
 }
 
 impl SlateDuckError {
@@ -85,6 +88,7 @@ impl SlateDuckError {
             Self::PgWire(_) => "XX000",
             Self::Catalog(e) => catalog_error_sqlstate(e),
             Self::SqlDispatch(_) => "0A000",
+            Self::SqlState { .. } => "55000",
         }
     }
 

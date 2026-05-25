@@ -112,6 +112,16 @@ pub async fn gc_apply(db: &Db, new_retain_from: u64) -> CatalogResult<GcApplyRes
         }
     }
 
+    // v0.18: Check snapshot leases block advancement
+    if let Some(min_leased) = crate::lease::minimum_leased_snapshot(db).await? {
+        if new_retain_from > min_leased {
+            return Err(CatalogError::PinnedSnapshotBlocks {
+                pinned_snapshot: min_leased,
+                requested_retain_from: new_retain_from,
+            });
+        }
+    }
+
     // Transactionally advance retain-from
     let key = keys::key_system(SYSTEM_RETAIN_FROM);
     db.put(&key, &values::encode_counter(new_retain_from))

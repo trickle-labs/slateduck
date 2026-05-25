@@ -175,6 +175,9 @@ pub struct DataFileRow {
     pub snapshot_id: u64,
     #[prost(string, optional, tag = "8")]
     pub footer_size: Option<String>,
+    /// v0.18: Per-file Parquet encryption key (pass-through, opaque bytes hex-encoded).
+    #[prost(string, optional, tag = "9")]
+    pub encryption_key: Option<String>,
 }
 
 /// Delete file row value.
@@ -666,4 +669,42 @@ pub struct MatviewShardRow {
     /// Most recently consumed input snapshot by this shard.
     #[prost(uint64, tag = "9")]
     pub last_input_snapshot: u64,
+}
+
+// ─── v0.18: Snapshot Lease ─────────────────────────────────────────────────
+
+/// Snapshot lease row (tag 0x22, MutableSingleton per consumer_id).
+/// Prevents GC from advancing past `min_snapshot_id` until TTL expires or lease is released.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct SnapshotLeaseRow {
+    /// Consumer identifier (e.g., "pgtrickle:stream_1").
+    #[prost(string, tag = "1")]
+    pub consumer_id: String,
+    /// Minimum snapshot ID that must be retained.
+    #[prost(uint64, tag = "2")]
+    pub min_snapshot_id: u64,
+    /// Unix-millisecond timestamp when the lease expires.
+    #[prost(uint64, tag = "3")]
+    pub expires_at_unix_ms: u64,
+}
+
+// ─── v0.18: Extension Schema ───────────────────────────────────────────────
+
+/// Extension schema row (tag 0x23). Stores application-defined metadata.
+/// Used by pg-trickle and other DuckLake-compatible systems to persist
+/// their own tables within the catalog.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct ExtensionSchemaRow {
+    /// Extension identifier (e.g., 0x01 for pgtrickle).
+    #[prost(uint32, tag = "1")]
+    pub extension_id: u32,
+    /// Table name within the extension schema.
+    #[prost(string, tag = "2")]
+    pub table_name: String,
+    /// Row ID within the extension table.
+    #[prost(uint64, tag = "3")]
+    pub row_id: u64,
+    /// JSON-encoded column values.
+    #[prost(string, tag = "4")]
+    pub data_json: String,
 }

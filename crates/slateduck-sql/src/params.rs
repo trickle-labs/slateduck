@@ -71,4 +71,15 @@ impl ParamValues {
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
+
+    /// Serialize all parameter values as a JSON string.
+    pub fn to_json_string(&self) -> String {
+        let entries: Vec<String> = self
+            .values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| v.as_ref().map(|val| format!("\"p{}\":\"{}\"", i, val)))
+            .collect();
+        format!("{{{}}}", entries.join(","))
+    }
 }

@@ -118,6 +118,59 @@ pub enum StatementKind {
         schema: Option<String>,
     },
 
+    // ─── v0.18 DuckLake Standard Interface ─────────────────────────────
+    /// `SELECT * FROM table_changes('schema.table', start_snapshot := N, end_snapshot := M)`
+    TableChanges {
+        table_ref: String,
+        start_snapshot: u64,
+        end_snapshot: u64,
+    },
+    /// `SELECT slateduck.next_rowid_range('schema.table', count := N)`
+    NextRowidRange {
+        table_ref: String,
+        count: u64,
+    },
+    /// `SELECT slateduck.hold_snapshot(min_snapshot_id := N, consumer_id := '...', ttl_seconds := N)`
+    HoldSnapshot {
+        min_snapshot_id: u64,
+        consumer_id: String,
+        ttl_seconds: u64,
+    },
+    /// `SELECT slateduck.release_snapshot(consumer_id := '...')`
+    ReleaseSnapshot {
+        consumer_id: String,
+    },
+    /// `LISTEN channel`
+    Listen {
+        channel: String,
+    },
+    /// `UNLISTEN channel`
+    Unlisten {
+        channel: String,
+    },
+    /// `CREATE TABLE IF NOT EXISTS <extension_schema>.<table> (...)`
+    CreateExtensionTable {
+        schema_name: String,
+        table_name: String,
+    },
+    /// `INSERT INTO <extension_schema>.<table> (...) VALUES (...)`
+    InsertExtensionRow {
+        schema_name: String,
+        table_name: String,
+        columns: Vec<String>,
+        values_json: String,
+    },
+    /// `SELECT ... FROM <extension_schema>.<table>`
+    SelectExtensionTable {
+        schema_name: String,
+        table_name: String,
+    },
+    /// `DELETE FROM <extension_schema>.<table> WHERE ...`
+    DeleteExtensionRows {
+        schema_name: String,
+        table_name: String,
+    },
+
     // ─── Unsupported ───────────────────────────────────────────────────
     Unsupported(String),
 }
@@ -126,6 +179,11 @@ pub enum StatementKind {
 pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> {
     // Pre-parse fast path for IVM custom syntax not supported by sqlparser-rs.
     if let Some(kind) = classify_ivm_prefix(sql) {
+        return Ok(kind);
+    }
+
+    // Pre-parse fast path for LISTEN/UNLISTEN.
+    if let Some(kind) = classify_listen_prefix(sql) {
         return Ok(kind);
     }
 
@@ -226,6 +284,32 @@ fn classify_ivm_prefix(sql: &str) -> Option<StatementKind> {
     None
 }
 
+/// Pre-parse LISTEN/UNLISTEN which are non-standard keywords in many dialects.
+fn classify_listen_prefix(sql: &str) -> Option<StatementKind> {
+    let upper = sql.trim().to_uppercase();
+    let trimmed = sql.trim();
+
+    if upper.starts_with("LISTEN ") {
+        let channel = trimmed["LISTEN ".len()..]
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .to_string();
+        return Some(StatementKind::Listen { channel });
+    }
+
+    if upper.starts_with("UNLISTEN ") {
+        let channel = trimmed["UNLISTEN ".len()..]
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .to_string();
+        return Some(StatementKind::Unlisten { channel });
+    }
+
+    None
+}
+
 /// Find the byte position of a standalone ` AS ` keyword (case-insensitive).
 fn find_as_keyword(s: &str) -> Option<usize> {
     let upper = s.to_uppercase();
@@ -306,9 +390,43 @@ fn classify_ast(stmt: &Statement) -> StatementKind {
             let name = ct.name.to_string().to_lowercase();
             if name.contains("ducklake_inlined") {
                 StatementKind::CreateInlinedTable
+            } else if name.contains('.') {
+                // Extension schema DDL: CREATE TABLE IF NOT EXISTS pgtrickle.table_name
+                let parts: Vec<&str> = name.splitn(2, '.').collect();
+                if parts.len() == 2 {
+                    StatementKind::CreateExtensionTable {
+                        schema_name: parts[0].to_string(),
+                        table_name: parts[1].to_string(),
+                    }
+                } else {
+                    StatementKind::Unsupported(format!("CREATE TABLE {name}"))
+                }
             } else {
                 StatementKind::Unsupported(format!("CREATE TABLE {name}"))
             }
+        }
+
+        // DELETE for extension schema tables
+        Statement::Delete(del) => {
+            let tables = match &del.from {
+                sqlparser::ast::FromTable::WithFromKeyword(t) => t,
+                sqlparser::ast::FromTable::WithoutKeyword(t) => t,
+            };
+            if let Some(from) = tables.first() {
+                let table_name = extract_table_name(&from.relation)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                if table_name.contains('.') {
+                    let parts: Vec<&str> = table_name.splitn(2, '.').collect();
+                    if parts.len() == 2 {
+                        return StatementKind::DeleteExtensionRows {
+                            schema_name: parts[0].to_string(),
+                            table_name: parts[1].to_string(),
+                        };
+                    }
+                }
+            }
+            StatementKind::Unsupported("DELETE".to_string())
         }
 
         _ => StatementKind::Unsupported(format!("{stmt}")),
@@ -326,6 +444,10 @@ fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
 
             // Check FROM table
             if let Some(from) = select.from.first() {
+                // Check for table_changes() function call in FROM
+                if let Some(kind) = classify_table_function_from(&from.relation) {
+                    return kind;
+                }
                 let table_name = extract_table_name(&from.relation);
                 if let Some(name) = table_name {
                     return classify_table_select_with_query(&name, query, select);
@@ -349,6 +471,15 @@ fn classify_no_from_select(select: &sqlparser::ast::Select) -> StatementKind {
                 "current_schema" => return StatementKind::SelectCurrentSchema,
                 "current_database" => return StatementKind::SelectCurrentDatabase,
                 "gen_random_uuid" => return StatementKind::SelectGenRandomUuid,
+                "slateduck.next_rowid_range" => {
+                    return classify_next_rowid_range_call(func);
+                }
+                "slateduck.hold_snapshot" => {
+                    return classify_hold_snapshot_call(func);
+                }
+                "slateduck.release_snapshot" => {
+                    return classify_release_snapshot_call(func);
+                }
                 _ => {}
             }
         }
@@ -385,6 +516,18 @@ fn classify_table_select_with_query(
                 .unwrap_or(s)
                 .to_string();
             StatementKind::VirtualCatalogScan { table_name }
+        }
+        // Extension schemas (e.g., pgtrickle.pgt_ducklake_provenance)
+        s if s.contains('.') && !s.starts_with("pg_catalog") && !s.starts_with("ducklake_") => {
+            let parts: Vec<&str> = s.splitn(2, '.').collect();
+            if parts.len() == 2 {
+                StatementKind::SelectExtensionTable {
+                    schema_name: parts[0].to_string(),
+                    table_name: parts[1].to_string(),
+                }
+            } else {
+                StatementKind::Unsupported(format!("SELECT from {table_name}"))
+            }
         }
         _ => StatementKind::Unsupported(format!("SELECT from {table_name}")),
     }
@@ -470,6 +613,20 @@ fn classify_insert(table_name: &ObjectName) -> StatementKind {
         "ducklake_macro_impl" => StatementKind::InsertMacroImpl,
         "ducklake_macro_parameters" => StatementKind::InsertMacroParameters,
         s if s.starts_with("ducklake_inlined_") => StatementKind::InsertInlinedRow,
+        s if s.contains('.') => {
+            // Extension schema INSERT: pgtrickle.pgt_ducklake_provenance
+            let parts: Vec<&str> = s.splitn(2, '.').collect();
+            if parts.len() == 2 {
+                StatementKind::InsertExtensionRow {
+                    schema_name: parts[0].to_string(),
+                    table_name: parts[1].to_string(),
+                    columns: Vec::new(),
+                    values_json: String::new(),
+                }
+            } else {
+                StatementKind::Unsupported(format!("INSERT INTO {name}"))
+            }
+        }
         _ => StatementKind::Unsupported(format!("INSERT INTO {name}")),
     }
 }
@@ -494,6 +651,139 @@ fn extract_table_name(factor: &TableFactor) -> Option<String> {
         TableFactor::Table { name, .. } => Some(name.to_string()),
         _ => None,
     }
+}
+
+/// Check if a FROM clause references `table_changes(...)` as a table function.
+fn classify_table_function_from(factor: &TableFactor) -> Option<StatementKind> {
+    match factor {
+        TableFactor::Table { name, args, .. } => {
+            let func_name = name.to_string().to_lowercase();
+            if func_name == "table_changes" {
+                if let Some(args) = args {
+                    return Some(parse_table_changes_args(args));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Parse args from `table_changes('schema.table', start_snapshot := N, end_snapshot := M)`.
+fn parse_table_changes_args(args: &sqlparser::ast::TableFunctionArgs) -> StatementKind {
+    let arg_list = &args.args;
+    let mut table_ref = String::new();
+    let mut start_snapshot = 0u64;
+    let mut end_snapshot = u64::MAX;
+
+    for (i, arg) in arg_list.iter().enumerate() {
+        match arg {
+            sqlparser::ast::FunctionArg::Named { name, arg, .. } => {
+                let name_str = name.to_string().to_lowercase();
+                let val = extract_arg_value(arg);
+                match name_str.as_str() {
+                    "start_snapshot" => start_snapshot = val.parse().unwrap_or(0),
+                    "end_snapshot" => end_snapshot = val.parse().unwrap_or(u64::MAX),
+                    _ => {}
+                }
+            }
+            sqlparser::ast::FunctionArg::Unnamed(arg) if i == 0 => {
+                table_ref = extract_arg_value(arg).trim_matches('\'').to_string();
+            }
+            _ => {}
+        }
+    }
+
+    StatementKind::TableChanges {
+        table_ref,
+        start_snapshot,
+        end_snapshot,
+    }
+}
+
+/// Extract a string value from a FunctionArgExpr.
+fn extract_arg_value(arg: &sqlparser::ast::FunctionArgExpr) -> String {
+    match arg {
+        sqlparser::ast::FunctionArgExpr::Expr(expr) => expr.to_string(),
+        sqlparser::ast::FunctionArgExpr::QualifiedWildcard(_) => String::new(),
+        sqlparser::ast::FunctionArgExpr::Wildcard => String::new(),
+    }
+}
+
+/// Classify `slateduck.next_rowid_range(table_ref, count := N)`.
+fn classify_next_rowid_range_call(func: &sqlparser::ast::Function) -> StatementKind {
+    let args = &func.args;
+    let mut table_ref = String::new();
+    let mut count = 1u64;
+
+    if let sqlparser::ast::FunctionArguments::List(arg_list) = args {
+        for (i, arg) in arg_list.args.iter().enumerate() {
+            match arg {
+                sqlparser::ast::FunctionArg::Named { name, arg, .. } => {
+                    let name_str = name.to_string().to_lowercase();
+                    let val = extract_arg_value(arg);
+                    if name_str == "count" {
+                        count = val.parse().unwrap_or(1);
+                    }
+                }
+                sqlparser::ast::FunctionArg::Unnamed(arg) if i == 0 => {
+                    table_ref = extract_arg_value(arg).trim_matches('\'').to_string();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    StatementKind::NextRowidRange { table_ref, count }
+}
+
+/// Classify `slateduck.hold_snapshot(min_snapshot_id := N, consumer_id := '...', ttl_seconds := N)`.
+fn classify_hold_snapshot_call(func: &sqlparser::ast::Function) -> StatementKind {
+    let args = &func.args;
+    let mut min_snapshot_id = 0u64;
+    let mut consumer_id = String::new();
+    let mut ttl_seconds = 300u64;
+
+    if let sqlparser::ast::FunctionArguments::List(arg_list) = args {
+        for arg in arg_list.args.iter() {
+            if let sqlparser::ast::FunctionArg::Named { name, arg, .. } = arg {
+                let name_str = name.to_string().to_lowercase();
+                let val = extract_arg_value(arg);
+                match name_str.as_str() {
+                    "min_snapshot_id" => min_snapshot_id = val.parse().unwrap_or(0),
+                    "consumer_id" => consumer_id = val.trim_matches('\'').to_string(),
+                    "ttl_seconds" => ttl_seconds = val.parse().unwrap_or(300),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    StatementKind::HoldSnapshot {
+        min_snapshot_id,
+        consumer_id,
+        ttl_seconds,
+    }
+}
+
+/// Classify `slateduck.release_snapshot(consumer_id := '...')`.
+fn classify_release_snapshot_call(func: &sqlparser::ast::Function) -> StatementKind {
+    let args = &func.args;
+    let mut consumer_id = String::new();
+
+    if let sqlparser::ast::FunctionArguments::List(arg_list) = args {
+        for arg in arg_list.args.iter() {
+            if let sqlparser::ast::FunctionArg::Named { name, arg, .. } = arg {
+                let name_str = name.to_string().to_lowercase();
+                let val = extract_arg_value(arg);
+                if name_str == "consumer_id" {
+                    consumer_id = val.trim_matches('\'').to_string();
+                }
+            }
+        }
+    }
+
+    StatementKind::ReleaseSnapshot { consumer_id }
 }
 
 #[cfg(test)]

@@ -4872,6 +4872,7 @@ dependencies = [
 name = "slateduck-ivm"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "object_store 0.12.5",
  "proptest",

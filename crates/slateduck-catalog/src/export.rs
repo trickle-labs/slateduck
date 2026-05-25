@@ -399,6 +399,7 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
                     file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
                     snapshot_id: req_u64!(d, "snapshot_id", tbl),
                     footer_size: d["footer_size"].as_str().map(|s| s.to_string()),
+                    encryption_key: d["encryption_key"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_data_file(table_id, data_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
@@ -524,6 +525,7 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
             file_size_bytes: 0,
             snapshot_id: 1,
             footer_size: None,
+            encryption_key: None,
         };
         let key = keys::key_data_file(table_id, file_id);
         db.put(&key, &values::encode_value(&row)).await?;

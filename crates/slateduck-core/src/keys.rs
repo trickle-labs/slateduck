@@ -497,6 +497,64 @@ pub fn prefix_matview_shards(matview_id: u64) -> Vec<u8> {
     buf
 }
 
+// ─── v0.18: Snapshot Lease Keys ────────────────────────────────────────────
+
+/// Key for a snapshot lease: `0x22 | consumer_id_hash(u64 BE)`.
+pub fn key_snapshot_lease(consumer_id: &str) -> Vec<u8> {
+    let hash = hash_string(consumer_id);
+    let mut buf = Vec::with_capacity(9);
+    buf.push(TAG_SNAPSHOT_LEASE);
+    buf.extend_from_slice(&encode_u64(hash));
+    buf
+}
+
+/// Scan prefix for all snapshot leases: `0x22`.
+pub fn prefix_snapshot_leases() -> Vec<u8> {
+    vec![TAG_SNAPSHOT_LEASE]
+}
+
+// ─── v0.18: Extension Schema Keys ─────────────────────────────────────────
+
+/// Key for an extension schema row: `0x23 | extension_id(u8) | table_name_hash(u64 BE) | row_id(u64 BE)`.
+pub fn key_extension_schema(extension_id: u8, table_name: &str, row_id: u64) -> Vec<u8> {
+    let name_hash = hash_string(table_name);
+    let mut buf = Vec::with_capacity(18);
+    buf.push(TAG_EXTENSION_SCHEMA);
+    buf.push(extension_id);
+    buf.extend_from_slice(&encode_u64(name_hash));
+    buf.extend_from_slice(&encode_u64(row_id));
+    buf
+}
+
+/// Scan prefix for all rows of a specific extension table: `0x23 | extension_id(u8) | table_name_hash(u64 BE)`.
+pub fn prefix_extension_table(extension_id: u8, table_name: &str) -> Vec<u8> {
+    let name_hash = hash_string(table_name);
+    let mut buf = Vec::with_capacity(10);
+    buf.push(TAG_EXTENSION_SCHEMA);
+    buf.push(extension_id);
+    buf.extend_from_slice(&encode_u64(name_hash));
+    buf
+}
+
+// ─── v0.18: Rowid Counter Key ──────────────────────────────────────────────
+
+/// Build a key for a per-table rowid counter: `0xFE | 0x11 | table_id(u64)`.
+pub fn key_counter_rowid(table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(10);
+    buf.push(TAG_COUNTERS);
+    buf.push(COUNTER_NEXT_ROWID_PREFIX);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
+/// Compute a deterministic hash of a string for key construction.
+fn hash_string(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Build a scan prefix for all entries of a given table tag.
 pub fn prefix_for_tag(tag: u8) -> Vec<u8> {
     vec![tag]

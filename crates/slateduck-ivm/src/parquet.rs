@@ -91,6 +91,28 @@ pub fn estimate_output_bytes(rows: &[HashMap<String, Value>]) -> usize {
         .sum()
 }
 
+/// The hidden rowid column name used in DuckLake tables.
+pub const ROWID_COLUMN: &str = "__sd_rowid";
+
+/// Inject `__sd_rowid` values into output rows, starting from `start_rowid`.
+///
+/// This stamps each row with a stable, monotonically increasing rowid allocated
+/// from the catalog's per-table counter. The rowid survives compaction and
+/// file re-registration.
+pub fn inject_rowids(rows: &mut [HashMap<String, Value>], start_rowid: u64) {
+    for (i, row) in rows.iter_mut().enumerate() {
+        row.insert(
+            ROWID_COLUMN.to_string(),
+            Value::from(start_rowid + i as u64),
+        );
+    }
+}
+
+/// Check if a row already has a `__sd_rowid` value.
+pub fn has_rowid(row: &HashMap<String, Value>) -> bool {
+    row.contains_key(ROWID_COLUMN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

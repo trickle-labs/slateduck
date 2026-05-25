@@ -310,6 +310,7 @@ impl CatalogWriter {
             file_size_bytes,
             snapshot_id,
             footer_size: None,
+            encryption_key: None,
         };
 
         let key = keys::key_data_file(table_id, data_file_id);
@@ -1284,6 +1285,35 @@ impl CatalogWriter {
         }
     }
 
+    // ─── v0.18: Rowid Range Allocation ────────────────────────────────────
+
+    /// Allocate a range of row IDs for a table.
+    ///
+    /// Returns `(start_rowid, end_rowid)` where the range is `[start, end)`.
+    /// The counter at key `0xFE | 0x11 | table_id` is atomically advanced.
+    pub async fn next_rowid_range(&self, table_id: u64, count: u64) -> CatalogResult<(u64, u64)> {
+        let key = keys::key_counter_rowid(table_id);
+        loop {
+            let tx = self.begin_tx().await?;
+            let current = match tx
+                .get(&key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                Some(data) => values::decode_counter(&data)?,
+                None => 0,
+            };
+            let start = current;
+            let end = current + count;
+            tx.put(&key, values::encode_counter(end))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            match tx.commit().await {
+                Ok(_) => return Ok((start, end)),
+                Err(_) => continue, // Retry on contention
+            }
+        }
+    }
+
     // ─── Internal Helpers ───────────────────────────────────────────────────
 
     async fn begin_tx(&self) -> CatalogResult<DbTransaction> {
@@ -1339,4 +1369,34 @@ pub fn validate_app_metadata_key(key: &str) -> CatalogResult<()> {
         }
     }
     Ok(())
+}
+
+/// Allocate a range of row IDs for a table (standalone version).
+///
+/// Returns `(start_rowid, end_rowid)` where the range is `[start, end)`.
+/// Uses serializable snapshot transactions for atomicity.
+pub async fn next_rowid_range(db: &Db, table_id: u64, count: u64) -> CatalogResult<(u64, u64)> {
+    let key = keys::key_counter_rowid(table_id);
+    loop {
+        let tx = db
+            .begin(IsolationLevel::SerializableSnapshot)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        let current = match tx
+            .get(&key)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            Some(data) => values::decode_counter(&data)?,
+            None => 0,
+        };
+        let start = current;
+        let end = current + count;
+        tx.put(&key, values::encode_counter(end))
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+        match tx.commit().await {
+            Ok(_) => return Ok((start, end)),
+            Err(_) => continue,
+        }
+    }
 }

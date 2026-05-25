@@ -67,7 +67,7 @@ binding on every roadmap release below.
 | **v0.15 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Done |
 | **v0.16 — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Done |
 | **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Done |
-| **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Planning |
+| **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Done |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2898,10 +2898,10 @@ Without this, pg-trickle falls back to O(N) polling (`EXCEPT ALL` full diff) ins
 - Register `table_changes` in the bounded SQL dispatcher function catalog.
 
 **Acceptance criteria:**
-- [ ] `table_changes()` callable from DuckDB `ATTACH 'ducklake:postgresql://slateduck-sidecar/…'`
-- [ ] pg-trickle `cdc_mode` reports `DUCKLAKE_CHANGE_FEED` when source is SlateDuck-backed DuckLake
-- [ ] Property test: apply change records from `table_changes(start, end)` to `start` state → produces `end` state (multiset equality)
-- [ ] GC error path: `table_changes()` with a `start_snapshot` that has been GC’d returns `SQLSTATE 55000`; the error is distinguishable from all other errors by SQLSTATE alone (pg-trickle uses this to trigger a graceful full-refresh fallback)
+- [x] `table_changes()` callable from DuckDB `ATTACH 'ducklake:postgresql://slateduck-sidecar/…'`
+- [x] pg-trickle `cdc_mode` reports `DUCKLAKE_CHANGE_FEED` when source is SlateDuck-backed DuckLake
+- [x] Property test: apply change records from `table_changes(start, end)` to `start` state → produces `end` state (multiset equality)
+- [x] GC error path: `table_changes()` with a `start_snapshot` that has been GC’d returns `SQLSTATE 55000`; the error is distinguishable from all other errors by SQLSTATE alone (pg-trickle uses this to trigger a graceful full-refresh fallback)
 
 ### Gap 2 — Stable `rowid` on DuckLake Tables
 
@@ -2918,10 +2918,10 @@ Every SlateDuck-managed DuckLake table must expose a stable `rowid` column that 
 - Document the stability guarantee in `docs/concepts/ducklake.md`.
 
 **Acceptance criteria:**
-- [ ] `rowid` appears in `table_changes()` output
-- [ ] `rowid` is stable across compaction, GC, and file splits (test with `slateduck compact` between two change windows)
-- [ ] EC-01 test case: delete row from both source and joined table in same refresh window; pg-trickle stream table matches full recompute
-- [ ] Concurrent write test: two writers call `next_rowid_range` concurrently for the same table 1000 times each; assert all allocated ranges are pairwise disjoint (no rowid collision)
+- [x] `rowid` appears in `table_changes()` output
+- [x] `rowid` is stable across compaction, GC, and file splits (test with `slateduck compact` between two change windows)
+- [x] EC-01 test case: delete row from both source and joined table in same refresh window; pg-trickle stream table matches full recompute
+- [x] Concurrent write test: two writers call `next_rowid_range` concurrently for the same table 1000 times each; assert all allocated ranges are pairwise disjoint (no rowid collision)
 
 ### Gap 3 — Snapshot Lease / Hold Mechanism
 
@@ -2935,10 +2935,10 @@ GC must not advance past a snapshot ID that an external consumer (pg-trickle) ha
 - TTL prevents leaked leases from indefinitely blocking GC after ungraceful pg-trickle shutdown.
 
 **Acceptance criteria:**
-- [ ] GC blocked at leased snapshot; advances once lease released
-- [ ] TTL expiry allows GC to advance after consumer disappears
-- [ ] Concurrent consumers: two consumers hold leases on the same snapshot; GC is blocked until both release; advances correctly afterward; tested with one clean release and one TTL expiry
-- [ ] `slateduck.hold_snapshot()` / `slateduck.release_snapshot()` callable via PG-wire from pg-trickle
+- [x] GC blocked at leased snapshot; advances once lease released
+- [x] TTL expiry allows GC to advance after consumer disappears
+- [x] Concurrent consumers: two consumers hold leases on the same snapshot; GC is blocked until both release; advances correctly afterward; tested with one clean release and one TTL expiry
+- [x] `slateduck.hold_snapshot()` / `slateduck.release_snapshot()` callable via PG-wire from pg-trickle
 
 ### Gap 4 — `NOTIFY` on Snapshot Advance
 
@@ -2950,9 +2950,9 @@ pg-trickle's event-driven scheduler wakes up immediately when a `NOTIFY pgt_sour
 - Clean up subscriptions on connection close.
 
 **Acceptance criteria:**
-- [ ] `LISTEN`/`NOTIFY`/`UNLISTEN` round-trip via PG-wire
-- [ ] pg-trickle `scheduler` uses event-driven mode (not polling) when connected to SlateDuck
-- [ ] Latency test: snapshot advance → pg-trickle refresh start ≤ 50 ms end-to-end
+- [x] `LISTEN`/`NOTIFY`/`UNLISTEN` round-trip via PG-wire
+- [x] pg-trickle `scheduler` uses event-driven mode (not polling) when connected to SlateDuck
+- [x] Latency test: snapshot advance → pg-trickle refresh start ≤ 50 ms end-to-end
 
 ### Gap 5 — Extension Schema Tables (`pgtrickle.*`)
 
@@ -2960,25 +2960,25 @@ pg-trickle issues `CREATE TABLE IF NOT EXISTS pgtrickle.pgt_ducklake_provenance 
 
 **Implementation decision: first-class catalog objects (tag `0x23`).** The SQLite-sidecar alternative was rejected because it creates a second durability domain (sidecar can desync from catalog on crash), complicates backup/restore, and is not queryable via the standard PG-wire path without a second code path. First-class objects are more work upfront but architecturally sound.
 
-- [ ] Reserved extension-metadata key range: tag `0x23` with sub-tags per extension schema (e.g., `0x23 | 0x01` for `pgtrickle`)
-- [ ] `CREATE TABLE IF NOT EXISTS <extension_schema>.<table>` DDL handled in `slateduck-sql` bounded dispatcher for registered extension schemas
-- [ ] `INSERT`, `SELECT`, `DELETE` against extension schema tables routed through normal catalog read/write paths
-- [ ] Extension schema registration: `slateduck-pgwire --extension-schemas pgtrickle` CLI flag; unknown schemas still return `0A000`
-- [ ] Extension table schema is fixed at creation; `ALTER TABLE` on extension tables returns `0A000` (pg-trickle doesn't need it)
+- [x] Reserved extension-metadata key range: tag `0x23` with sub-tags per extension schema (e.g., `0x23 | 0x01` for `pgtrickle`)
+- [x] `CREATE TABLE IF NOT EXISTS <extension_schema>.<table>` DDL handled in `slateduck-sql` bounded dispatcher for registered extension schemas
+- [x] `INSERT`, `SELECT`, `DELETE` against extension schema tables routed through normal catalog read/write paths
+- [x] Extension schema registration: `slateduck-pgwire --extension-schemas pgtrickle` CLI flag; unknown schemas still return `0A000`
+- [x] Extension table schema is fixed at creation; `ALTER TABLE` on extension tables returns `0A000` (pg-trickle doesn't need it)
 
 **Acceptance criteria:**
-- [ ] pg-trickle installs without errors against SlateDuck
-- [ ] `INSERT INTO pgtrickle.pgt_ducklake_provenance` succeeds
-- [ ] `SELECT * FROM pgtrickle.pgt_ducklake_provenance` returns inserted rows
+- [x] pg-trickle installs without errors against SlateDuck
+- [x] `INSERT INTO pgtrickle.pgt_ducklake_provenance` succeeds
+- [x] `SELECT * FROM pgtrickle.pgt_ducklake_provenance` returns inserted rows
 
 ### Gap 6 — Encryption Key Pass-Through
 
 When DuckLake per-file Parquet encryption is enabled, `INSERT INTO ducklake_data_file` includes an `encryption_key` column. Audit and validate that SlateDuck stores and returns this column without mangling it.
 
 **Acceptance criteria:**
-- [ ] `encryption_key` column present in `ducklake_data_file` schema
-- [ ] Round-trip test: insert file with `encryption_key = '\xDEADBEEF…'`, select it back, bytes identical
-- [ ] pg-trickle fixture corpus includes an encryption-key-bearing INSERT
+- [x] `encryption_key` column present in `ducklake_data_file` schema
+- [x] Round-trip test: insert file with `encryption_key = '\xDEADBEEF…'`, select it back, bytes identical
+- [x] pg-trickle fixture corpus includes an encryption-key-bearing INSERT
 
 ### Gap 7 — Mixed Frontier (DuckLake Snapshot + WAL LSN)
 
@@ -2993,9 +2993,9 @@ For stream tables that read from both SlateDuck-backed DuckLake tables and Postg
 - pg-trickle is responsible for interpreting its own opaque frontier values; SlateDuck guarantees durability and atomic read/write only.
 
 **Acceptance criteria:**
-- [ ] View definition mixing DuckLake source + opaque PG frontier stores and retrieves correctly
-- [ ] Frontier serialized as JSON, visible in `pgt_stream_tables.frontier`; opaque values base64-encoded
-- [ ] Round-trip test: store arbitrary bytes as opaque frontier, read back, bytes identical
+- [x] View definition mixing DuckLake source + opaque PG frontier stores and retrieves correctly
+- [x] Frontier serialized as JSON, visible in `pgt_stream_tables.frontier`; opaque values base64-encoded
+- [x] Round-trip test: store arbitrary bytes as opaque frontier, read back, bytes identical
 
 ### pg-trickle Compatibility Test Suite
 
@@ -3013,29 +3013,29 @@ A dedicated test crate (or test module in `slateduck-testkit`) that validates th
 
 All of the following must be green before v0.18 is tagged:
 
-- [ ] pg-trickle connects to SlateDuck PG-wire sidecar with zero configuration changes vs. a standard PostgreSQL catalog
-- [ ] `CdcMode::DUCKLAKE_CHANGE_FEED` activates automatically when source table is SlateDuck-backed DuckLake
-- [ ] `table_changes()` passes the Tier-B property test suite
-- [ ] pg-trickle sink (`sink => 'ducklake'`) writes Parquet and commits DuckLake snapshots through SlateDuck
-- [ ] Provenance table (`pgtrickle.pgt_ducklake_provenance`) readable from pg-trickle
-- [ ] Snapshot lease prevents GC from breaking pg-trickle's frontier
-- [ ] `LISTEN`/`NOTIFY` round-trip enables event-driven scheduling
-- [ ] Encryption key pass-through validated
-- [ ] Tier A + B + D tests green in CI; Tier C green in pre-release gate
-- [ ] `docs/operations/pgtrickle-compatibility.md` published
+- [x] pg-trickle connects to SlateDuck PG-wire sidecar with zero configuration changes vs. a standard PostgreSQL catalog
+- [x] `CdcMode::DUCKLAKE_CHANGE_FEED` activates automatically when source table is SlateDuck-backed DuckLake
+- [x] `table_changes()` passes the Tier-B property test suite
+- [x] pg-trickle sink (`sink => 'ducklake'`) writes Parquet and commits DuckLake snapshots through SlateDuck
+- [x] Provenance table (`pgtrickle.pgt_ducklake_provenance`) readable from pg-trickle
+- [x] Snapshot lease prevents GC from breaking pg-trickle's frontier
+- [x] `LISTEN`/`NOTIFY` round-trip enables event-driven scheduling
+- [x] Encryption key pass-through validated
+- [x] Tier A + B + D tests green in CI; Tier C green in pre-release gate
+- [x] `docs/operations/pgtrickle-compatibility.md` published
 
 ### Deliverables
 
-- [ ] `table_changes()` SQL function in `crates/slateduck-sql/src/`
-- [ ] Stable `rowid` implementation in `crates/slateduck-catalog/src/writer.rs` and `crates/slateduck-ivm/src/parquet.rs`
-- [ ] Snapshot lease catalog tag `0x22` + `slateduck.hold_snapshot()` / `release_snapshot()` SQL API
-- [ ] `LISTEN`/`NOTIFY`/`UNLISTEN` in `crates/slateduck-pgwire/src/`
-- [ ] Extension schema first-class catalog objects (tag `0x23`) with `CREATE TABLE IF NOT EXISTS` / `INSERT` / `SELECT` / `DELETE` support
-- [ ] Encryption key column audit + fixture
-- [ ] Mixed frontier support in `crates/slateduck-ivm/src/state_store.rs` and `plan.rs` (opaque frontier for non-DuckLake sources)
-- [ ] Compatibility test suite: `tests/compat/pgtrickle_*.rs`
-- [ ] `docs/operations/pgtrickle-compatibility.md`
-- [ ] DuckLake Spec Upgrade Policy updated to include pg-trickle `CHANGELOG.md` in review process
+- [x] `table_changes()` SQL function in `crates/slateduck-sql/src/`
+- [x] Stable `rowid` implementation in `crates/slateduck-catalog/src/writer.rs` and `crates/slateduck-ivm/src/parquet.rs`
+- [x] Snapshot lease catalog tag `0x22` + `slateduck.hold_snapshot()` / `release_snapshot()` SQL API
+- [x] `LISTEN`/`NOTIFY`/`UNLISTEN` in `crates/slateduck-pgwire/src/`
+- [x] Extension schema first-class catalog objects (tag `0x23`) with `CREATE TABLE IF NOT EXISTS` / `INSERT` / `SELECT` / `DELETE` support
+- [x] Encryption key column audit + fixture
+- [x] Mixed frontier support in `crates/slateduck-ivm/src/state_store.rs` and `plan.rs` (opaque frontier for non-DuckLake sources)
+- [x] Compatibility test suite: `tests/compat/pgtrickle_*.rs`
+- [x] `docs/operations/pgtrickle-compatibility.md`
+- [x] DuckLake Spec Upgrade Policy updated to include pg-trickle `CHANGELOG.md` in review process
 
 ---
 

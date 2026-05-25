@@ -103,7 +103,16 @@ pub const TAG_MATVIEW_CHECKPOINT: u8 = 0x1F;
 /// Key: `0x20 | matview_id(u64 BE) | shard_id(u32 BE)`
 pub const TAG_MATVIEW_SHARD: u8 = 0x20;
 
-// Tags 0x21–0x2F reserved for future IVM-related tables.
+/// v0.18: Snapshot lease. MutableSingleton per consumer_id.
+/// Key: `0x22 | consumer_id_hash(u64 BE)`
+/// Value: `{consumer_id, min_snapshot_id, expires_at_unix_ms}`
+pub const TAG_SNAPSHOT_LEASE: u8 = 0x22;
+
+/// v0.18: Extension schema metadata. Versioned.
+/// Key: `0x23 | extension_id(u8) | table_name_hash(u64 BE) | row_id(u64 BE)`
+pub const TAG_EXTENSION_SCHEMA: u8 = 0x23;
+
+// Tags 0x24–0x2F reserved for future IVM-related tables.
 
 // ─── SlateDuck Internal Tags ───────────────────────────────────────────────
 
@@ -130,6 +139,9 @@ pub const COUNTER_NEXT_CATALOG_ID: u8 = 0x02;
 pub const COUNTER_NEXT_FILE_ID: u8 = 0x03;
 /// Per-table column ID counter: `0xFE | 0x10 | table_id(u64 BE)`.
 pub const COUNTER_NEXT_COLUMN_ID_PREFIX: u8 = 0x10;
+
+/// Per-table rowid counter: `0xFE | 0x11 | table_id(u64 BE)`.
+pub const COUNTER_NEXT_ROWID_PREFIX: u8 = 0x11;
 
 // ─── System Key Suffixes ───────────────────────────────────────────────────
 

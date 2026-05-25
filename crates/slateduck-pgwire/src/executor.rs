@@ -484,6 +484,46 @@ async fn execute_classified<'a>(
             "IVM DDL is processed by the slateduck-ivm worker, not the pg-wire layer".into(),
         )),
 
+        // ─── v0.18: DuckLake Standard Interface ────────────────────────────
+        StatementKind::TableChanges {
+            ref table_ref,
+            start_snapshot,
+            end_snapshot,
+        } => execute_table_changes(table_ref, start_snapshot, end_snapshot, store).await,
+        StatementKind::NextRowidRange {
+            ref table_ref,
+            count,
+        } => execute_next_rowid_range(table_ref, count, store).await,
+        StatementKind::HoldSnapshot {
+            min_snapshot_id,
+            ref consumer_id,
+            ttl_seconds,
+        } => execute_hold_snapshot(min_snapshot_id, consumer_id, ttl_seconds, store).await,
+        StatementKind::ReleaseSnapshot { ref consumer_id } => {
+            execute_release_snapshot(consumer_id, store).await
+        }
+        StatementKind::Listen { channel: _ } => Ok(vec![Response::Execution(Tag::new("LISTEN"))]),
+        StatementKind::Unlisten { channel: _ } => {
+            Ok(vec![Response::Execution(Tag::new("UNLISTEN"))])
+        }
+        StatementKind::CreateExtensionTable {
+            ref schema_name,
+            ref table_name,
+        } => execute_create_extension_table(schema_name, table_name, store).await,
+        StatementKind::InsertExtensionRow {
+            ref schema_name,
+            ref table_name,
+            ..
+        } => execute_insert_extension_row(schema_name, table_name, params, store).await,
+        StatementKind::SelectExtensionTable {
+            ref schema_name,
+            ref table_name,
+        } => execute_select_extension_table(schema_name, table_name, store).await,
+        StatementKind::DeleteExtensionRows {
+            ref schema_name,
+            ref table_name,
+        } => execute_delete_extension_rows(schema_name, table_name, store).await,
+
         StatementKind::Unsupported(ref desc) => Err(SlateDuckError::Unsupported(desc.clone())),
     }
 }
@@ -1311,4 +1351,279 @@ fn make_file_ids_response(file_ids: Vec<u64>) -> Response<'static> {
     let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
     resp.set_command_tag(&format!("SELECT {count}"));
     Response::Query(resp)
+}
+
+// ─── v0.18: DuckLake Standard Interface Executors ──────────────────────────
+
+async fn execute_table_changes<'a>(
+    table_ref: &str,
+    start_snapshot: u64,
+    end_snapshot: u64,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let store_lock = store.lock().await;
+
+    // Check GC boundary
+    let retain_from = slateduck_catalog::gc::read_retain_from(store_lock.db())
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    if start_snapshot < retain_from && retain_from > 0 {
+        return Err(SlateDuckError::SqlState {
+            code: "55000".to_string(),
+            message: format!(
+                "snapshot {} has been garbage collected (retain_from={})",
+                start_snapshot, retain_from
+            ),
+        });
+    }
+
+    // Compute diff using SnapshotDiff
+    let from_reader = store_lock
+        .read_at(slateduck_core::mvcc::SnapshotId::new(start_snapshot))
+        .map_err(SlateDuckError::from)?;
+
+    let diff = from_reader
+        .snapshot_diff(
+            slateduck_core::mvcc::SnapshotId::new(start_snapshot),
+            slateduck_core::mvcc::SnapshotId::new(end_snapshot),
+        )
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    // Build response with change records
+    let schema = Arc::new(vec![
+        FieldInfo::new("rowid".into(), None, None, Type::INT8, FieldFormat::Text),
+        FieldInfo::new(
+            "change_type".into(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "table_ref".into(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+    ]);
+
+    let mut data_rows = Vec::new();
+
+    // Added data files → INSERT records
+    for _file in &diff.added_data_files {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder
+            .encode_field_with_type_and_format(
+                &Some("0".to_string()),
+                &Type::INT8,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some("insert".to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(table_ref.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        data_rows.push(encoder.finish());
+    }
+
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Ok(vec![Response::Query(resp)])
+}
+
+async fn execute_next_rowid_range<'a>(
+    table_ref: &str,
+    count: u64,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let store_lock = store.lock().await;
+    let table_id = hash_table_ref(table_ref);
+
+    let db = store_lock.db();
+    let (start, end) = slateduck_catalog::next_rowid_range(db, table_id, count)
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    let schema = Arc::new(vec![
+        FieldInfo::new(
+            "start_rowid".into(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "end_rowid".into(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+    ]);
+    let mut encoder = DataRowEncoder::new(schema.clone());
+    encoder
+        .encode_field_with_type_and_format(&Some(start.to_string()), &Type::INT8, FieldFormat::Text)
+        .unwrap();
+    encoder
+        .encode_field_with_type_and_format(&Some(end.to_string()), &Type::INT8, FieldFormat::Text)
+        .unwrap();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![encoder.finish()]));
+    resp.set_command_tag("SELECT 1");
+    Ok(vec![Response::Query(resp)])
+}
+
+async fn execute_hold_snapshot<'a>(
+    min_snapshot_id: u64,
+    consumer_id: &str,
+    ttl_seconds: u64,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+    slateduck_catalog::hold_snapshot(db, consumer_id, min_snapshot_id, ttl_seconds)
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    Ok(vec![make_single_text_response("hold_snapshot", "OK")])
+}
+
+async fn execute_release_snapshot<'a>(
+    consumer_id: &str,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+    let released = slateduck_catalog::release_snapshot(db, consumer_id)
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    Ok(vec![make_single_text_response(
+        "release_snapshot",
+        if released { "OK" } else { "NOT_FOUND" },
+    )])
+}
+
+async fn execute_create_extension_table<'a>(
+    schema_name: &str,
+    table_name: &str,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
+        SlateDuckError::Unsupported(format!(
+            "extension schema '{schema_name}' is not registered"
+        ))
+    })?;
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+    slateduck_catalog::create_extension_table(db, extension_id, table_name)
+        .await
+        .map_err(SlateDuckError::from)?;
+    Ok(vec![Response::Execution(Tag::new("CREATE TABLE"))])
+}
+
+async fn execute_insert_extension_row<'a>(
+    schema_name: &str,
+    table_name: &str,
+    params: &ParamValues,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
+        SlateDuckError::Unsupported(format!(
+            "extension schema '{schema_name}' is not registered"
+        ))
+    })?;
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+
+    let data_json = params.to_json_string();
+    slateduck_catalog::insert_extension_row(db, extension_id, table_name, &data_json)
+        .await
+        .map_err(SlateDuckError::from)?;
+    Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
+}
+
+async fn execute_select_extension_table<'a>(
+    schema_name: &str,
+    table_name: &str,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
+        SlateDuckError::Unsupported(format!(
+            "extension schema '{schema_name}' is not registered"
+        ))
+    })?;
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+    let rows = slateduck_catalog::select_extension_rows(db, extension_id, table_name)
+        .await
+        .map_err(SlateDuckError::from)?;
+
+    let schema = Arc::new(vec![
+        FieldInfo::new("row_id".into(), None, None, Type::INT8, FieldFormat::Text),
+        FieldInfo::new("data".into(), None, None, Type::TEXT, FieldFormat::Text),
+    ]);
+    let mut data_rows = Vec::new();
+    for row in &rows {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(row.row_id.to_string()),
+                &Type::INT8,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(row.data_json.clone()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        data_rows.push(encoder.finish());
+    }
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Ok(vec![Response::Query(resp)])
+}
+
+async fn execute_delete_extension_rows<'a>(
+    schema_name: &str,
+    table_name: &str,
+    store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
+        SlateDuckError::Unsupported(format!(
+            "extension schema '{schema_name}' is not registered"
+        ))
+    })?;
+    let store_lock = store.lock().await;
+    let db = store_lock.db();
+    let deleted = slateduck_catalog::delete_extension_rows(db, extension_id, table_name)
+        .await
+        .map_err(SlateDuckError::from)?;
+    Ok(vec![Response::Execution(Tag::new(&format!(
+        "DELETE {deleted}"
+    )))])
+}
+
+fn hash_table_ref(table_ref: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    table_ref.hash(&mut hasher);
+    hasher.finish()
 }

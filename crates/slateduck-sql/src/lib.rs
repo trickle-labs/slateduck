@@ -9,7 +9,9 @@
 pub mod classifier;
 pub mod error;
 pub mod params;
+pub mod table_changes;
 
 pub use classifier::{classify_statement, StatementKind};
 pub use error::SqlDispatchError;
 pub use params::ParamValues;
+pub use table_changes::{ChangeRecord, ChangeType, TableChangesError, TableChangesResult};
