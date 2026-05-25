@@ -63,7 +63,8 @@ binding on every roadmap release below.
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Done |
-| **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak | Planning |
+| **v0.13.1 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification with auxiliary columns, volatility validation, property-based "differential ≡ full" oracle | Planning |
+| **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak, multi-view DAG | Planning |
 | **v0.15 — IVM Feature Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries, recursive CTEs, non-det capture, WASM UDFs | Planning |
 | **v0.16 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, mixed frontiers, extension schema support | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
@@ -2077,6 +2078,80 @@ When neither broadcast nor co-partitioning applies, one side is re-partitioned a
 
 ---
 
+## v0.13.1 — IVM Join Correctness
+
+> Follow-up patch release: fixes the EC-01 phantom-row bug in join deltas, formalises aggregate tier classification with auxiliary columns, adds function-volatility validation at view-creation time, and ships the property-based "differential ≡ full" test oracle that all future IVM correctness tests depend on. See [plans/pg-trickle.md](plans/pg-trickle.md) §4, §6, §9, §11.
+
+### EC-01 Phantom-Row Fix in Joins
+
+The v0.13 bilinear join expansion uses the post-change snapshot for both the insert and delete branches. When a row is deleted from the right side *in the same refresh window* as a deletion on the left side, the match is lost and the stale joined row survives in the materialized view indefinitely.
+
+**Fix:** split Part 1 of the join delta into insert- and delete-asymmetric branches:
+- **Part 1a:** `ΔR_insert ⋈ S_post` — new positive contributions
+- **Part 1b:** `ΔR_delete ⋈ S_pre` — negatives must use the *pre-change* snapshot of S
+- **Part 2:** `R_post ⋈ ΔS` — symmetric handling of ΔS
+- **Part 3:** `−(ΔR ⋈ ΔS)` — correction term; subtracts double-counted intersections
+
+`S_pre` reconstructed as `S_post EXCEPT ALL ΔS_insert UNION ALL ΔS_delete`; cached as an L₀ CTE to avoid repeated EXCEPT ALL per join per refresh.
+
+- [ ] Enumerate `(ΔL_ins, ΔL_del, ΔR_ins, ΔR_del)` cases explicitly in `crates/slateduck-ivm/src/join.rs`
+- [ ] Reconstruct and cache `S_pre` (L₀ CTE) for the delete branch in each join operator
+- [ ] Add Part-3 correction term
+- [ ] Regression test: delete matching rows from both sides of a join in the same refresh window; output must match `DuckDbHarness` full recompute
+
+### Aggregate Tier Classification
+
+Annotate every `AggregateKind` variant with one of three tiers and wire up the corresponding auxiliary state in `IvmTrace`. Without this, AVG/STDDEV drift on large update workloads and MIN/MAX correctness breaks on deletes.
+
+| Tier | Aggregates | Auxiliary state | Δ computation |
+|------|-----------|-----------------|---------------|
+| **Algebraic** | COUNT, SUM, AVG, STDDEV, VAR, CORR, REGR_*, BOOL_AND/OR, BIT_AND/OR/XOR | `sum_arg`, `count_arg`, `M2`, `nonnull_count` | Fully invertible; no source rescan needed |
+| **Semi-algebraic** | MIN, MAX | Current extremum | LEAST/GREATEST on insert; rescan group on delete of current extremum |
+| **Group-rescan** | STRING_AGG, ARRAY_AGG, JSON_AGG, MODE, PERCENTILE_* | Current value only | Re-aggregate entire affected group on each delta |
+
+- [ ] `AggregateKind` variants in `plan.rs` carry a `tier: AggregateTier` annotation
+- [ ] Algebraic aggregates persist auxiliary columns in `IvmTrace`: `sum_arg` + `count_arg` for AVG; `M2` / `sum` / `count` for STDDEV
+- [ ] AVG delta: `new_result = (old_sum_arg ± Δsum) / (old_count_arg ± Δcount)`; no floating-point drift, fully invertible
+- [ ] Semi-algebraic MIN/MAX: on delete of current extremum, issue a group-rescan from source; otherwise merge with LEAST/GREATEST
+- [ ] Group-rescan path implemented in `trace.rs`: re-reads all rows for affected group keys from the input source
+- [ ] Group-rescan aggregates accepted but documented as higher-latency; clear error if input source is unavailable for rescan
+
+### Volatility Validation (Correctness Gate)
+
+DuckDB functions fall into `IMMUTABLE`, `STABLE`, and `VOLATILE` categories. Without this gate, views using `random()` or `clock_timestamp()` produce silently wrong incremental results.
+
+- [ ] Walk the view SQL expression tree at `IvmPlan::compile`; look up each function's volatility from DuckDB's catalog
+- [ ] VOLATILE functions: return `SQLSTATE 0A000` at view creation with a message naming the offending function
+- [ ] STABLE functions (`now()`, `current_timestamp`): emit `WARN`-level log; accept but recommend capture-semantics path (v0.15)
+- [ ] IMMUTABLE: always accepted silently
+
+### Property-Based "Differential ≡ Full" Oracle
+
+The foundational correctness harness that all future IVM tests depend on: after each DML mutation, compare the IVM worker's output multiset to a DuckDB single-shot reference execution of the same view SQL.
+
+- [ ] `slateduck-testkit` gains an `IvmOracle` helper: given view SQL + DML sequence → run IVM worker → compare output to `DuckDbHarness` reference via multiset equality
+- [ ] `proptest` strategies for random `INSERT` / `UPDATE` / `DELETE` sequences with realistic key distributions; includes phantom-delete edge cases (both-sides delete in same refresh window)
+- [ ] TPC-H Q1 end-to-end correctness test: 1 000 random input snapshots, zero correctness drift, exercises aggregate auxiliary columns and EC-01 join fix simultaneously
+
+### Acceptance Criteria
+
+- [ ] EC-01 regression test passes: concurrent same-window delete from both join sides produces correct output matching DuckDB full recompute
+- [ ] AVG over 1M rows with 100k updates shows zero floating-point drift vs. DuckDB reference
+- [ ] `VOLATILE` function at view creation returns `SQLSTATE 0A000`
+- [ ] Property-based oracle passes 1 000 random DML sequences against TPC-H Q1
+
+### Deliverables
+
+- [ ] `join.rs` EC-01 Part 1a/1b/2/3 split with L₀ CTE caching
+- [ ] `plan.rs` `AggregateTier` enum and per-`AggregateKind` tier annotation
+- [ ] `trace.rs` auxiliary column storage for algebraic aggregates (AVG/STDDEV)
+- [ ] `trace.rs` group-rescan path for semi-algebraic and group-rescan tier aggregates
+- [ ] `plan.rs` `IvmPlan::compile` volatility gate (VOLATILE reject / STABLE warn)
+- [ ] `slateduck-testkit` `IvmOracle` helper + `proptest` DML strategies
+- [ ] TPC-H Q1 property-based correctness test green in CI
+
+---
+
 ## v0.14 — IVM Operational Hardening
 
 > Production-ready IVM. Cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.14 the IVM track is folded into the v1.0 GA story.
@@ -2195,6 +2270,18 @@ IVM can generate real S3 API costs at scale. Users need visibility and protectio
 - [ ] **Tier 10 — Benchmark regression CI** (weekly scheduled job): extended `catalog_bench.rs` with 5 new benchmarks; `scripts/check_benchmark_regression.py` compares against `benchmarks/phase-2-baseline.json`; job fails if any metric regresses > 10%
 - [ ] All Tier 7 tests are pre-release gate (run on tag push, not every PR)
 - [ ] All Tier 9 security tests run on the standard large runner (MinIO covers credential isolation; no real AWS required)
+
+### Multi-View DAG and Frontier Coordination
+
+Foundation for views that read from other materialized views (`CREATE INCREMENTAL MATERIALIZED VIEW b AS SELECT … FROM a` where `a` is itself a materialized view). Without topological ordering and diamond detection, convergent views compute deltas against inconsistent intermediate state. See [plans/pg-trickle.md](plans/pg-trickle.md) §5.
+
+- [ ] New `crates/slateduck-ivm/src/dag.rs`: Kahn's topological sort (O(V+E)) over the view dependency graph; guarantees upstream views are fully refreshed before any downstream consumer reads their delta
+- [ ] Diamond detection: during topo-sort, track the set of ancestor root nodes per node; a node reachable from the same root via two or more paths is a diamond apex; O(V+E)
+- [ ] Persist view dependency edges in `slateduck-catalog` (tag in existing matview key range; see `plans/blueprint.md` §9.1)
+- [ ] Frontier vector clocks in `state_store.rs`: `BTreeMap<SourceId, Sequence>` per view per shard, persisted durably; worker reads on (re)start and skips CDC events with `seq ≤ frontier[source]`
+- [ ] Diamond `Slowest` consistency policy: a convergence view (diamond apex D) refreshes only when **all** upstream views have advertised `frontier ≥ F` via their state stores; purely frontier-driven, no SAVEPOINT or advisory lock needed
+- [ ] `EXPLAIN MATERIALIZED VIEW v` extended to show dependency graph, detected diamonds, and current frontier per source
+- [ ] Unit test: diamond topology (A→B, A→C, B→D, C→D); assert D never refreshes with mismatched B/C frontiers
 
 ### Acceptance Criteria
 
@@ -2328,6 +2415,52 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] Tested with a custom tokenizer UDF over event strings maintained incrementally
 - [ ] `docs/reference/udfs.md`: authoring guide, WASM compilation instructions (Rust → wasm32-unknown-unknown), determinism contract, version migration
 
+### Incremental Delta Optimizations
+
+A set of targeted optimizations derived from pg-trickle's production experience (see [plans/pg-trickle.md](plans/pg-trickle.md) §7–§8). Each is a self-contained PR and can be landed independently.
+
+**Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput.
+
+- [ ] `CostMode::Adaptive` variant in `config.rs`
+- [ ] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
+- [ ] Query complexity multiplier table: `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
+- [ ] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
+
+**Change-buffer compaction.** Consecutive INSERT/DELETE pairs on the same `row_id` cancel out; applying this before writing to the trace cuts buffer size 50–90% on high-update workloads.
+
+- [ ] In `source.rs`: coalesce delta batches before landing in `IvmTrace`; cancel `(INSERT row_id=X) + (DELETE row_id=X)` pairs within the same batch
+- [ ] Expose compaction ratio (`pairs_cancelled / total_events`) per refresh cycle in metrics
+
+**Predicate pushdown into delta scan.** When a `Filter` sits directly above a `Scan`, push the WHERE predicate into the CDC fetch so unfiltered delta rows are never materialised.
+
+- [ ] In `plan.rs`: detect `Filter(Scan(R))` pattern; pass predicate as parameter to the CDC source read
+- [ ] For UPDATE rows: apply predicate to both `old_` and `new_` column values
+- [ ] Correctness test: view with selective WHERE; confirm delta bytes read ∝ matching rows, not total delta size
+
+**Semi-join key pre-filter.** For `delta_orders ⋈ customers`, project `DISTINCT join_key` from the delta side first and use it as the probe set; turns a full probe-side scan into an indexed lookup.
+
+- [ ] In `join.rs`: when probe side is a full-table scan and build side is a delta, inject a `DISTINCT join_key` pre-filter on the probe side before `hash_join_batch`
+- [ ] Benchmark: join throughput with and without pre-filter on TPC-H Q3 at varying delta sizes
+
+**Append-only fast path.** For INSERT-only views, skip the negative-multiplicity path entirely (~30% throughput gain).
+
+- [ ] Detect INSERT-only workload automatically (no DELETE or UPDATE events in last N batches; N configurable)
+- [ ] Skip negative-multiplicity accumulation in `IvmTrace`; use plain INSERT accumulation
+- [ ] Automatically revert to full bidirectional mode on first DELETE or UPDATE event
+
+**Auto sort-by on join and group-by keys.** Layout Parquet output files sorted by GROUP BY and equi-join keys so downstream DuckDB scans can use sorted-file skip-scan.
+
+- [ ] `parquet.rs::CompactionPolicy`: add `sort_keys: Vec<ColumnName>` field
+- [ ] At view creation, auto-populate `sort_keys` from the SQL plan's GROUP BY and equi-join key columns
+- [ ] Write output Parquet with `sorting_columns` metadata
+
+**Reference-counted DISTINCT and set operators.** The current DISTINCT implementation does not track duplicate counts, producing incorrect output when the same row is inserted multiple times and then partially deleted.
+
+- [ ] Add `__sd_ref_count: i64` auxiliary column to `IvmTrace` for views containing `DISTINCT` or `UNION DISTINCT` / `INTERSECT` / `EXCEPT`
+- [ ] INSERT increments `__sd_ref_count`; DELETE decrements; row visible in output only when `__sd_ref_count > 0`
+- [ ] `UNION DISTINCT`: union of ref counts; `INTERSECT`: minimum of counts; `EXCEPT`: subtraction of counts
+- [ ] Correctness test: insert same row 3×, delete 2×; confirm exactly one output row
+
 ### Extended Operator Support Matrix
 
 | Operator | v0.11 | v0.12 | v0.13 | v0.14 | v0.15 |
@@ -2370,6 +2503,11 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] **Tier 8 soak test passes**: 24 h with zero correctness drift and fault injection recovery within SLO on every pre-release run
 - [ ] **Tier 8 TPC-H p99 within targets**: SF10 < 50 ms catalog, SF100 < 100 ms catalog; IVM lag p99 < 5 s at 8 shards
 - [ ] **16-shard scale benchmark**: aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
+- [ ] `CostMode::Adaptive` correctly switches DIFFERENTIAL→FULL when `Δ_rows/N_rows × complexity > 0.5`; verified on TPC-H Q1 with synthetic 60%-delta batches
+- [ ] Change-buffer compaction reduces CDC event count by ≥ 50% on a 100%-update synthetic workload
+- [ ] Predicate-pushdown confirmed: CDC bytes read proportional to WHERE-matching rows, not total delta size
+- [ ] Append-only fast path shows ≥ 25% throughput improvement on a pure-INSERT TPC-H Q1 variant
+- [ ] DISTINCT reference counting correct: insert-3×-delete-2× produces exactly one output row
 - [ ] All 10 test tiers green (Tiers 1–7 and 9–10 from prior phases; Tier 8 from this phase)
 
 ### Deliverables
@@ -2387,6 +2525,12 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] `benchmarks/v0.15-ivm-feature-complete.json` published
 - [ ] `docs/reference/udfs.md` authoring guide
 - [ ] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage
+- [ ] `CostMode::Adaptive` with per-view rolling cost statistics in `config.rs` and `worker.rs`
+- [ ] Change-buffer compaction in `source.rs`
+- [ ] Predicate pushdown and semi-join key pre-filter in `plan.rs` and `join.rs`
+- [ ] Append-only fast path detection in `IvmTrace`
+- [ ] `parquet.rs::CompactionPolicy` `sort_keys` auto-population from SQL plan GROUP BY / join keys
+- [ ] `__sd_ref_count` auxiliary column for DISTINCT and set operators in `trace.rs`
 - [ ] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.15 additions
 
 ---

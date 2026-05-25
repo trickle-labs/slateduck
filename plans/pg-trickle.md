@@ -303,16 +303,13 @@ Mapped to our roadmap milestones.
 6. **Frontier vector clocks:** extend `state_store.rs` to track per-source frontiers per view.
 7. **Diamond `Slowest` policy:** convergence views wait until all upstreams reach a common frontier before refreshing.
 
-### v0.15 (Production polish)
+### v0.15 (Production polish + Feature Completeness)
 
 8. **Adaptive DIFFERENTIAL/FULL switching:** rolling cost statistics + `CostMode::Adaptive`.
 9. **Change-buffer compaction:** cancel I/D pairs at ingest.
 10. **Predicate pushdown** and **semi-join key pre-filter** in `plan.rs` / `join.rs`.
 11. **Append-only fast path** detection on traces.
 12. **Auto-indexing / sort-by**: extend `parquet.rs::CompactionPolicy` to lay out files sorted by join/group-by keys.
-
-### v0.15 (Feature Completeness)
-
 13. **Window functions** (partition-scoped recompute).
 14. **TopK** (`ORDER BY … LIMIT k`) scoped recompute.
 15. **DISTINCT / set ops** with `__pgt_count`-style reference counting.
