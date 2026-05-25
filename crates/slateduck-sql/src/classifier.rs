@@ -378,7 +378,14 @@ fn classify_ast(stmt: &Statement) -> StatementKind {
 
         // INSERT statements
         Statement::Insert(insert) => match &insert.table {
-            TableObject::TableName(name) => classify_insert(name),
+            TableObject::TableName(name) => {
+                let columns: Vec<String> = insert
+                    .columns
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect();
+                classify_insert(name, &columns)
+            }
             _ => StatementKind::Unsupported("INSERT into function".to_string()),
         },
 
@@ -594,7 +601,7 @@ fn has_parameterized_limit(query: &sqlparser::ast::Query) -> bool {
     false
 }
 
-fn classify_insert(table_name: &ObjectName) -> StatementKind {
+fn classify_insert(table_name: &ObjectName, columns: &[String]) -> StatementKind {
     let name = table_name.to_string().to_lowercase();
     match name.as_str() {
         "ducklake_snapshot" => StatementKind::InsertSnapshot,
@@ -620,7 +627,7 @@ fn classify_insert(table_name: &ObjectName) -> StatementKind {
                 StatementKind::InsertExtensionRow {
                     schema_name: parts[0].to_string(),
                     table_name: parts[1].to_string(),
-                    columns: Vec::new(),
+                    columns: columns.to_vec(),
                     values_json: String::new(),
                 }
             } else {

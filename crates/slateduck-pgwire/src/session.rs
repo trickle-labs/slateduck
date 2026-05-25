@@ -4,6 +4,7 @@
 //! BEGIN and COMMIT. ROLLBACK or disconnect drops the pending batch.
 
 use crate::error::SlateDuckError;
+use crate::notify::ConnectionSubscriptions;
 
 /// Maximum pending transaction batch size (64 MiB).
 const MAX_BATCH_SIZE: usize = 64 * 1024 * 1024;
@@ -146,6 +147,8 @@ pub struct SessionState {
     pub in_transaction: bool,
     pub pending_txn: PendingCatalogTxn,
     pub settings: SessionSettings,
+    /// Per-connection LISTEN/NOTIFY subscription state.
+    pub subscriptions: ConnectionSubscriptions,
 }
 
 /// Session-level settings (SET/SHOW).
@@ -174,6 +177,7 @@ impl Default for SessionState {
             in_transaction: false,
             pending_txn: PendingCatalogTxn::new(),
             settings: SessionSettings::default(),
+            subscriptions: ConnectionSubscriptions::new(),
         }
     }
 }

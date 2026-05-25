@@ -499,12 +499,18 @@ pub fn prefix_matview_shards(matview_id: u64) -> Vec<u8> {
 
 // ─── v0.18: Snapshot Lease Keys ────────────────────────────────────────────
 
-/// Key for a snapshot lease: `0x22 | consumer_id_hash(u64 BE)`.
+/// Key for a snapshot lease: `0x22 | len(u16 BE) | consumer_id(utf-8 bytes)`.
+///
+/// v0.20: Changed from hash-based encoding to length-prefixed UTF-8 to eliminate
+/// collision risk and `DefaultHasher` version-instability. Distinct consumer IDs
+/// now always produce distinct keys.
 pub fn key_snapshot_lease(consumer_id: &str) -> Vec<u8> {
-    let hash = hash_string(consumer_id);
-    let mut buf = Vec::with_capacity(9);
+    let id_bytes = consumer_id.as_bytes();
+    let len = id_bytes.len().min(u16::MAX as usize) as u16;
+    let mut buf = Vec::with_capacity(1 + 2 + len as usize);
     buf.push(TAG_SNAPSHOT_LEASE);
-    buf.extend_from_slice(&encode_u64(hash));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&id_bytes[..len as usize]);
     buf
 }
 
@@ -515,24 +521,32 @@ pub fn prefix_snapshot_leases() -> Vec<u8> {
 
 // ─── v0.18: Extension Schema Keys ─────────────────────────────────────────
 
-/// Key for an extension schema row: `0x23 | extension_id(u8) | table_name_hash(u64 BE) | row_id(u64 BE)`.
+/// Key for an extension schema row: `0x23 | extension_id(u8) | len(u16 BE) | table_name(utf-8) | row_id(u64 BE)`.
+///
+/// v0.20: Changed from hash-based to length-prefixed UTF-8 to eliminate collisions.
 pub fn key_extension_schema(extension_id: u8, table_name: &str, row_id: u64) -> Vec<u8> {
-    let name_hash = hash_string(table_name);
-    let mut buf = Vec::with_capacity(18);
+    let name_bytes = table_name.as_bytes();
+    let len = name_bytes.len().min(u16::MAX as usize) as u16;
+    let mut buf = Vec::with_capacity(1 + 1 + 2 + len as usize + 8);
     buf.push(TAG_EXTENSION_SCHEMA);
     buf.push(extension_id);
-    buf.extend_from_slice(&encode_u64(name_hash));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&name_bytes[..len as usize]);
     buf.extend_from_slice(&encode_u64(row_id));
     buf
 }
 
-/// Scan prefix for all rows of a specific extension table: `0x23 | extension_id(u8) | table_name_hash(u64 BE)`.
+/// Scan prefix for all rows of a specific extension table: `0x23 | extension_id(u8) | len(u16 BE) | table_name(utf-8)`.
+///
+/// v0.20: Changed from hash-based to length-prefixed UTF-8.
 pub fn prefix_extension_table(extension_id: u8, table_name: &str) -> Vec<u8> {
-    let name_hash = hash_string(table_name);
-    let mut buf = Vec::with_capacity(10);
+    let name_bytes = table_name.as_bytes();
+    let len = name_bytes.len().min(u16::MAX as usize) as u16;
+    let mut buf = Vec::with_capacity(1 + 1 + 2 + len as usize);
     buf.push(TAG_EXTENSION_SCHEMA);
     buf.push(extension_id);
-    buf.extend_from_slice(&encode_u64(name_hash));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&name_bytes[..len as usize]);
     buf
 }
 
@@ -545,14 +559,6 @@ pub fn key_counter_rowid(table_id: u64) -> Vec<u8> {
     buf.push(COUNTER_NEXT_ROWID_PREFIX);
     buf.extend_from_slice(&encode_u64(table_id));
     buf
-}
-
-/// Compute a deterministic hash of a string for key construction.
-fn hash_string(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
 }
 
 /// Build a scan prefix for all entries of a given table tag.

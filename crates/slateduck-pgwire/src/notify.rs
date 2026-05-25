@@ -23,6 +23,14 @@ pub struct NotifyManager {
     channels: RwLock<HashMap<String, broadcast::Sender<Notification>>>,
 }
 
+impl std::fmt::Debug for NotifyManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // RwLock<HashMap<...>> doesn't expose channel list without async lock;
+        // provide a minimal non-blocking debug representation.
+        f.debug_struct("NotifyManager").finish_non_exhaustive()
+    }
+}
+
 impl NotifyManager {
     pub fn new() -> Self {
         Self {
@@ -71,6 +79,15 @@ pub struct ConnectionSubscriptions {
     pub channels: HashSet<String>,
     /// Receivers for each subscribed channel.
     pub receivers: HashMap<String, broadcast::Receiver<Notification>>,
+}
+
+impl std::fmt::Debug for ConnectionSubscriptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `broadcast::Receiver` does not implement `Debug`; expose only channel names.
+        f.debug_struct("ConnectionSubscriptions")
+            .field("channels", &self.channels)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ConnectionSubscriptions {

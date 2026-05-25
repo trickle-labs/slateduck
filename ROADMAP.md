@@ -69,7 +69,7 @@ binding on every roadmap release below.
 | **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Done |
 | **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Done |
 | **v0.19 — CDC Correctness & Catalog Transaction Hardening** | Real row-level `table_changes()` with Parquet scan, versioned `DataFileRow` / `SnapshotDiff` windows, CAS writer epoch, transactional extension row-ID allocation, atomic GC lease + retain-from, staged write discipline, overflow-safe counters | Done |
-| **v0.20 — FFI Safety, Live Notifications & Operational Wire-Up** | FFI `&'static mut` removal + SAFETY docs + Miri/ASAN CI, LISTEN/NOTIFY end-to-end, configurable extension schema registration, extension JSON fix, collision-safe key encoding, TLS panic fix, auth/TLS defaults | Planning |
+| **v0.20 — FFI Safety, Live Notifications & Operational Wire-Up** | FFI `&'static mut` removal + SAFETY docs + Miri/ASAN CI, LISTEN/NOTIFY end-to-end, configurable extension schema registration, extension JSON fix, collision-safe key encoding, TLS panic fix, auth/TLS defaults | Done |
 | **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, IVM output batching, O(1) aggregate deletions, binary IVM key encoding, EWMA worker cost estimate, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
@@ -3199,15 +3199,15 @@ Snapshot lease keys and extension table keys derive a 64-bit hash from `consumer
 
 ### Test and Documentation Deliverables
 
-- [ ] FFI integration tests: double-close safety, use-after-close, null handle, concurrent close/use
-- [ ] CI: scheduled nightly ASAN + UBSAN + Miri jobs for `slateduck-ffi`
-- [ ] Integration test: LISTEN → snapshot commit → notification received by subscriber
-- [ ] Integration test: UNLISTEN stops delivery; multiple subscribers on one channel
-- [ ] Integration test: unregistered extension schema returns SQLSTATE 42501
-- [ ] Property test: extension JSON round-trip with special characters
-- [ ] Property test: length-prefixed key encoding with arbitrary `consumer_id` and `table_name`
-- [ ] `docs/operations/extension-schemas.md`: registration model, CLI flag, allowed list
-- [ ] `docs/architecture/ffi-safety.md`: pointer ownership, handle lifecycle, SAFETY invariants
+- [x] FFI integration tests: double-close safety, use-after-close, null handle, concurrent close/use
+- [x] CI: scheduled nightly ASAN + UBSAN + Miri jobs for `slateduck-ffi`
+- [x] Integration test: LISTEN → snapshot commit → notification received by subscriber
+- [x] Integration test: UNLISTEN stops delivery; multiple subscribers on one channel
+- [x] Integration test: unregistered extension schema returns SQLSTATE 42501
+- [x] Property test: extension JSON round-trip with special characters
+- [x] Property test: length-prefixed key encoding with arbitrary `consumer_id` and `table_name`
+- [x] `docs/operations/extension-schemas.md`: registration model, CLI flag, allowed list
+- [x] `docs/architecture/ffi-safety.md`: pointer ownership, handle lifecycle, SAFETY invariants
 
 ---
 

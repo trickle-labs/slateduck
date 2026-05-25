@@ -42,6 +42,14 @@ async fn setup_store(dir: &TempDir) -> Arc<Mutex<CatalogStore>> {
     Arc::new(Mutex::new(catalog))
 }
 
+fn default_notify_manager() -> Arc<slateduck_pgwire::notify::NotifyManager> {
+    Arc::new(slateduck_pgwire::notify::NotifyManager::new())
+}
+
+fn default_extension_schemas() -> Arc<Vec<String>> {
+    Arc::new(vec!["pgtrickle".to_string()])
+}
+
 // ── Test 1: Full DuckLake tutorial lifecycle ───────────────────────────────────
 
 /// Full DuckLake tutorial lifecycle against a store.
@@ -60,7 +68,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
     // ── 1. Baseline catalog queries ────────────────────────────────────────
     {
         let mut session = SessionState::new();
-        let res = executor::execute_sql("SELECT version()", &params, &store, &mut session)
+        let res = executor::execute_sql("SELECT version()", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
             .await
             .unwrap();
         assert!(!res.is_empty(), "SELECT version() must return a response");
@@ -74,7 +82,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
             "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
             &sp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -93,7 +101,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
             "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
             &tp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -116,7 +124,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
              VALUES ($1, $2, $3, $4, $5)",
             &fp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -131,7 +139,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
             "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
             &snap,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -148,7 +156,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
              AND (end_snapshot IS NULL OR $1 < end_snapshot)",
             &rp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -166,7 +174,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
              AND (end_snapshot IS NULL OR $2 < end_snapshot)",
             &rp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -180,7 +188,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
             "SELECT max(snapshot_id) FROM ducklake_snapshot",
             &params,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -196,7 +204,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
              WHERE table_id = $1 AND begin_snapshot <= $2",
             &rp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -220,7 +228,7 @@ async fn show_tables_after_create() {
             "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
             &sp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -234,7 +242,7 @@ async fn show_tables_after_create() {
             "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
             &tp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -248,7 +256,7 @@ async fn show_tables_after_create() {
             "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
             &snap,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -265,7 +273,7 @@ async fn show_tables_after_create() {
              AND (end_snapshot IS NULL OR $2 < end_snapshot)",
             &rp,
             &store,
-            &mut session,
+            &mut session, &default_notify_manager(), &default_extension_schemas()
         )
         .await
         .unwrap();
@@ -283,12 +291,12 @@ async fn transaction_begin_commit() {
     let params = ParamValues::default();
     let mut session = SessionState::new();
 
-    let _ = executor::execute_sql("BEGIN", &params, &store, &mut session)
+    let _ = executor::execute_sql("BEGIN", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
         .await
         .unwrap();
     assert!(session.in_transaction);
 
-    let _ = executor::execute_sql("COMMIT", &params, &store, &mut session)
+    let _ = executor::execute_sql("COMMIT", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
         .await
         .unwrap();
     assert!(!session.in_transaction);

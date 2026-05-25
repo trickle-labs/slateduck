@@ -15,6 +15,7 @@ pub mod extension;
 pub mod gc;
 pub mod init;
 pub mod inspect;
+pub mod key_migration;
 pub mod lease;
 pub mod manifest;
 pub mod metrics;
@@ -38,8 +39,8 @@ pub use cost::{tune_for_cost_target, ApiCostReport, CostMode};
 pub use encryption::{EncryptionConfig, EncryptionError};
 pub use error::{CatalogError, CatalogResult};
 pub use extension::{
-    create_extension_table, delete_extension_rows, insert_extension_row, resolve_extension_id,
-    select_extension_rows, EXTENSION_PGTRICKLE,
+    create_extension_table, delete_extension_rows, insert_extension_row, is_registered_extension,
+    resolve_extension_id, select_extension_rows, EXTENSION_PGTRICKLE,
 };
 pub use lease::{hold_snapshot, list_active_leases, minimum_leased_snapshot, release_snapshot};
 pub use metrics::CatalogMetrics;

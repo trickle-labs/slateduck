@@ -33,6 +33,7 @@ use slateduck_catalog::CatalogStore;
 use slateduck_sql::ParamValues;
 
 use crate::executor;
+use crate::notify::NotifyManager;
 use crate::server::AuthConfig;
 use crate::session::SessionState;
 
@@ -42,6 +43,10 @@ pub struct SlateDuckHandler {
     pub session: Arc<Mutex<SessionState>>,
     pub parser: Arc<SlateDuckQueryParser>,
     pub auth: Arc<AuthConfig>,
+    /// Shared LISTEN/NOTIFY manager for this server instance.
+    pub notify_manager: Arc<NotifyManager>,
+    /// Allowed extension schema names (configurable via --extension-schemas).
+    pub extension_schemas: Arc<Vec<String>>,
 }
 
 impl SlateDuckHandler {
@@ -51,6 +56,8 @@ impl SlateDuckHandler {
             session: Arc::new(Mutex::new(SessionState::new())),
             parser: Arc::new(SlateDuckQueryParser),
             auth: Arc::new(AuthConfig::default()),
+            notify_manager: Arc::new(NotifyManager::new()),
+            extension_schemas: Arc::new(vec!["pgtrickle".to_string()]),
         }
     }
 
@@ -60,6 +67,24 @@ impl SlateDuckHandler {
             session: Arc::new(Mutex::new(SessionState::new())),
             parser: Arc::new(SlateDuckQueryParser),
             auth,
+            notify_manager: Arc::new(NotifyManager::new()),
+            extension_schemas: Arc::new(vec!["pgtrickle".to_string()]),
+        }
+    }
+
+    pub fn new_with_config(
+        catalog: Arc<Mutex<CatalogStore>>,
+        auth: Arc<AuthConfig>,
+        notify_manager: Arc<NotifyManager>,
+        extension_schemas: Arc<Vec<String>>,
+    ) -> Self {
+        Self {
+            catalog,
+            session: Arc::new(Mutex::new(SessionState::new())),
+            parser: Arc::new(SlateDuckQueryParser),
+            auth,
+            notify_manager,
+            extension_schemas,
         }
     }
 }
@@ -205,7 +230,7 @@ impl SimpleQueryHandler for SlateDuckHandler {
     {
         let params = ParamValues::default();
         let mut session = self.session.lock().await;
-        match executor::execute_sql(query, &params, &self.catalog, &mut session).await {
+        match executor::execute_sql(query, &params, &self.catalog, &mut session, &self.notify_manager, &self.extension_schemas).await {
             Ok(responses) => Ok(responses),
             Err(e) => Err(e.into()),
         }
@@ -257,7 +282,7 @@ impl ExtendedQueryHandler for SlateDuckHandler {
         let params = ParamValues::new(param_values);
 
         let mut session = self.session.lock().await;
-        match executor::execute_sql(sql, &params, &self.catalog, &mut session).await {
+        match executor::execute_sql(sql, &params, &self.catalog, &mut session, &self.notify_manager, &self.extension_schemas).await {
             Ok(mut responses) => {
                 if let Some(resp) = responses.pop() {
                     Ok(resp)
@@ -387,9 +412,16 @@ impl SlateDuckServerHandlers {
         catalog: Arc<Mutex<CatalogStore>>,
         auth: Arc<AuthConfig>,
         tls_required: bool,
+        notify_manager: Arc<NotifyManager>,
+        extension_schemas: Arc<Vec<String>>,
     ) -> Self {
         Self {
-            handler: Arc::new(SlateDuckHandler::new_with_auth(catalog, auth.clone())),
+            handler: Arc::new(SlateDuckHandler::new_with_config(
+                catalog,
+                auth.clone(),
+                notify_manager,
+                extension_schemas,
+            )),
             startup: Arc::new(SlateDuckStartupHandler::new_with_tls_required(
                 auth,
                 tls_required,

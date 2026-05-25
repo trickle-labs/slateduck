@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use slateduck_catalog::CatalogStore;
 
 use crate::handler::SlateDuckServerHandlers;
+use crate::notify::NotifyManager;
 
 /// TLS configuration.
 #[derive(Debug, Clone, Default)]
@@ -59,6 +60,8 @@ pub struct ServerConfig {
     pub tls: TlsConfig,
     /// Authentication configuration.
     pub auth: AuthConfig,
+    /// Allowed extension schema names (default: `["pgtrickle"]`).
+    pub extension_schemas: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -69,6 +72,7 @@ impl Default for ServerConfig {
             max_active_scans: 25,
             tls: TlsConfig::default(),
             auth: AuthConfig::default(),
+            extension_schemas: vec!["pgtrickle".to_string()],
         }
     }
 }
@@ -81,8 +85,18 @@ fn build_tls_acceptor(tls_config: &TlsConfig) -> std::io::Result<Arc<tokio_rustl
     // Ensure a crypto provider is installed (no-op if already set).
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let cert_path = tls_config.cert_path.as_ref().unwrap();
-    let key_path = tls_config.key_path.as_ref().unwrap();
+    let cert_path = tls_config.cert_path.as_ref().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "TLS cert path not configured",
+        )
+    })?;
+    let key_path = tls_config.key_path.as_ref().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "TLS key path not configured",
+        )
+    })?;
 
     let cert_file = std::fs::File::open(cert_path)
         .map_err(|e| std::io::Error::other(format!("cannot open TLS cert: {e}")))?;
@@ -137,6 +151,15 @@ pub async fn run_server(
         None
     };
 
+    // Warn when auth is enabled but TLS is not: credentials sent in plaintext.
+    if config.auth.is_enabled() && tls_acceptor.is_none() {
+        warn!(
+            "Password authentication is enabled without TLS. Credentials will be sent \
+             in plaintext. Use --tls-cert / --tls-key to enable TLS, or pass \
+             --insecure-no-tls-warning-suppress if this is intentional."
+        );
+    }
+
     let listener = TcpListener::bind(config.bind_addr).await?;
     if tls_acceptor.is_some() {
         info!("SlateDuck serving on {} (TLS enabled)", config.bind_addr);
@@ -147,6 +170,8 @@ pub async fn run_server(
     let session_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_sessions));
     let auth_config = Arc::new(config.auth);
     let tls_required = config.tls.required;
+    let notify_manager = Arc::new(NotifyManager::new());
+    let extension_schemas = Arc::new(config.extension_schemas);
 
     loop {
         let (socket, addr) = listener.accept().await?;
@@ -154,6 +179,8 @@ pub async fn run_server(
         let semaphore = session_semaphore.clone();
         let tls = tls_acceptor.clone();
         let auth = auth_config.clone();
+        let nm = notify_manager.clone();
+        let es = extension_schemas.clone();
 
         tokio::spawn(async move {
             let _permit = match semaphore.acquire().await {
@@ -162,7 +189,8 @@ pub async fn run_server(
             };
 
             info!("New connection from {addr}");
-            let handlers = SlateDuckServerHandlers::new_with_config(catalog, auth, tls_required);
+            let handlers =
+                SlateDuckServerHandlers::new_with_config(catalog, auth, tls_required, nm, es);
 
             if let Err(e) = pgwire::tokio::process_socket(socket, tls, handlers).await {
                 error!("Connection error from {addr}: {e}");
@@ -187,12 +215,23 @@ pub async fn run_server_with_shutdown(
         None
     };
 
+    // Warn when auth is enabled but TLS is not.
+    if config.auth.is_enabled() && tls_acceptor.is_none() {
+        warn!(
+            "Password authentication is enabled without TLS. Credentials will be sent \
+             in plaintext. Use --tls-cert / --tls-key to enable TLS, or pass \
+             --insecure-no-tls-warning-suppress if this is intentional."
+        );
+    }
+
     let listener = TcpListener::bind(config.bind_addr).await?;
     info!("SlateDuck serving on {}", config.bind_addr);
 
     let session_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_sessions));
     let auth_config = Arc::new(config.auth);
     let tls_required = config.tls.required;
+    let notify_manager = Arc::new(NotifyManager::new());
+    let extension_schemas = Arc::new(config.extension_schemas);
 
     tokio::select! {
         _ = async {
@@ -208,6 +247,8 @@ pub async fn run_server_with_shutdown(
                 let semaphore = session_semaphore.clone();
                 let tls = tls_acceptor.clone();
                 let auth = auth_config.clone();
+                let nm = notify_manager.clone();
+                let es = extension_schemas.clone();
 
                 tokio::spawn(async move {
                     let _permit = match semaphore.acquire().await {
@@ -217,7 +258,7 @@ pub async fn run_server_with_shutdown(
 
                     info!("New connection from {addr}");
                     let handlers =
-                        SlateDuckServerHandlers::new_with_config(catalog, auth, tls_required);
+                        SlateDuckServerHandlers::new_with_config(catalog, auth, tls_required, nm, es);
 
                     if let Err(e) = pgwire::tokio::process_socket(socket, tls, handlers).await {
                         error!("Connection error from {addr}: {e}");

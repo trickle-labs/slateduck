@@ -144,6 +144,7 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             username: config.auth_username,
             password: config.auth_password,
         },
+        extension_schemas: config.extension_schemas.clone(),
     };
 
     // If --datafusion-pg-wire <port> is set, also start a second listener on
@@ -157,6 +158,7 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             max_active_scans: server_config.max_active_scans,
             tls: slateduck_pgwire::server::TlsConfig::default(),
             auth: slateduck_pgwire::server::AuthConfig::default(),
+            extension_schemas: config.extension_schemas,
         };
         let df_catalog = catalog.clone();
         tokio::spawn(async move {
@@ -195,6 +197,8 @@ struct ServeConfig {
     /// DataFusion clients connecting on this port are routed through the same
     /// bounded SQL dispatcher as DuckDB/Spark/Trino clients.
     datafusion_pg_wire_port: Option<u16>,
+    /// Allowed extension schema names (default: ["pgtrickle"]).
+    extension_schemas: Vec<String>,
 }
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
@@ -214,6 +218,16 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     let mut s3_path_style = false;
     let mut encryption_key: Option<String> = None;
     let mut datafusion_pg_wire_port: Option<u16> = None;
+    // Extension schemas: read from env first (comma-separated), CLI flag overrides.
+    let mut extension_schemas: Vec<String> = std::env::var("SLATEDUCK_EXTENSION_SCHEMAS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["pgtrickle".to_string()]);
 
     let mut i = 2;
     while i < args.len() {
@@ -333,6 +347,18 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                         .map_err(|e| format!("invalid --datafusion-pg-wire port: {e}"))?,
                 );
             }
+            "--extension-schemas" => {
+                i += 1;
+                let schemas_str = args
+                    .get(i)
+                    .cloned()
+                    .ok_or("--extension-schemas requires a comma-separated list")?;
+                extension_schemas = schemas_str
+                    .split(',')
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect();
+            }
             "--help" | "-h" => {
                 eprintln!(
                     "Usage: slateduck serve --catalog <path> \
@@ -344,12 +370,14 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     [--cost-mode conservative|balanced|latency] \
                     [--s3-endpoint <url>] [--s3-path-style] \
                     [--encryption-key <hex>] \
-                    [--datafusion-pg-wire <port>]"
+                    [--datafusion-pg-wire <port>] \
+                    [--extension-schemas <schema,...>]"
                 );
                 eprintln!(
                     "\nEnvironment variables:\
-                    \n  SLATEDUCK_AUTH_USER      Username for authentication\
-                    \n  SLATEDUCK_AUTH_PASSWORD  Password for authentication"
+                    \n  SLATEDUCK_AUTH_USER           Username for authentication\
+                    \n  SLATEDUCK_AUTH_PASSWORD        Password for authentication\
+                    \n  SLATEDUCK_EXTENSION_SCHEMAS    Comma-separated allowed extension schema names"
                 );
                 eprintln!(
                     "\nSupported catalog URLs:\
@@ -389,6 +417,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         s3_path_style,
         encryption_key,
         datafusion_pg_wire_port,
+        extension_schemas,
     })
 }
 

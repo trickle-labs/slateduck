@@ -9,6 +9,7 @@ use slateduck_catalog::CatalogStore;
 use slateduck_sql::{classify_statement, ParamValues, StatementKind};
 
 use crate::error::SlateDuckError;
+use crate::notify::NotifyManager;
 use crate::session::{BufferedOp, SessionState};
 use crate::types;
 
@@ -18,9 +19,11 @@ pub async fn execute_sql<'a>(
     params: &ParamValues,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
     session: &mut SessionState,
+    notify_manager: &Arc<NotifyManager>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
     let kind = classify_statement(sql)?;
-    execute_classified(kind, sql, params, store, session).await
+    execute_classified(kind, sql, params, store, session, notify_manager, extension_schemas).await
 }
 
 async fn execute_classified<'a>(
@@ -29,6 +32,8 @@ async fn execute_classified<'a>(
     params: &ParamValues,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
     session: &mut SessionState,
+    notify_manager: &Arc<NotifyManager>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
     match kind {
         // ─── Session / Introspection ───────────────────────────────────
@@ -61,7 +66,7 @@ async fn execute_classified<'a>(
         StatementKind::Commit => {
             let ops = session.pending_txn.take();
             session.in_transaction = false;
-            execute_commit(ops, store).await?;
+            execute_commit(ops, store, notify_manager).await?;
             Ok(vec![Response::TransactionEnd(Tag::new("COMMIT"))])
         }
         StatementKind::Rollback => {
@@ -218,7 +223,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -232,7 +237,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -243,7 +248,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -256,7 +261,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -272,7 +277,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -289,7 +294,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -303,7 +308,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -317,7 +322,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -334,7 +339,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -346,7 +351,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -359,7 +364,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -372,7 +377,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -385,7 +390,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
@@ -404,7 +409,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("UPDATE 1"))])
         }
@@ -416,7 +421,7 @@ async fn execute_classified<'a>(
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
-                execute_commit(vec![op], store).await?;
+                execute_commit(vec![op], store, notify_manager).await?;
             }
             Ok(vec![Response::Execution(Tag::new("UPDATE 1"))])
         }
@@ -502,27 +507,35 @@ async fn execute_classified<'a>(
         StatementKind::ReleaseSnapshot { ref consumer_id } => {
             execute_release_snapshot(consumer_id, store).await
         }
-        StatementKind::Listen { channel: _ } => Ok(vec![Response::Execution(Tag::new("LISTEN"))]),
-        StatementKind::Unlisten { channel: _ } => {
+        StatementKind::Listen { ref channel } => {
+            session
+                .subscriptions
+                .listen(channel, notify_manager)
+                .await;
+            Ok(vec![Response::Execution(Tag::new("LISTEN"))])
+        }
+        StatementKind::Unlisten { ref channel } => {
+            session.subscriptions.unlisten(channel);
             Ok(vec![Response::Execution(Tag::new("UNLISTEN"))])
         }
         StatementKind::CreateExtensionTable {
             ref schema_name,
             ref table_name,
-        } => execute_create_extension_table(schema_name, table_name, store).await,
+        } => execute_create_extension_table(schema_name, table_name, store, extension_schemas).await,
         StatementKind::InsertExtensionRow {
             ref schema_name,
             ref table_name,
+            ref columns,
             ..
-        } => execute_insert_extension_row(schema_name, table_name, params, store).await,
+        } => execute_insert_extension_row(schema_name, table_name, columns, params, store, extension_schemas).await,
         StatementKind::SelectExtensionTable {
             ref schema_name,
             ref table_name,
-        } => execute_select_extension_table(schema_name, table_name, store).await,
+        } => execute_select_extension_table(schema_name, table_name, store, extension_schemas).await,
         StatementKind::DeleteExtensionRows {
             ref schema_name,
             ref table_name,
-        } => execute_delete_extension_rows(schema_name, table_name, store).await,
+        } => execute_delete_extension_rows(schema_name, table_name, store, extension_schemas).await,
 
         StatementKind::Unsupported(ref desc) => Err(SlateDuckError::Unsupported(desc.clone())),
     }
@@ -533,10 +546,21 @@ async fn execute_classified<'a>(
 async fn execute_commit(
     ops: Vec<BufferedOp>,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+    notify_manager: &Arc<NotifyManager>,
 ) -> Result<(), SlateDuckError> {
     if ops.is_empty() {
         return Ok(());
     }
+
+    // Collect table IDs from InsertDataFile ops for post-commit notifications.
+    let mut affected_table_ids: Vec<u64> = ops
+        .iter()
+        .filter_map(|op| match op {
+            BufferedOp::InsertDataFile { table_id, .. } => Some(*table_id),
+            _ => None,
+        })
+        .collect();
+    affected_table_ids.dedup();
 
     let mut s = store.lock().await;
     let mut writer = s.begin_write();
@@ -708,6 +732,15 @@ async fn execute_commit(
     // Synchronise the store's in-memory counters from the committed writer
     // (F-01: ensures read_latest() and subsequent begin_write() see the new state).
     s.commit_writer(&writer);
+    drop(s); // Release the store lock before async notification I/O.
+
+    // Fire LISTEN/NOTIFY notifications for any tables that received new data files.
+    if !affected_table_ids.is_empty() {
+        notify_manager
+            .notify_snapshot_advance(&affected_table_ids)
+            .await;
+    }
+
     Ok(())
 }
 
@@ -1561,7 +1594,13 @@ async fn execute_create_extension_table<'a>(
     schema_name: &str,
     table_name: &str,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    if !slateduck_catalog::is_registered_extension(schema_name, extension_schemas) {
+        return Err(SlateDuckError::PermissionDenied(format!(
+            "extension schema '{schema_name}' is not in the allowed list"
+        )));
+    }
     let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
         SlateDuckError::Unsupported(format!(
             "extension schema '{schema_name}' is not registered"
@@ -1578,9 +1617,16 @@ async fn execute_create_extension_table<'a>(
 async fn execute_insert_extension_row<'a>(
     schema_name: &str,
     table_name: &str,
+    columns: &[String],
     params: &ParamValues,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    if !slateduck_catalog::is_registered_extension(schema_name, extension_schemas) {
+        return Err(SlateDuckError::PermissionDenied(format!(
+            "extension schema '{schema_name}' is not in the allowed list"
+        )));
+    }
     let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
         SlateDuckError::Unsupported(format!(
             "extension schema '{schema_name}' is not registered"
@@ -1589,7 +1635,7 @@ async fn execute_insert_extension_row<'a>(
     let store_lock = store.lock().await;
     let db = store_lock.db();
 
-    let data_json = params.to_json_string();
+    let data_json = params.to_json_string_with_columns(columns);
     slateduck_catalog::insert_extension_row(db, extension_id, table_name, &data_json)
         .await
         .map_err(SlateDuckError::from)?;
@@ -1600,7 +1646,13 @@ async fn execute_select_extension_table<'a>(
     schema_name: &str,
     table_name: &str,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    if !slateduck_catalog::is_registered_extension(schema_name, extension_schemas) {
+        return Err(SlateDuckError::PermissionDenied(format!(
+            "extension schema '{schema_name}' is not in the allowed list"
+        )));
+    }
     let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
         SlateDuckError::Unsupported(format!(
             "extension schema '{schema_name}' is not registered"
@@ -1645,7 +1697,13 @@ async fn execute_delete_extension_rows<'a>(
     schema_name: &str,
     table_name: &str,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
+    extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    if !slateduck_catalog::is_registered_extension(schema_name, extension_schemas) {
+        return Err(SlateDuckError::PermissionDenied(format!(
+            "extension schema '{schema_name}' is not in the allowed list"
+        )));
+    }
     let extension_id = slateduck_catalog::resolve_extension_id(schema_name).ok_or_else(|| {
         SlateDuckError::Unsupported(format!(
             "extension schema '{schema_name}' is not registered"

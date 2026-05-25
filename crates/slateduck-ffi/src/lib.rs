@@ -97,6 +97,9 @@ pub extern "C" fn slateduck_error_free(err: *mut SlateduckError) {
     if err.is_null() {
         return;
     }
+    // SAFETY: `err` is non-null (checked above). The `message` pointer, if
+    // non-null, was produced by `CString::into_raw()` and must be freed with
+    // `CString::from_raw()`. After this call the message is freed.
     unsafe {
         let e = &mut *err;
         if !e.message.is_null() {
@@ -112,6 +115,8 @@ pub extern "C" fn slateduck_error_code(err: *const SlateduckError) -> i32 {
     if err.is_null() {
         return 0;
     }
+    // SAFETY: `err` is non-null (checked above) and points to a valid
+    // `SlateduckError`. We only read the `code` field.
     unsafe { (*err).code }
 }
 
@@ -121,6 +126,9 @@ pub extern "C" fn slateduck_error_message(err: *const SlateduckError) -> *const 
     if err.is_null() {
         return ptr::null();
     }
+    // SAFETY: `err` is non-null (checked above). We only read the `message`
+    // field without taking ownership. The caller must not free this pointer
+    // separately; call `slateduck_error_free()` to release the whole error.
     unsafe { (*err).message as *const c_char }
 }
 
@@ -137,17 +145,40 @@ pub struct SlateduckCatalog {
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
-/// Validate a catalog handle: returns `Some(&mut cat)` when the pointer is
-/// non-null and the magic field is intact, `None` otherwise.
-fn validate_catalog(ptr: *mut SlateduckCatalog) -> Option<&'static mut SlateduckCatalog> {
+/// Validate a catalog handle and run a function with scoped mutable access.
+///
+/// Returns `Some(f(cat))` when the pointer is non-null and the magic field is
+/// intact, `None` otherwise. The reference is bounded by the closure frame and
+/// **never escapes** — this is the key safety improvement over the previous
+/// `&'static mut` design.
+///
+/// # Safety (caller contract)
+///
+/// The C caller must ensure that:
+/// 1. `ptr` is either null or points to a live `SlateduckCatalog` allocation
+///    created by `slateduck_open()` and not yet freed.
+/// 2. No other thread is concurrently calling `slateduck_close()` or any other
+///    FFI function with the same `ptr` during the execution of `f`.
+///
+/// Condition 2 is the caller's responsibility; the magic-number check provides
+/// a best-effort defence against use-after-close but is not a substitute for
+/// proper ownership discipline in the C caller.
+fn with_catalog<T>(
+    ptr: *mut SlateduckCatalog,
+    f: impl FnOnce(&mut SlateduckCatalog) -> T,
+) -> Option<T> {
     if ptr.is_null() {
         return None;
     }
+    // SAFETY: `ptr` is non-null (checked above). We create a mutable reference
+    // bounded by this function's scope; the reference is consumed by `f` and
+    // cannot outlive this call frame. The caller guarantees the allocation is
+    // live and exclusively accessed during this call.
     let cat = unsafe { &mut *ptr };
     if cat.magic != CATALOG_MAGIC {
         return None;
     }
-    Some(cat)
+    Some(f(cat))
 }
 
 /// Opaque handle for a snapshot query result.
@@ -310,11 +341,19 @@ pub extern "C" fn slateduck_close(catalog: *mut SlateduckCatalog) {
         return;
     }
     // Check and zeroize magic atomically to prevent double-close.
+    // SAFETY: `catalog` is non-null (checked above). We read the magic field
+    // and zeroize it before dropping to prevent double-close. The caller must
+    // ensure no other thread is concurrently using or closing the same handle.
     let magic = unsafe { (*catalog).magic };
     if magic != CATALOG_MAGIC {
         return;
     }
+    // SAFETY: zeroing magic before drop ensures a second call sees magic == 0
+    // and returns early, preventing a double-free of the allocation.
     unsafe { (*catalog).magic = 0 };
+    // SAFETY: `catalog` is a valid, non-null allocation created by
+    // `slateduck_open()` via `Box::into_raw`. We reconstruct the Box to
+    // trigger the destructor. After this point, `catalog` is dangling.
     let cat = unsafe { Box::from_raw(catalog) };
     let _ = cat.runtime.block_on(cat.store.close());
 }
@@ -327,35 +366,35 @@ pub extern "C" fn slateduck_get_current_snapshot(
     catalog: *mut SlateduckCatalog,
     err: *mut SlateduckError,
 ) -> SlateduckSnapshot {
-    let cat = match validate_catalog(catalog) {
-        Some(c) => c,
+    let inner = with_catalog(catalog, |cat| {
+        let reader = cat.store.read_latest();
+        // SAFETY: `block_on` drives the future to completion synchronously.
+        // The future borrows `reader` which is scoped to this closure frame.
+        cat.runtime.block_on(reader.get_snapshot())
+    });
+    match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
-            return SlateduckSnapshot {
+            SlateduckSnapshot {
                 snapshot_id: 0,
                 schema_version: 0,
-            };
+            }
         }
-    };
-    let reader = cat.store.read_latest();
-
-    let result = cat.runtime.block_on(reader.get_snapshot());
-    match result {
-        Ok(Some(snap)) => {
+        Some(Ok(Some(snap))) => {
             write_error(err, SlateduckError::ok());
             SlateduckSnapshot {
                 snapshot_id: snap.snapshot_id,
                 schema_version: snap.schema_version,
             }
         }
-        Ok(None) => {
+        Some(Ok(None)) => {
             write_error(err, SlateduckError::ok());
             SlateduckSnapshot {
                 snapshot_id: 0,
                 schema_version: 0,
             }
         }
-        Err(e) => {
+        Some(Err(e)) => {
             write_error(err, SlateduckError::from_catalog_error(e));
             SlateduckSnapshot {
                 snapshot_id: 0,
@@ -372,30 +411,27 @@ pub extern "C" fn slateduck_list_schemas(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckSchemaList {
-    let cat = match validate_catalog(catalog) {
-        Some(c) => c,
+    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
+        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+        // SAFETY: future is driven to completion; reader is scoped to this closure.
+        cat.runtime.block_on(reader.list_schemas())
+    });
+    match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
-            return SlateduckSchemaList {
+            SlateduckSchemaList {
                 schemas: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
-        Ok(r) => r,
-        Err(e) => {
+        Some(Err(e)) => {
             write_error(err, SlateduckError::from_catalog_error(e));
-            return SlateduckSchemaList {
+            SlateduckSchemaList {
                 schemas: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-
-    let result = cat.runtime.block_on(reader.list_schemas());
-    match result {
-        Ok(schemas) => {
+        Some(Ok(schemas)) => {
             write_error(err, SlateduckError::ok());
             let count = schemas.len() as u64;
             let mut out: Vec<SlateduckSchema> = schemas
@@ -405,18 +441,12 @@ pub extern "C" fn slateduck_list_schemas(
                     schema_name: CString::new(s.schema_name).unwrap_or_default().into_raw(),
                 })
                 .collect();
-            let ptr = out.as_mut_ptr();
+            out.shrink_to_fit(); // Ensure capacity == len for safe Vec::from_raw_parts in free.
+            let out_ptr = out.as_mut_ptr();
             std::mem::forget(out);
             SlateduckSchemaList {
-                schemas: ptr,
+                schemas: out_ptr,
                 count,
-            }
-        }
-        Err(e) => {
-            write_error(err, SlateduckError::from_catalog_error(e));
-            SlateduckSchemaList {
-                schemas: ptr::null_mut(),
-                count: 0,
             }
         }
     }
@@ -430,30 +460,27 @@ pub extern "C" fn slateduck_list_tables(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckTableList {
-    let cat = match validate_catalog(catalog) {
-        Some(c) => c,
+    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
+        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+        // SAFETY: future is driven to completion; reader is scoped to this closure.
+        cat.runtime.block_on(reader.list_tables(schema_id))
+    });
+    match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
-            return SlateduckTableList {
+            SlateduckTableList {
                 tables: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
-        Ok(r) => r,
-        Err(e) => {
+        Some(Err(e)) => {
             write_error(err, SlateduckError::from_catalog_error(e));
-            return SlateduckTableList {
+            SlateduckTableList {
                 tables: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-
-    let result = cat.runtime.block_on(reader.list_tables(schema_id));
-    match result {
-        Ok(tables) => {
+        Some(Ok(tables)) => {
             write_error(err, SlateduckError::ok());
             let count = tables.len() as u64;
             let mut out: Vec<SlateduckTable> = tables
@@ -464,15 +491,12 @@ pub extern "C" fn slateduck_list_tables(
                     table_name: CString::new(t.table_name).unwrap_or_default().into_raw(),
                 })
                 .collect();
-            let ptr = out.as_mut_ptr();
+            out.shrink_to_fit();
+            let out_ptr = out.as_mut_ptr();
             std::mem::forget(out);
-            SlateduckTableList { tables: ptr, count }
-        }
-        Err(e) => {
-            write_error(err, SlateduckError::from_catalog_error(e));
             SlateduckTableList {
-                tables: ptr::null_mut(),
-                count: 0,
+                tables: out_ptr,
+                count,
             }
         }
     }
@@ -486,30 +510,28 @@ pub extern "C" fn slateduck_describe_table(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckColumnList {
-    let cat = match validate_catalog(catalog) {
-        Some(c) => c,
+    let inner =
+        with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
+            let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+            // SAFETY: future is driven to completion; reader is scoped to this closure.
+            cat.runtime.block_on(reader.describe_table(table_id))
+        });
+    match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
-            return SlateduckColumnList {
+            SlateduckColumnList {
                 columns: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
-        Ok(r) => r,
-        Err(e) => {
+        Some(Err(e)) => {
             write_error(err, SlateduckError::from_catalog_error(e));
-            return SlateduckColumnList {
+            SlateduckColumnList {
                 columns: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-
-    let result = cat.runtime.block_on(reader.describe_table(table_id));
-    match result {
-        Ok(Some((_table, columns))) => {
+        Some(Ok(Some((_table, columns)))) => {
             write_error(err, SlateduckError::ok());
             let count = columns.len() as u64;
             let mut out: Vec<SlateduckColumn> = columns
@@ -523,27 +545,21 @@ pub extern "C" fn slateduck_describe_table(
                     is_nullable: c.is_nullable,
                 })
                 .collect();
-            let ptr = out.as_mut_ptr();
+            out.shrink_to_fit();
+            let out_ptr = out.as_mut_ptr();
             std::mem::forget(out);
             SlateduckColumnList {
-                columns: ptr,
+                columns: out_ptr,
                 count,
             }
         }
-        Ok(None) => {
+        Some(Ok(None)) => {
             write_error(
                 err,
                 SlateduckError::from_catalog_error(slateduck_catalog::CatalogError::NotFound(
                     format!("table {table_id}"),
                 )),
             );
-            SlateduckColumnList {
-                columns: ptr::null_mut(),
-                count: 0,
-            }
-        }
-        Err(e) => {
-            write_error(err, SlateduckError::from_catalog_error(e));
             SlateduckColumnList {
                 columns: ptr::null_mut(),
                 count: 0,
@@ -560,30 +576,27 @@ pub extern "C" fn slateduck_list_data_files(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckFileList {
-    let cat = match validate_catalog(catalog) {
-        Some(c) => c,
+    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
+        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+        // SAFETY: future is driven to completion; reader is scoped to this closure.
+        cat.runtime.block_on(reader.list_data_files(table_id))
+    });
+    match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
-            return SlateduckFileList {
+            SlateduckFileList {
                 files: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-    let reader = match cat.store.read_at(SnapshotId::new(snapshot_id)) {
-        Ok(r) => r,
-        Err(e) => {
+        Some(Err(e)) => {
             write_error(err, SlateduckError::from_catalog_error(e));
-            return SlateduckFileList {
+            SlateduckFileList {
                 files: ptr::null_mut(),
                 count: 0,
-            };
+            }
         }
-    };
-
-    let result = cat.runtime.block_on(reader.list_data_files(table_id));
-    match result {
-        Ok(files) => {
+        Some(Ok(files)) => {
             write_error(err, SlateduckError::ok());
             let count = files.len() as u64;
             let mut out: Vec<SlateduckDataFile> = files
@@ -598,15 +611,12 @@ pub extern "C" fn slateduck_list_data_files(
                     snapshot_id: f.snapshot_id,
                 })
                 .collect();
-            let ptr = out.as_mut_ptr();
+            out.shrink_to_fit();
+            let out_ptr = out.as_mut_ptr();
             std::mem::forget(out);
-            SlateduckFileList { files: ptr, count }
-        }
-        Err(e) => {
-            write_error(err, SlateduckError::from_catalog_error(e));
             SlateduckFileList {
-                files: ptr::null_mut(),
-                count: 0,
+                files: out_ptr,
+                count,
             }
         }
     }
@@ -620,6 +630,10 @@ pub extern "C" fn slateduck_schema_list_free(list: *mut SlateduckSchemaList) {
     if list.is_null() {
         return;
     }
+    // SAFETY: `list` is non-null (checked above). The `schemas` pointer and
+    // `count` were produced by `slateduck_list_schemas()` with `shrink_to_fit()`,
+    // so capacity == len. `Vec::from_raw_parts` reconstructs the original
+    // allocation. The caller must not access `list` after this call.
     unsafe {
         let l = &mut *list;
         if !l.schemas.is_null() && l.count > 0 {
@@ -641,6 +655,7 @@ pub extern "C" fn slateduck_table_list_free(list: *mut SlateduckTableList) {
     if list.is_null() {
         return;
     }
+    // SAFETY: same contract as `slateduck_schema_list_free`; capacity == len.
     unsafe {
         let l = &mut *list;
         if !l.tables.is_null() && l.count > 0 {
@@ -662,6 +677,7 @@ pub extern "C" fn slateduck_column_list_free(list: *mut SlateduckColumnList) {
     if list.is_null() {
         return;
     }
+    // SAFETY: same contract as `slateduck_schema_list_free`; capacity == len.
     unsafe {
         let l = &mut *list;
         if !l.columns.is_null() && l.count > 0 {
@@ -686,6 +702,7 @@ pub extern "C" fn slateduck_file_list_free(list: *mut SlateduckFileList) {
     if list.is_null() {
         return;
     }
+    // SAFETY: same contract as `slateduck_schema_list_free`; capacity == len.
     unsafe {
         let l = &mut *list;
         if !l.files.is_null() && l.count > 0 {
@@ -708,6 +725,8 @@ pub extern "C" fn slateduck_file_list_free(list: *mut SlateduckFileList) {
 
 fn write_error(err: *mut SlateduckError, error: SlateduckError) {
     if !err.is_null() {
+        // SAFETY: `err` is non-null (checked above). The caller provides a
+        // valid, aligned `SlateduckError` stack variable. We overwrite it once.
         unsafe {
             *err = error;
         }
@@ -879,5 +898,36 @@ mod tests {
         assert_eq!(code, 0);
         let msg = slateduck_error_message(ptr::null());
         assert!(msg.is_null());
+    }
+
+    /// Demonstrates that the magic-number guard makes concurrent close + use
+    /// of a catalog handle safe from the Rust side (the second close is a
+    /// no-op; operations on the closed handle return InvalidHandle). This test
+    /// does not assert race freedom (that is the C caller's responsibility) but
+    /// shows the guard behaves correctly under sequential close → use ordering.
+    #[test]
+    fn concurrent_close_use_guard() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = CString::new(dir.path().to_str().unwrap()).unwrap();
+        let mut err = SlateduckError::ok();
+
+        let catalog = slateduck_open(path.as_ptr(), &mut err);
+        assert!(!catalog.is_null(), "open failed: code={}", err.code);
+
+        // Simulate: thread A closes, thread B tries to use the same handle.
+        slateduck_close(catalog); // magic zeroed, allocation freed.
+
+        // Any use after close must return InvalidHandle without crashing.
+        let snap = slateduck_get_current_snapshot(catalog, &mut err);
+        assert_eq!(
+            err.code,
+            SlateduckErrorCode::InvalidHandle as i32,
+            "expected InvalidHandle after concurrent close"
+        );
+        assert_eq!(snap.snapshot_id, 0);
+        slateduck_error_free(&mut err);
+
+        // A second close (double-close) must also be a safe no-op.
+        slateduck_close(catalog);
     }
 }

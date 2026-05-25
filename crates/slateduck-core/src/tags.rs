@@ -104,12 +104,14 @@ pub const TAG_MATVIEW_CHECKPOINT: u8 = 0x1F;
 pub const TAG_MATVIEW_SHARD: u8 = 0x20;
 
 /// v0.18: Snapshot lease. MutableSingleton per consumer_id.
-/// Key: `0x22 | consumer_id_hash(u64 BE)`
+/// Key: `0x22 | len(u16 BE) | consumer_id(utf-8 bytes)`
 /// Value: `{consumer_id, min_snapshot_id, expires_at_unix_ms}`
+/// v0.20: Changed from hash-based to length-prefixed UTF-8 encoding.
 pub const TAG_SNAPSHOT_LEASE: u8 = 0x22;
 
 /// v0.18: Extension schema metadata. Versioned.
-/// Key: `0x23 | extension_id(u8) | table_name_hash(u64 BE) | row_id(u64 BE)`
+/// Key: `0x23 | extension_id(u8) | len(u16 BE) | table_name(utf-8) | row_id(u64 BE)`
+/// v0.20: Changed from hash-based to length-prefixed UTF-8 encoding.
 pub const TAG_EXTENSION_SCHEMA: u8 = 0x23;
 
 // Tags 0x24–0x2F reserved for future IVM-related tables.
@@ -151,6 +153,8 @@ pub const SYSTEM_RETAIN_FROM: &[u8] = b"retain-from";
 pub const SYSTEM_CATALOG_FORMAT_VERSION: &[u8] = b"catalog-format-version";
 pub const SYSTEM_EXCISED_PREFIX: &[u8] = b"excised";
 pub const SYSTEM_HOT_KEY: &[u8] = b"hot-key";
+/// v0.20: Marker written after lease/extension-key migration to length-prefixed encoding.
+pub const SYSTEM_KEY_ENCODING_V020_MIGRATED: &[u8] = b"key-encoding-v020-migrated";
 
 // ─── Secondary Index Tag ───────────────────────────────────────────────────
 

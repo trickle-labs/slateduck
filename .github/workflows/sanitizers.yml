@@ -1,0 +1,37 @@
+name: Sanitizers and Miri
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  asan-ubsan:
+    name: ASAN + UBSAN
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Run with ASAN
+        env:
+          RUSTFLAGS: "-Z sanitizer=address"
+        run: cargo test -p slateduck-ffi --target x86_64-unknown-linux-gnu
+      - name: Run with UBSAN
+        env:
+          RUSTFLAGS: "-Z sanitizer=undefined"
+        run: cargo test -p slateduck-ffi --target x86_64-unknown-linux-gnu
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Run Miri
+        run: cargo miri test -p slateduck-ffi

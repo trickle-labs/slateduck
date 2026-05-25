@@ -352,3 +352,74 @@ fn id_monotonicity_across_operations() {
         prev_file = f;
     }
 }
+
+// ─── Key Encoding Collision-Safety Tests (v0.20) ──────────────────────────
+
+/// Distinct consumer IDs must produce distinct lease keys.
+#[test]
+fn distinct_consumer_ids_produce_distinct_lease_keys() {
+    let ids = [
+        "",
+        "a",
+        "ab",
+        "consumer-1",
+        "consumer-2",
+        "pgtrickle-repl-1",
+        "pgtrickle-repl-2",
+        // Pairs that collided with DefaultHasher before v0.20:
+        "abcd",
+        "dcba",
+    ];
+    let keys: Vec<Vec<u8>> = ids.iter().map(|id| key_snapshot_lease(id)).collect();
+    for i in 0..keys.len() {
+        for j in (i + 1)..keys.len() {
+            assert_ne!(
+                keys[i], keys[j],
+                "collision between '{}' and '{}'",
+                ids[i], ids[j]
+            );
+        }
+    }
+}
+
+/// Distinct (ext_id, table_name, row_id) triples must produce distinct extension keys.
+#[test]
+fn distinct_extension_key_triples_no_collision() {
+    let cases: &[(u8, &str, u64)] = &[
+        (1, "events", 1),
+        (1, "events", 2),
+        (1, "eventsX", 1),
+        (2, "events", 1),
+        (1, "", 0),
+        (1, "a", 0),
+        (0, "a", 0),
+    ];
+    let keys: Vec<Vec<u8>> = cases
+        .iter()
+        .map(|(ext, table, row)| key_extension_schema(*ext, table, *row))
+        .collect();
+    for i in 0..keys.len() {
+        for j in (i + 1)..keys.len() {
+            assert_ne!(
+                keys[i], keys[j],
+                "collision between {:?} and {:?}",
+                cases[i], cases[j]
+            );
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn lease_key_roundtrip_no_collision(
+        a in "[a-zA-Z0-9_\\-]{1,64}",
+        b in "[a-zA-Z0-9_\\-]{1,64}",
+    ) {
+        // Two distinct consumer IDs must never produce the same lease key.
+        if a != b {
+            let ka = key_snapshot_lease(&a);
+            let kb = key_snapshot_lease(&b);
+            prop_assert_ne!(ka, kb);
+        }
+    }
+}

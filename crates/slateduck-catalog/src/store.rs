@@ -57,6 +57,10 @@ impl CatalogStore {
         // Initialize or verify
         let counters = init::initialize_catalog(&db).await?;
 
+        // v0.20: Automatically migrate hash-encoded lease/extension keys to
+        // length-prefixed encoding. This is a no-op on already-migrated catalogs.
+        crate::key_migration::migrate_key_encoding_if_needed(&db).await?;
+
         // v0.19: CAS-protected writer epoch acquisition.
         // Read the current epoch, validate no other writer holds a non-expired lease,
         // and atomically CAS a new epoch. Fail closed when epoch key is missing after
