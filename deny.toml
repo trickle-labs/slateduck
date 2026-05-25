@@ -24,20 +24,46 @@ ignore = [
     "RUSTSEC-2024-0436",
     # rustls-pemfile: older API usage (transitive from tokio-rustls 0.26)
     "RUSTSEC-2025-0134",
-    # proc-macro-error: unmaintained — transitive dep via dbsp → utoipa → utoipa-gen.
-    # No upstream fix available in dbsp 0.299.0; tracked for next dbsp bump.
-    "RUSTSEC-2024-0370",
-    # fxhash: unmaintained — transitive dep via wasmtime 43.
-    "RUSTSEC-2025-0057",
 ]
 
+# Removed from ignore list at v0.21:
+# - RUSTSEC-2024-0370 (proc-macro-error via dbsp/utoipa) — no longer detected in dep tree.
+# - RUSTSEC-2025-0057 (fxhash via wasmtime 43) — no longer detected in dep tree.
+
 # ─── Licenses ─────────────────────────────────────────────────────────────────
-# License checking is disabled for v0.9.4.  Enable at v1.0 GA when the full
-# dependency tree has been audited for license compatibility.
+# v0.21: License enforcement enabled.  Allow list covers all licenses found in
+# the dependency tree as of v0.21.  Crates outside this list require an explicit
+# exception with rationale.
 [licenses]
 version = 2
-# License checking is intentionally minimal for v0.9.4.
-# Tighten at v1.0 GA after a full dependency audit.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "ISC",
+    "CC0-1.0",
+    "OpenSSL",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+# Exceptions: crates whose licenses are outside the allow list but vetted.
+[[licenses.exceptions]]
+# ring uses a custom OpenSSL-compatible license; acceptable for crypto.
+allow = ["LicenseRef-ring"]
+crate = "ring"
+[[licenses.exceptions]]
+# webpki uses ISC + custom; acceptable for TLS certificate parsing.
+allow = ["LicenseRef-webpki"]
+crate = "webpki"
+[[licenses.exceptions]]
+# fxhash uses Apache-2.0/MIT with no issues (unlicense-compatible).
+allow = ["MIT", "Apache-2.0"]
+crate = "fxhash"
 
 # ─── Bans ─────────────────────────────────────────────────────────────────────
 [bans]

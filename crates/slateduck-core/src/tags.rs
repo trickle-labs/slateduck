@@ -114,6 +114,12 @@ pub const TAG_SNAPSHOT_LEASE: u8 = 0x22;
 /// v0.20: Changed from hash-based to length-prefixed UTF-8 encoding.
 pub const TAG_EXTENSION_SCHEMA: u8 = 0x23;
 
+/// v0.21: Secondary index for data files by snapshot.
+/// Key: `0x21 | table_id(u64 BE) | snapshot_id(u64 BE) | file_id(u64 BE)`
+/// Value: serialized DataFileRow (same as primary key value).
+/// Enables O(log N) range scans in list_data_files() instead of O(N) full scans.
+pub const TAG_DATA_FILE_BY_SNAPSHOT: u8 = 0x21;
+
 // Tags 0x24–0x2F reserved for future IVM-related tables.
 
 // ─── SlateDuck Internal Tags ───────────────────────────────────────────────

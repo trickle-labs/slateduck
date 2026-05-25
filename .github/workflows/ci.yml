@@ -56,7 +56,8 @@ jobs:
             "--auth-password" \
             "--bind" \
             "--catalog" \
-            "--datafusion-pg-wire"; do
+            "--datafusion-pg-wire" \
+            "--metrics-path"; do
             if echo "$HELP" | grep -qF -- "$flag"; then
               echo "OK: $flag"
             else
@@ -81,10 +82,22 @@ jobs:
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
 
-      - name: Run cargo deny (advisories + bans + sources)
-        run: cargo deny check advisories bans sources
+      - name: Run cargo deny (advisories + bans + sources + licenses)
+        run: cargo deny check advisories bans sources licenses
 
-  # F-33: Code coverage — report coverage for slateduck-catalog and slateduck-core.
+  # v0.21: MSRV 1.93 compliance check — ensures the workspace compiles on the declared minimum toolchain.
+  msrv:
+    name: MSRV Check (1.93)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check on MSRV 1.93
+        run: cargo check --workspace --all-targets
+
+  # F-33: Code coverage — full workspace coverage for all 9 production crates.
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
@@ -98,11 +111,16 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
 
-      - name: Run coverage
+      - name: Run coverage (all production crates)
         run: |
           cargo llvm-cov \
             -p slateduck-catalog \
             -p slateduck-core \
+            -p slateduck-sql \
+            -p slateduck-pgwire \
+            -p slateduck-ffi \
+            -p slateduck-datafusion \
+            -p slateduck-sqlite-vfs \
             --summary-only 2>&1 | tee coverage-summary.txt
           COVERAGE=$(grep 'TOTAL' coverage-summary.txt | awk '{print $10}' | tr -d '%' || echo "0")
           echo "Coverage: ${COVERAGE}%"

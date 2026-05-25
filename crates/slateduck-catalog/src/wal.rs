@@ -9,16 +9,7 @@ pub struct WalEntry {
     seq: u64,
     key: Vec<u8>,
     value: Vec<u8>,
-    #[allow(dead_code)]
-    kind: WalEntryKind,
     checksum: u32,
-}
-
-/// Kind of WAL operation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum WalEntryKind {
-    Insert,
-    Delete,
 }
 
 impl WalEntry {
@@ -29,7 +20,6 @@ impl WalEntry {
             seq,
             key: key.to_vec(),
             value: value.to_vec(),
-            kind: WalEntryKind::Insert,
             checksum,
         }
     }
@@ -41,7 +31,6 @@ impl WalEntry {
             seq,
             key: key.to_vec(),
             value: Vec::new(),
-            kind: WalEntryKind::Delete,
             checksum,
         }
     }

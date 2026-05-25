@@ -4,6 +4,7 @@
 //! file variant stats, files scheduled for deletion), and Strategy C equivalence.
 
 use object_store::path::Path as ObjectPath;
+use slateduck_catalog::writer::stats::{FileColumnStatsInput, FileVariantStatsInput};
 use slateduck_catalog::{CatalogStore, OpenOptions};
 use slateduck_core::mvcc::SnapshotId;
 use std::sync::Arc;
@@ -342,18 +343,25 @@ async fn upsert_and_list_file_variant_stats() {
         .unwrap();
 
     writer
-        .upsert_file_variant_stats(
+        .upsert_file_variant_stats(FileVariantStatsInput {
             table_id,
-            col_id,
-            "$.name",
-            file_id,
-            Some("alice"),
-            Some("zoe"),
-        )
+            column_id: col_id,
+            variant_path: "$.name",
+            data_file_id: file_id,
+            min_value: Some("alice"),
+            max_value: Some("zoe"),
+        })
         .await
         .unwrap();
     writer
-        .upsert_file_variant_stats(table_id, col_id, "$.age", file_id, Some("18"), Some("99"))
+        .upsert_file_variant_stats(FileVariantStatsInput {
+            table_id,
+            column_id: col_id,
+            variant_path: "$.age",
+            data_file_id: file_id,
+            min_value: Some("18"),
+            max_value: Some("99"),
+        })
         .await
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
@@ -676,21 +684,28 @@ async fn all_28_ducklake_tables_tested() {
         .await
         .unwrap();
     writer
-        .upsert_file_column_stats(
+        .upsert_file_column_stats(FileColumnStatsInput {
             table_id,
-            col_id,
-            file_id,
-            false,
-            Some("1"),
-            Some("100"),
-            false,
-        )
+            column_id: col_id,
+            data_file_id: file_id,
+            has_null: false,
+            min_value: Some("1"),
+            max_value: Some("100"),
+            contains_nan: false,
+        })
         .await
         .unwrap();
 
     // File variant stats
     writer
-        .upsert_file_variant_stats(table_id, col_id, "$.path", file_id, Some("a"), Some("z"))
+        .upsert_file_variant_stats(FileVariantStatsInput {
+            table_id,
+            column_id: col_id,
+            variant_path: "$.path",
+            data_file_id: file_id,
+            min_value: Some("a"),
+            max_value: Some("z"),
+        })
         .await
         .unwrap();
 

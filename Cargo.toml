@@ -22,14 +22,14 @@ repository = "https://github.com/trickle-labs/slateduck"
 [workspace.dependencies]
 # Storage
 slatedb = "0.13"
-object_store = { version = "0.12", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.12" }
 bytes = "1"
 
 # Encryption
 aes-gcm = "0.10"
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs", "signal", "process"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

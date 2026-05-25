@@ -4935,6 +4935,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "clap",
+ "criterion",
  "object_store 0.12.5",
  "proptest",
  "serde",
@@ -5375,7 +5376,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

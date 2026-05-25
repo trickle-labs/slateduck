@@ -51,4 +51,8 @@ pub use reader::{CatalogReader, SnapshotDiff};
 pub use store::{CatalogStore, OpenOptions};
 pub use streaming::{measure_ingest_throughput, IngestRecord, IngestResult, SlateDuckSink};
 pub use warmup::{publish_writer_endpoint, read_writer_endpoint, warmup_cache, WarmupResult};
-pub use writer::{next_rowid_range, validate_app_metadata_key, CatalogWriter, ClaimOutcome};
+pub use writer::{
+    next_rowid_range,
+    stats::{FileColumnStatsInput, FileVariantStatsInput},
+    validate_app_metadata_key, CatalogWriter, ClaimOutcome,
+};

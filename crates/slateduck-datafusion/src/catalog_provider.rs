@@ -317,10 +317,6 @@ impl SchemaProvider for SlateDuckSchemaProvider {
 /// and, when data files are present, reads real Parquet data (F-15).
 #[derive(Debug)]
 pub struct SlateDuckTableProvider {
-    #[allow(dead_code)]
-    table_name: String,
-    #[allow(dead_code)]
-    table_id: u64,
     schema: datafusion::arrow::datatypes::SchemaRef,
     /// F-15: data files registered in the catalog at the active snapshot.
     data_files: Vec<DataFileRow>,
@@ -330,8 +326,8 @@ pub struct SlateDuckTableProvider {
 
 impl SlateDuckTableProvider {
     fn new(
-        table_name: String,
-        table_id: u64,
+        _table_name: String,
+        _table_id: u64,
         columns: Vec<slateduck_core::rows::ColumnRow>,
         data_files: Vec<DataFileRow>,
         data_root: Option<String>,
@@ -349,8 +345,6 @@ impl SlateDuckTableProvider {
         let schema = Arc::new(Schema::new(fields));
 
         Self {
-            table_name,
-            table_id,
             schema,
             data_files,
             data_root,

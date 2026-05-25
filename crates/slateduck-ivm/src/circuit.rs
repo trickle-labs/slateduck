@@ -58,6 +58,24 @@ pub struct IvmCircuit {
     state: HashMap<String, AggState>,
 }
 
+/// A canonical, hashable wrapper around a `serde_json::Value`.
+///
+/// Uses the JSON-serialised form as the hash key so that semantically equal
+/// values map to the same bucket regardless of f64 representation.  Used by
+/// `AggState::rescan_counts` to implement O(1) STRING_AGG / ARRAY_AGG
+/// deletions with a counted multiset instead of a `Vec::remove()` scan.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CanonicalValue(String);
+
+impl CanonicalValue {
+    pub fn from_value(v: &Value) -> Self {
+        Self(serde_json::to_string(v).unwrap_or_default())
+    }
+    pub fn to_value(&self) -> Value {
+        serde_json::from_str(&self.0).unwrap_or(Value::Null)
+    }
+}
+
 /// Per-group aggregate state.
 #[derive(Debug, Clone, Default)]
 pub struct AggState {
@@ -79,8 +97,9 @@ pub struct AggState {
     pub bool_aux: Vec<BoolAux>,
     /// BIT_AND/OR/XOR auxiliary: per-bit position counts per aggregate index.
     pub bit_aux: Vec<BitAux>,
-    /// Group-rescan aggregates: all input values retained for re-aggregation.
-    pub rescan_inputs: Vec<Vec<Value>>,
+    /// v0.21: Group-rescan aggregates (STRING_AGG / ARRAY_AGG) stored as a
+    /// counted multiset: O(1) deletes instead of O(N) Vec::remove() scans.
+    pub rescan_counts: Vec<HashMap<CanonicalValue, i64>>,
 }
 
 /// Auxiliary state for AVG: fully invertible via sum/count.
@@ -189,7 +208,7 @@ impl IvmCircuit {
                 stddev_aux: vec![StddevAux::default(); n_aggs],
                 bool_aux: vec![BoolAux::default(); n_aggs],
                 bit_aux: vec![BitAux::default(); n_aggs],
-                rescan_inputs: vec![Vec::new(); n_aggs],
+                rescan_counts: vec![HashMap::new(); n_aggs],
             });
 
             entry.row_count += delta.weight;
@@ -287,23 +306,23 @@ impl IvmCircuit {
                     AggregateKind::StringAgg | AggregateKind::ArrayAgg => {
                         if let Some(col) = &agg.input_col {
                             let val = delta.fields.get(col).cloned().unwrap_or(Value::Null);
-                            if delta.weight > 0 {
-                                for _ in 0..delta.weight {
-                                    entry.rescan_inputs[i].push(val.clone());
-                                }
-                            } else {
-                                // Remove matching values.
-                                for _ in 0..(-delta.weight) {
-                                    if let Some(pos) =
-                                        entry.rescan_inputs[i].iter().position(|v| v == &val)
-                                    {
-                                        entry.rescan_inputs[i].remove(pos);
-                                    }
-                                }
+                            let key = CanonicalValue::from_value(&val);
+                            // O(1) counted multiset: increment/decrement count,
+                            // sweep zero-count entries to reclaim memory.
+                            let count = entry.rescan_counts[i].entry(key).or_insert(0);
+                            *count += delta.weight;
+                            if *count == 0 {
+                                // Compaction: remove zero entries inline.
+                                // We can't use entry().and_modify() for removal,
+                                // so a post-loop sweep handles it.
                             }
                         }
                     }
                 }
+            }
+            // Compact zero-count rescan entries for all StringAgg/ArrayAgg aggs.
+            for counts in entry.rescan_counts.iter_mut() {
+                counts.retain(|_, c| *c > 0);
             }
         }
         // Remove zero-count groups.
@@ -413,15 +432,23 @@ impl IvmCircuit {
                         }
                     }
                     AggregateKind::StringAgg => {
-                        let inputs = &state.rescan_inputs[i];
-                        if inputs.is_empty() {
+                        // Expand the multiset to a sorted list of values for deterministic output.
+                        let counts = &state.rescan_counts[i];
+                        if counts.is_empty() {
                             Value::Null
                         } else {
-                            let s: String = inputs
+                            let mut pairs: Vec<(&CanonicalValue, i64)> =
+                                counts.iter().map(|(k, &c)| (k, c)).collect();
+                            pairs.sort_by(|a, b| a.0 .0.cmp(&b.0 .0));
+                            let s: String = pairs
                                 .iter()
-                                .filter_map(|v| match v {
-                                    Value::String(s) => Some(s.as_str()),
-                                    _ => None,
+                                .flat_map(|(k, c)| {
+                                    let val = k.to_value();
+                                    let s = match val {
+                                        Value::String(ref sv) => sv.clone(),
+                                        other => other.to_string(),
+                                    };
+                                    std::iter::repeat_n(s, *c as usize)
                                 })
                                 .collect::<Vec<_>>()
                                 .join(",");
@@ -429,11 +456,18 @@ impl IvmCircuit {
                         }
                     }
                     AggregateKind::ArrayAgg => {
-                        let inputs = &state.rescan_inputs[i];
-                        if inputs.is_empty() {
+                        let counts = &state.rescan_counts[i];
+                        if counts.is_empty() {
                             Value::Null
                         } else {
-                            Value::Array(inputs.clone())
+                            let mut pairs: Vec<(&CanonicalValue, i64)> =
+                                counts.iter().map(|(k, &c)| (k, c)).collect();
+                            pairs.sort_by(|a, b| a.0 .0.cmp(&b.0 .0));
+                            let arr: Vec<Value> = pairs
+                                .iter()
+                                .flat_map(|(k, c)| std::iter::repeat_n(k.to_value(), *c as usize))
+                                .collect();
+                            Value::Array(arr)
                         }
                     }
                 };

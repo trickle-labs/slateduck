@@ -59,7 +59,7 @@ binding on every roadmap release below.
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | **Done** |
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | **Done** |
-| **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
+| **v0.23 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Done |
@@ -70,8 +70,12 @@ binding on every roadmap release below.
 | **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Done |
 | **v0.19 — CDC Correctness & Catalog Transaction Hardening** | Real row-level `table_changes()` with Parquet scan, versioned `DataFileRow` / `SnapshotDiff` windows, CAS writer epoch, transactional extension row-ID allocation, atomic GC lease + retain-from, staged write discipline, overflow-safe counters | Done |
 | **v0.20 — FFI Safety, Live Notifications & Operational Wire-Up** | FFI `&'static mut` removal + SAFETY docs + Miri/ASAN CI, LISTEN/NOTIFY end-to-end, configurable extension schema registration, extension JSON fix, collision-safe key encoding, TLS panic fix, auth/TLS defaults | Done |
-| **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, O(1) aggregate deletions, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | Planning |
+| **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, O(1) aggregate deletions, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | Done |
 | **v0.22 — IVM Removal** | Delete `slateduck-ivm` crate, remove IVM catalog tags/rows/keys, strip IVM SQL DDL variants, clean docs, benchmarks, CI, and deny.toml | Planning |
+| **v0.24 — DuckLake v1.0 Conformance Harness & Interop-Critical Schema** | Conformance test harness for all 28 spec tables; fix snapshot/snapshot_changes schema; spec-complete data file fields; spec-complete delete file model; row ID tracking; table stats `next_row_id`; DROP TABLE cascade retirement | Planning |
+| **v0.25 — DuckLake v1.0 SQL Catalog Facade** | Full PgWire/virtual-table facade with exact spec column names and types for all 28 tables; views, macros, and inlined data tables through PgWire; scoped metadata; schema/table UUID and path fields; nested column model | Planning |
+| **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Planning |
+| **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -3273,14 +3277,14 @@ Deletions for `StringAgg` and `ArrayAgg` aggregates loop over negative weight, c
 
 ### Test and Documentation Deliverables
 
-- [ ] Benchmark: `list_data_files()` with secondary index at 10⁴ / 10⁵ files
-- [ ] Benchmark: STRING_AGG deletion at 100k / 1M group size
-- [ ] CI: MSRV 1.93 check job
-- [ ] CI: `cargo deny check licenses`
-- [ ] CI: full workspace coverage reporting
-- [ ] Integration test: `--metrics-path` routing returns 200 on configured path and 404 elsewhere
-- [ ] Classifier tests: quoted identifiers, AS edge cases, invalid LISTEN channels
-- [ ] `docs/contributing/code-style.md`: module size limit, parameter struct conventions, dead-code policy
+- [x] Benchmark: `list_data_files()` with secondary index at 10⁴ / 10⁵ files
+- [x] Benchmark: STRING_AGG deletion at 100k / 1M group size
+- [x] CI: MSRV 1.93 check job
+- [x] CI: `cargo deny check licenses`
+- [x] CI: full workspace coverage reporting
+- [x] Integration test: `--metrics-path` routing returns 200 on configured path and 404 elsewhere
+- [x] Classifier tests: quoted identifiers, AS edge cases, invalid LISTEN channels
+- [x] `docs/contributing/code-style.md`: module size limit, parameter struct conventions, dead-code policy
 
 ---
 
@@ -3443,7 +3447,7 @@ Delete IVM test fixtures:
 - [ ] Remove "IVM Worker Deployment Model" from Cross-Cutting Concerns
 - [ ] Remove "Graceful Shutdown & Rolling Updates (IVM Workers)" from Cross-Cutting Concerns
 - [ ] Remove `IvmWorkerHarness` and `IvmOracle` from `slateduck-testkit` harness list
-- [ ] Update the v0.10.0 note that says "its CDC output primitives feed into IVM" — remove IVM reference
+- [ ] Update the v0.23 note that says "its CDC output primitives feed into IVM" — remove IVM reference
 
 ### Phase 12 — CI Cleanup
 
@@ -3479,6 +3483,359 @@ Delete IVM test fixtures:
 | Clean build time reduction | — | ~30 s (wasmtime compile) |
 | Binary eliminated | — | `slateduck-ivm` binary |
 | Advisories dropped from deny.toml | — | 2 (`RUSTSEC-2024-0370`, `RUSTSEC-2025-0057`) |
+
+---
+
+## v0.24 — DuckLake v1.0 Conformance Harness & Interop-Critical Schema
+
+> Establish a machine-readable conformance harness for all 28 DuckLake v1.0 catalog tables, then fix the highest-severity P0 schema gaps that block DuckDB client interoperability: snapshot/snapshot_changes, data files, delete files, row ID tracking, table stats, and DROP TABLE cascade retirement.
+
+### Phase 0 — Conformance Harness
+
+Before any schema work lands, a machine-readable manifest and golden-test suite must exist so every subsequent change is verifiable against the spec. This harness becomes the regression gate for all later DuckLake compatibility work.
+
+- [ ] Add a machine-readable DuckLake v1.0 schema manifest derived from `specification/tables/overview.md` — one TOML or JSON file that lists all 28 tables, their column names, column types, nullability, and whether a column is spec-required or extension-only.
+- [ ] Add tests that assert the SQL facade exposes all 28 tables with exact column names and compatible types; fail fast on any column-name or type mismatch.
+- [ ] Add golden tests for the SQL query examples in `specification/queries.md`; capture expected column order and representative row shapes.
+- [ ] Add tests that verify unsupported DuckLake SQL writes fail with an explicit error rather than returning success as a no-op. Any statement accepted by PgWire but not persisted must return `SQLSTATE 0A000` (feature not supported) or equivalent.
+- [ ] Wire the conformance manifest check into CI so schema regressions are caught on every PR.
+
+### Phase 1 — Snapshot and Snapshot Changes Schema
+
+Spec:
+- `ducklake_snapshot(snapshot_id, snapshot_time, schema_version, next_catalog_id, next_file_id)`
+- `ducklake_snapshot_changes(snapshot_id, changes_made, author, commit_message, commit_extra_info)`
+
+- [ ] Add `next_catalog_id` and `next_file_id` to `SnapshotRow`, populated from `TAG_COUNTERS` at commit time.
+- [ ] Move `author` and `message` semantics out of `SnapshotRow` and into `SnapshotChangesRow` as `author` and `commit_message`; add `commit_extra_info` field.
+- [ ] Persist a spec-compatible `changes_made` string per snapshot using documented values: `created_schema:<schema_name>`, `inserted_into_table:<table_id>`, `dropped_table:<table_id>`, etc.
+- [ ] Update `execute_commit` to write `SnapshotChangesRow` transactionally alongside the snapshot row — not as an informational side-effect.
+- [ ] Update the PgWire `SelectSnapshot` and `SelectSnapshotChanges` response builders to expose the exact spec columns in spec column order.
+- [ ] Add conformance tests: insert a snapshot, select it back, verify `next_catalog_id` and `next_file_id` are non-zero and match the counter state at commit time.
+
+### Phase 2 — Spec-Complete Data File Model
+
+Spec `ducklake_data_file` columns: `data_file_id`, `table_id`, `begin_snapshot`, `end_snapshot`, `file_order`, `path`, `path_is_relative`, `file_format`, `record_count`, `file_size_bytes`, `footer_size`, `row_id_start`, `partition_id`, `encryption_key`, `mapping_id`, `partial_max`
+
+- [ ] Add `file_order` to `DataFileRow`; persist it as a monotonically increasing integer within a table, assigned at registration time.
+- [ ] Add `path_is_relative` boolean to `DataFileRow`; default `false` for absolute paths.
+- [ ] Rename `row_count` → `record_count` in `DataFileRow` and all PgWire response builders.
+- [ ] Change `footer_size` from `Option<String>` to `Option<i64>` (BIGINT semantics).
+- [ ] Add `row_id_start` to `DataFileRow`; populated from the pre-increment `next_row_id` counter at file registration time.
+- [ ] Add `partition_id`, `mapping_id`, and `partial_max` to `DataFileRow`.
+- [ ] Remove legacy `snapshot_id` field from `DataFileRow`; `begin_snapshot` is the canonical field.
+- [ ] Fix `CatalogReader::list_data_files` to filter out rows where `end_snapshot` is ≤ the requested snapshot (MVCC retirement visibility).
+- [ ] Fix `list_data_files` to order results by `file_order`.
+- [ ] Update PgWire `InsertDataFile` to read and persist all new spec fields from the incoming SQL parameters.
+- [ ] Add conformance tests: register three data files, drop the middle one, time-travel to before and after the drop, verify retired files are absent from the later snapshot and present at the earlier one.
+
+### Phase 3 — Spec-Complete Delete File Model
+
+Spec `ducklake_delete_file` columns: `delete_file_id`, `table_id`, `begin_snapshot`, `end_snapshot`, `data_file_id`, `path`, `path_is_relative`, `format`, `delete_count`, `file_size_bytes`, `footer_size`, `encryption_key`, `partial_max`
+
+- [ ] Add `table_id`, `begin_snapshot`, `end_snapshot`, `path_is_relative`, `format`, `footer_size`, and `partial_max` to `DeleteFileRow`.
+- [ ] Rename `row_count` → `delete_count` in `DeleteFileRow`.
+- [ ] Implement `CatalogReader::list_delete_files(table_id, snapshot_id)` with spec MVCC visibility (`begin_snapshot ≤ snapshot_id` and (`end_snapshot IS NULL` or `end_snapshot > snapshot_id`)).
+- [ ] Fix `PgWire SelectDeleteFiles` to call `list_delete_files` and return a spec-shaped result set; currently returns empty.
+- [ ] Update `InsertDeleteFile` to persist all spec fields.
+- [ ] Add key/index support for delete-file lookup by `table_id` and snapshot range.
+- [ ] Add conformance tests: register a delete file, select it, verify `table_id`, `begin_snapshot`, `format`, and `delete_count` are correct; retire it and verify it disappears from the visible set at the retire snapshot.
+
+### Phase 4 — Row ID Tracking and Table Stats
+
+Spec `ducklake_table_stats` columns: `table_id`, `record_count`, `next_row_id`, `file_size_bytes`
+
+- [ ] Add `next_row_id` to `TableStatsRow`; update it atomically with each data-file registration using the pre-increment value for `row_id_start`.
+- [ ] Rename `row_count` → `record_count` and `total_size_bytes` → `file_size_bytes` in `TableStatsRow` and all PgWire response builders.
+- [ ] Keep `file_count` as an internal/extension statistic only; do not expose it in the spec-shaped facade.
+- [ ] Fix `PgWire UpdateTableStats` to apply the incoming row-count and size deltas rather than calling `update_table_stats(table_id, 0, 0, 0)`.
+- [ ] Fix `PgWire SelectTableStats` to call the reader and return spec-shaped rows; currently returns empty.
+- [ ] Add conformance tests: insert two data files with 100 rows each, verify `record_count = 200`, `next_row_id ≥ 200`, and `file_size_bytes` matches the sum.
+
+### Phase 5 — DROP TABLE Cascade Retirement
+
+Spec: DROP TABLE must set `end_snapshot` on all of: `ducklake_table`, `ducklake_partition_info`, `ducklake_column`, `ducklake_column_tag`, `ducklake_data_file`, `ducklake_delete_file`, `ducklake_tag`
+
+- [ ] Extend `CatalogWriter::drop_table` to retire all dependent rows (columns, column tags, data files, delete files, tags, partition info) in the same snapshot transaction.
+- [ ] Extend `PgWire UpdateEndSnapshot` handling to cover all spec tables, not just `ducklake_table` and `ducklake_column`.
+- [ ] Add conformance tests: create a table with columns, tags, and data files; drop it; verify every related row across all spec tables has `end_snapshot` set at the drop snapshot; verify the table is invisible to readers at the drop snapshot and visible to readers at the snapshot before the drop.
+
+### Deliverables
+
+- [ ] Conformance manifest checked into `tests/fixtures/ducklake-v1.0-schema.toml`
+- [ ] Conformance test suite green on every PR
+- [ ] `ducklake_snapshot` and `ducklake_snapshot_changes` spec-compatible in protobuf and PgWire facade
+- [ ] `ducklake_data_file` all spec fields present; MVCC visibility and `file_order` ordering correct
+- [ ] `ducklake_delete_file` all spec fields present; `list_delete_files` returns spec-shaped rows
+- [ ] `ducklake_table_stats` spec-compatible; `next_row_id` tracks row ID allocation; `SelectTableStats` non-empty
+- [ ] DROP TABLE retires all dependent spec tables; cascade conformance tests green
+- [ ] All new fields covered by unit tests in `slateduck-core` and integration tests in `slateduck-catalog`
+
+---
+
+## v0.25 — DuckLake v1.0 SQL Catalog Facade
+
+> Complete the PgWire virtual-table layer so that every one of the 28 DuckLake spec tables is queryable with exact spec column names, column order, and value semantics. Add full persistence for views, macros, and inlined data tables. Add scoped metadata, UUID fields, `path`/`path_is_relative` fields, and a spec-correct nested column model.
+
+### Full 28-Table SQL Facade
+
+The DuckLake spec defines a SQL catalog database with 28 tables. SlateDuck stores facts as key/value rows; the facade is the PgWire/virtual-table projection layer. Today many tables return empty result sets or expose SlateDuck-internal column names. This phase closes that gap entirely.
+
+- [ ] Audit every `StatementKind` in `slateduck-pgwire/src/executor/mod.rs` that currently returns an empty result set (`SelectSnapshot`, `SelectTableStats`, `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectDeleteFiles`); replace each with a real reader call and a spec-shaped response builder.
+- [ ] Implement spec-shaped response builders for all 28 tables. Each builder must expose columns in spec column order with spec column names. Use a per-table response builder struct pattern consistent with existing code.
+- [ ] For every `INSERT`-accepting `StatementKind` that currently no-ops (`InsertMetadata`, `InsertInlinedDataTable`, `InsertView`, `InsertMacro`, `InsertMacroImpl`, `InsertMacroParameters`), wire through to the corresponding `CatalogWriter` method and persist the row.
+- [ ] Add PgWire integration tests for every table: one round-trip insert + select test per table verifying column names match the spec manifest from v0.24.
+
+### Scoped Metadata (`ducklake_metadata`)
+
+Spec: `metadata_key`, `metadata_value`, `scope`, `scope_id`
+
+- [ ] Add `scope` and `scope_id` to `MetadataRow`; `MetadataScope` is already encoded in keys but must be denormalized into the row for SQL queries.
+- [ ] Fix `InsertMetadata` to persist `scope` and `scope_id` from the incoming SQL parameters.
+- [ ] Fix `SelectMetadata` to return spec-shaped rows including `scope` and `scope_id`.
+- [ ] Add conformance tests: insert global metadata, insert table-scoped metadata with a `scope_id`, verify both are retrievable with correct `scope` values.
+
+### Schema UUID and Path Fields (`ducklake_schema`)
+
+Spec: `schema_id`, `begin_snapshot`, `end_snapshot`, `schema_uuid`, `schema_name`, `path`, `path_is_relative`
+
+- [ ] Add `schema_uuid` (UUID v4, generated at create time), `path`, and `path_is_relative` to `SchemaRow`.
+- [ ] Persist all three fields in `CatalogWriter::create_schema`.
+- [ ] Update the PgWire `SelectSchemas` response builder to expose all spec columns.
+
+### Table UUID and Path Fields (`ducklake_table`)
+
+Spec: `table_id`, `begin_snapshot`, `end_snapshot`, `schema_id`, `table_name`, `table_uuid`, `path`, `path_is_relative`
+
+- [ ] Add `table_uuid` (UUID v4, generated at create time), `path`, and `path_is_relative` to `TableRow`; rename `data_path` → `path` in the SQL facade.
+- [ ] Persist all three fields in `CatalogWriter::create_table`.
+- [ ] Update the PgWire `SelectTables` response builder to expose all spec columns.
+
+### Column Defaults and Nested Column Model (`ducklake_column`)
+
+Spec: `column_id`, `begin_snapshot`, `end_snapshot`, `table_id`, `column_name`, `column_type`, `column_order`, `nulls_allowed`, `initial_default`, `default_value_type`, `default_value_dialect`, `parent_column`
+
+- [ ] Rename facade columns: `data_type` → `column_type`, `column_index` → `column_order`, `is_nullable` → `nulls_allowed`.
+- [ ] Add `initial_default`, `default_value_type`, `default_value_dialect`, and `parent_column` to `ColumnRow`.
+- [ ] Persist all new fields via `CatalogWriter::add_column`.
+- [ ] Support nested column rows: when `parent_column` is non-null, store and retrieve the parent/child relationship; child columns have their own `column_id`.
+- [ ] Update the PgWire `SelectColumns` response builder to use spec column names.
+
+### Views, Macros, and Inlined Data Tables
+
+**`ducklake_view`** (spec: `view_id`, `begin_snapshot`, `end_snapshot`, `schema_id`, `view_name`, `view_uuid`, `view_definition`, `dialect`, `column_aliases`):
+- [ ] Add `view_uuid`, `dialect`, and `column_aliases` to `ViewRow`.
+- [ ] Fix `InsertView` to call `CatalogWriter::create_view` and persist all fields.
+- [ ] Fix `SelectViews` to return spec-shaped rows.
+
+**`ducklake_macro`** and **`ducklake_macro_impl`** (spec: `macro_id`, `macro_name`, `macro_uuid`, `schema_id` / `macro_id`, `dialect`, `type`, `sql`):
+- [ ] Move `macro_type` from `MacroRow` into `MacroImplRow` as `type` (spec-correct location).
+- [ ] Add `macro_uuid` to `MacroRow`.
+- [ ] Add `dialect` and rename `definition` → `sql` in `MacroImplRow`.
+- [ ] Fix `InsertMacro` and `InsertMacroImpl` to persist through `CatalogWriter`.
+- [ ] Fix `SelectMacros` to return spec-shaped rows.
+
+**`ducklake_macro_parameters`** (spec: `macro_id`, `parameter_name`, `parameter_type`, `default_value_type`):
+- [ ] Add `default_value_type` to `MacroParameterRow`.
+- [ ] Fix `InsertMacroParameters` to persist through `CatalogWriter`.
+
+**`ducklake_inlined_data_tables`** (spec: `table_id`, `table_name`, `sql`):
+- [ ] Rename the internal `sql` field to align with spec; expose `table_name` rather than raw SQL as the primary identifier.
+- [ ] Fix `InsertInlinedDataTable` to persist through `CatalogWriter`.
+- [ ] Fix `SelectInlinedDataTables` to return spec-shaped rows.
+
+### Column Mapping and Name Mapping
+
+**`ducklake_column_mapping`** (spec: `mapping_id`, `table_id`, `type`):
+- [ ] Restructure `ColumnMappingRow` to carry `mapping_id`, `table_id`, and `type`; move `file_column_name` and `column_id` into a related name-mapping record.
+
+**`ducklake_name_mapping`** (spec: `mapping_id`, `column_id`, `name`, `target_field_id`, `parent_column`, `is_partition`):
+- [ ] Add `target_field_id`, `parent_column`, and `is_partition` to `NameMappingRow`.
+- [ ] Remove non-spec `source_name_hash`.
+
+### Deliverables
+
+- [ ] All 28 DuckLake spec tables return non-empty, spec-shaped result sets through PgWire for at least one representative fixture row each
+- [ ] All `INSERT` statement kinds that were previously no-ops now persist to the KV store and round-trip correctly
+- [ ] `ducklake_schema`, `ducklake_table`, `ducklake_column` facades use spec column names
+- [ ] `ducklake_view`, `ducklake_macro`, `ducklake_macro_impl`, `ducklake_macro_parameters`, `ducklake_inlined_data_tables` fully wired
+- [ ] `ducklake_metadata` scope fields persisted and queryable
+- [ ] Column mapping and name mapping restructured to spec layout
+- [ ] Nested column rows supported via `parent_column`
+- [ ] Round-trip PgWire test for every table in the conformance suite passes
+
+---
+
+## v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting
+
+> Complete stats coverage for all file and table column statistics tables; add geometry and variant `extra_stats`; implement a DuckLake type parser used consistently for catalog validation and pruning; add the full sort expression model; close partition column and file partition value gaps; add partial-file support.
+
+### Full File Column Stats (`ducklake_file_column_stats`)
+
+Spec: `data_file_id`, `column_id`, `lower_bound`, `upper_bound`, `contains_null`, `contains_nan`, `column_size_bytes`, `value_count`, `null_count`, `extra_stats`
+
+- [ ] Add `column_size_bytes`, `value_count`, `null_count`, and `extra_stats` to `FileColumnStatsRow`.
+- [ ] Rename `has_null` boolean → `contains_null` (also rename in stats writer and PgWire response builder).
+- [ ] Implement `extra_stats` as a JSON blob field; add validation that it is well-formed JSON when present.
+- [ ] Update `CatalogWriter::write_file_column_stats` (in `stats.rs`) to persist all new fields.
+- [ ] Update the PgWire stats response builder to expose all spec columns.
+
+### Full Table Column Stats (`ducklake_table_column_stats`)
+
+Spec: `table_id`, `column_id`, `lower_bound`, `upper_bound`, `contains_null`, `contains_nan`, `extra_stats`
+
+- [ ] Add `contains_nan` and `extra_stats` to `TableColumnStatsRow`.
+- [ ] Rename `has_null` → `contains_null`.
+- [ ] Update writer and PgWire response builder.
+
+### Variant Stats and Extra Stats (`ducklake_file_variant_stats`)
+
+Spec: `data_file_id`, `column_id`, `variant_key`, `shredded_type`, `column_size_bytes`, `value_count`, `null_count`, `contains_nan`, `extra_stats`
+
+- [ ] Add `shredded_type`, `column_size_bytes`, `value_count`, `null_count`, `contains_nan`, and `extra_stats` to `FileVariantStatsRow`.
+- [ ] Remove non-spec `variant_path_hash`; use `variant_key` as the natural identifier.
+- [ ] Add writer and PgWire support.
+
+### Geometry Stats Support
+
+The DuckLake `extra_stats` field on file column stats rows carries geometry bounding boxes and type information for spatial columns. This is the only place geometry metadata appears in the spec.
+
+- [ ] Define a `GeometryExtraStats` struct with fields for bounding box (min/max X, Y, Z, M), geometry type, and SRID.
+- [ ] Serialize `GeometryExtraStats` as JSON into the `extra_stats` field of `FileColumnStatsRow`.
+- [ ] Add a validator that rejects malformed geometry `extra_stats` JSON at write time.
+- [ ] Add a pruning helper that reads bounding box extents from `extra_stats` for spatial predicate pushdown.
+
+### DuckLake Type Parser
+
+The spec defines a rich set of primitive and nested type strings (`boolean`, `int32`, `decimal(P,S)`, `timestamp_s`, `list<T>`, `struct<f:T,...>`, `map<K,V>`, `variant`, `geometry`). Currently `DuckLakeType` uses broad comparison categories and `DuckLakeType::Varchar` is passed for all PgWire type-aware pruning.
+
+- [ ] Implement a `DuckLakeType` parser that accepts a DuckLake type string and produces a typed enum variant: signed/unsigned integers with explicit bit width, decimal with precision and scale, timestamp with explicit precision (`_s`, `_ms`, `_ns`, `_us`), explicit `json`, explicit `uuid`, explicit `variant`.
+- [ ] Add nested type variants: `List(Box<DuckLakeType>)`, `Struct(Vec<(String, DuckLakeType)>)`, `Map { key: Box<DuckLakeType>, value: Box<DuckLakeType> }`.
+- [ ] Use the type parser in `ducklake_column` writes to validate `column_type` strings at the PgWire boundary.
+- [ ] Use the type parser in file pruning: derive the correct comparison semantics from `ducklake_column.column_type` rather than passing `Varchar` unconditionally.
+- [ ] Add unit tests covering all spec primitive types and the three nested type forms.
+
+### Nested Column Rows with `parent_column`
+
+- [ ] Implement recursive column tree reads: `CatalogReader::list_columns` must return child columns alongside parent columns, ordered by `column_order` within each level.
+- [ ] Add a write path for nested columns: `CatalogWriter::add_column` accepts an optional `parent_column_id`; child columns share `table_id` and `begin_snapshot` with their parent.
+- [ ] Add conformance tests: create a `struct` column with two child fields, list columns, verify `parent_column` is set on children and null on the struct column.
+
+### Sort Expression Spec Parity (`ducklake_sort_expression`)
+
+Spec: `table_id`, `sort_order`, `expression`, `dialect`, `sort_direction`, `null_order`
+
+- [ ] Replace boolean `ascending`/`nulls_first` fields in `SortExpressionRow` with string fields `sort_direction` (`'ASC'`/`'DESC'`) and `null_order` (`'NULLS FIRST'`/`'NULLS LAST'`), matching spec semantics.
+- [ ] Add `table_id`, `expression`, and `dialect` to `SortExpressionRow`.
+- [ ] Update `CatalogWriter`, key encoding, and PgWire response builder for `ducklake_sort_expression`.
+- [ ] Ensure `ducklake_sort_info` is exposed via the SQL facade and its lifecycle (creation, DROP TABLE cascade) is covered.
+
+### Partition Column `table_id` and Lifecycle (`ducklake_partition_column`)
+
+- [ ] Add `table_id` to `PartitionColumnRow`.
+- [ ] Ensure DROP TABLE cascade (from v0.24) retires `ducklake_partition_info` and `ducklake_partition_column` rows.
+- [ ] Confirm the PgWire SQL facade exposes `ducklake_partition_info` and `ducklake_partition_column` with correct spec columns.
+
+### File Partition Value and Scheduled Deletion (`ducklake_file_partition_value`, `ducklake_files_scheduled_for_deletion`)
+
+- [ ] Rename `value` → `partition_value` in `FilePartitionValueRow` and the SQL facade.
+- [ ] Add `path_is_relative` to `FilesScheduledForDeletionRow`.
+- [ ] Remove non-spec `file_type` from `FilesScheduledForDeletionRow` (or move to an extension-only field if still needed internally).
+- [ ] Change the deletion timestamp field to use SQL `TIMESTAMPTZ` semantics (microseconds since epoch, not integer seconds).
+
+### Partial File Support (`partial_max`)
+
+- [ ] `partial_max` was added to `DataFileRow` and `DeleteFileRow` in v0.24. In this phase, implement the reader-side behavior: when reading a data file with `partial_max IS NOT NULL`, treat the file as containing only rows up to and including the row with the maximum value equal to `partial_max`.
+- [ ] Add a pruning shortcut: skip a partial file entirely if the query predicate excludes all rows up to `partial_max`.
+
+### Deliverables
+
+- [ ] `ducklake_file_column_stats`, `ducklake_table_column_stats`, `ducklake_file_variant_stats` spec-compatible with all required fields
+- [ ] `extra_stats` JSON field written, validated, and readable for variant and geometry stats
+- [ ] DuckLake type parser implemented, tested, and used in column validation and pruning
+- [ ] Nested column reads and writes working end-to-end with `parent_column`
+- [ ] `ducklake_sort_expression` uses spec string fields; `ducklake_sort_info` exposed via SQL facade
+- [ ] `ducklake_partition_column.table_id` present; partition lifecycle covered by DROP TABLE cascade
+- [ ] `partition_value` renamed; `path_is_relative` and `TIMESTAMPTZ` semantics for `files_scheduled_for_deletion`
+- [ ] Partial-file `partial_max` read semantics implemented and tested
+
+---
+
+## v0.27 — DuckLake v1.0 External Compatibility Validation
+
+> Validate SlateDuck against a real DuckDB DuckLake extension client. Run the full spec query corpus, implement a migration path from existing DuckLake deployments, and close all remaining P2 fidelity gaps. Exit criteria: SlateDuck can credibly claim DuckLake v1.0 catalog compatibility.
+
+### Real DuckDB DuckLake Extension End-to-End Tests
+
+This is the primary acceptance gate for all DuckLake compatibility work across v0.24–v0.27.
+
+- [ ] Stand up a SlateDuck PgWire sidecar against an in-process MinIO instance (using `MinioHarness` from `slateduck-testkit`).
+- [ ] Connect a real DuckDB process using the `ducklake` extension via the PostgreSQL attachment string `ducklake:postgres://127.0.0.1:5555/...`.
+- [ ] Run the full DuckLake tutorial end-to-end: `ATTACH`, `CREATE SCHEMA`, `CREATE TABLE`, multi-row `INSERT`, `SELECT`, `DELETE`, `UPDATE`, `DROP TABLE`, `DROP SCHEMA`, `DETACH`.
+- [ ] Verify time-travel reads: `SELECT ... FROM table AT (VERSION => N)` returns rows visible at snapshot N and excludes rows added after N.
+- [ ] Verify file pruning: single typed-column predicate at 10⁴ files; confirm SlateDuck does not scan files that the zone-map or exact-stats pruning eliminates.
+- [ ] Verify conflict resolution: two concurrent writer connections; one must succeed and the other must receive a retryable conflict error; the winner's data is visible and the loser's is absent.
+- [ ] Capture any `column-not-found`, `type mismatch`, or behavior divergence as blocking test failures.
+- [ ] Add this test suite as Tier 4 in the CI test matrix (MinIO, runs on every merge to `main`).
+
+### Read Conformance Suite Against `specification/queries.md`
+
+- [ ] Extract every SQL example from `specification/queries.md` into parameterized golden tests.
+- [ ] For each query, set up the required catalog state (snapshot, schema, table, columns, data files), run the query through the SlateDuck PgWire facade, and assert column names, column types, and row values against a golden fixture.
+- [ ] Run this suite on every PR as part of the conformance harness from v0.24.
+- [ ] Document any queries that remain unsupported with an explicit `SQLSTATE 0A000` response and a tracking note; no query may silently return wrong results.
+
+### Import / Export and Migration Path
+
+- [ ] Implement `slateduck migrate-from-ducklake --source <conn-string> --catalog <s3-path>`: reads an existing PostgreSQL- or SQLite-backed DuckLake catalog (current snapshot only), replays its metadata into a fresh SlateDuck catalog, and emits a verification report comparing row counts and column presence per table.
+- [ ] Implement `slateduck export-catalog --catalog <s3-path> --out <file.json>`: serializes the current snapshot of all 28 catalog tables to a JSON-lines file usable as an interop dump or for debugging.
+- [ ] Document the migration procedure in `docs/operations/migration-from-ducklake.md`; cover cutover, rollback, and known incompatibilities.
+- [ ] End-to-end test `migrate-from-ducklake` against a SQLite-backed DuckLake fixture at SF1 scale.
+- [ ] End-to-end test `migrate-from-ducklake` against a PostgreSQL-backed DuckLake fixture.
+
+### P2 Fidelity Gaps
+
+These gaps do not block narrow happy-path interop but are required for full catalog fidelity.
+
+**`ducklake_tag` and `ducklake_column_tag` facade:**
+- [ ] Rename `tag_key`/`tag_value` → `key`/`value` in the SQL facade response builders for both tables.
+- [ ] Ensure `ducklake_column_tag` rows are retired by DROP TABLE cascade (verified by the cascade conformance tests from v0.24).
+- [ ] Add lifecycle tests: create a table with tags and column tags, drop the table, verify all tag rows have `end_snapshot` set.
+
+**`ducklake_schema_versions` facade:**
+- [ ] Confirm the SQL facade exposes `ducklake_schema_versions` in exact spec column order.
+- [ ] Add a write-path test: evolve a table schema across two snapshots, verify `ducklake_schema_versions` contains a row for each evolution.
+
+**`ducklake_sort_info` lifecycle:**
+- [ ] Add a round-trip test: define sort info on a table, drop the table, verify sort info is retired.
+
+### Definition of Done for DuckLake v1.0 Compatibility
+
+SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following are true. These become hard blockers for the v1.0 GA tag:
+
+- [ ] All 28 spec tables are visible through SQL with exact column names and compatible types.
+- [ ] Every spec field is either persisted internally or losslessly synthesized in the SQL facade.
+- [ ] DuckLake query examples from `specification/queries.md` pass against SlateDuck.
+- [ ] Create/insert/delete/update/drop operations produce rows matching spec semantics.
+- [ ] Time travel uses `begin_snapshot` and `end_snapshot` consistently across all spec tables that carry MVCC windows.
+- [ ] Snapshot rows include `next_catalog_id` and `next_file_id`.
+- [ ] Snapshot changes include `changes_made`, `author`, `commit_message`, and `commit_extra_info`.
+- [ ] Data files include `file_order`, `row_id_start`, `path_is_relative`, `partition_id`, `mapping_id`, and `partial_max`.
+- [ ] Delete files include full MVCC windows, all spec fields, and are returned to readers.
+- [ ] Row ID allocation is represented through `ducklake_table_stats.next_row_id` and `ducklake_data_file.row_id_start`.
+- [ ] No supported DuckLake SQL write is accepted as a no-op; any unimplemented write returns `SQLSTATE 0A000`.
+- [ ] Real DuckDB DuckLake extension end-to-end test suite passes on every merge to `main`.
+
+### Deliverables
+
+- [ ] Real DuckDB end-to-end test suite passing in CI (Tier 4)
+- [ ] `specification/queries.md` conformance golden tests green
+- [ ] `slateduck migrate-from-ducklake` and `slateduck export-catalog` subcommands implemented and tested
+- [ ] `docs/operations/migration-from-ducklake.md` written and reviewed
+- [ ] `ducklake_tag` and `ducklake_column_tag` facades using spec column names
+- [ ] `ducklake_schema_versions` SQL facade column order verified
+- [ ] DuckLake v1.0 compatibility definition-of-done checklist fully green
+- [ ] Compatibility status matrix updated in `docs/compatibility.md`
 
 ---
 
@@ -3538,9 +3895,9 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 
 ---
 
-## v0.10.0 — Streaming Ingest
+## v0.23 — Streaming Ingest
 
-> **Note:** v0.10 is documented after v1.0 because it is an independent, parallel workstream. It does not block or depend on other workstreams. Its CDC output primitives provide change-stream capabilities that can feed downstream consumers.
+> **Note:** v0.23 is documented after v1.0 because it is an independent, parallel workstream. It does not block or depend on other workstreams. Its CDC output primitives provide change-stream capabilities that can feed downstream consumers.
 
 > Kafka/NATS streaming pipelines, exactly-once delivery semantics, and pg-tide-relay integration for zero-infrastructure ingest paths from transactional sources to S3-backed data lakes.
 
@@ -3603,7 +3960,7 @@ The complement to ingest: when a DuckLake snapshot is committed, the *diff* betw
 
 ### Streaming Ingest + IVM Integration
 
-When v0.10 (streaming ingest) and v0.11+ (IVM) are both deployed, the end-to-end story is:
+When v0.23 (streaming ingest) is deployed, the end-to-end story is:
 
 ```
 Kafka/NATS → pg-tide-relay → SlateDuck snapshot → IVM worker → materialized view update → CDC export

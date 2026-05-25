@@ -178,6 +178,43 @@ pub fn key_data_file(table_id: u64, data_file_id: u64) -> Vec<u8> {
     buf
 }
 
+/// Build a secondary-index key for data files ordered by snapshot:
+/// `0x21 | table_id(u64 BE) | snapshot_id(u64 BE) | file_id(u64 BE)`.
+///
+/// This enables O(log N) range scans in `list_data_files()`:
+/// scan `[0x21 | table_id | 0 | 0]` to `[0x21 | table_id | (snap+1) | 0]`
+/// to retrieve only files registered at or before the requested snapshot.
+pub fn key_data_file_by_snapshot(table_id: u64, snapshot_id: u64, file_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(25);
+    buf.push(crate::tags::TAG_DATA_FILE_BY_SNAPSHOT);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf.extend_from_slice(&encode_u64(snapshot_id));
+    buf.extend_from_slice(&encode_u64(file_id));
+    buf
+}
+
+/// Prefix for the secondary index scan over all files for a given table:
+/// `0x21 | table_id(u64 BE)`.
+pub fn prefix_data_files_by_snapshot_for_table(table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(9);
+    buf.push(crate::tags::TAG_DATA_FILE_BY_SNAPSHOT);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf
+}
+
+/// Upper-exclusive range bound for scanning data files up to (and including) `snapshot_id`:
+/// `0x21 | table_id(u64 BE) | (snapshot_id + 1)(u64 BE)`.
+///
+/// Returns `None` if `snapshot_id == u64::MAX` (no upper bound needed in that case).
+pub fn prefix_data_files_by_snapshot_upper(table_id: u64, snapshot_id: u64) -> Option<Vec<u8>> {
+    let upper_snap = snapshot_id.checked_add(1)?;
+    let mut buf = Vec::with_capacity(17);
+    buf.push(crate::tags::TAG_DATA_FILE_BY_SNAPSHOT);
+    buf.extend_from_slice(&encode_u64(table_id));
+    buf.extend_from_slice(&encode_u64(upper_snap));
+    Some(buf)
+}
+
 /// Build a key for `ducklake_delete_file`: `0x0C | data_file_id(u64) | delete_file_id(u64)`.
 pub fn key_delete_file(data_file_id: u64, delete_file_id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(17);

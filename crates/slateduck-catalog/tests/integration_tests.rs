@@ -1,6 +1,7 @@
 //! Integration tests for the catalog store.
 
 use object_store::path::Path as ObjectPath;
+use slateduck_catalog::writer::stats::FileColumnStatsInput;
 use slateduck_catalog::{CatalogStore, OpenOptions};
 use slateduck_core::mvcc::SnapshotId;
 use std::sync::Arc;
@@ -335,28 +336,28 @@ async fn file_column_stats_and_pruning() {
 
     // File 1: min=10, max=50
     writer
-        .upsert_file_column_stats(
+        .upsert_file_column_stats(FileColumnStatsInput {
             table_id,
-            col_id,
-            file1,
-            false,
-            Some("10"),
-            Some("50"),
-            false,
-        )
+            column_id: col_id,
+            data_file_id: file1,
+            has_null: false,
+            min_value: Some("10"),
+            max_value: Some("50"),
+            contains_nan: false,
+        })
         .await
         .unwrap();
     // File 2: min=100, max=200
     writer
-        .upsert_file_column_stats(
+        .upsert_file_column_stats(FileColumnStatsInput {
             table_id,
-            col_id,
-            file2,
-            false,
-            Some("100"),
-            Some("200"),
-            false,
-        )
+            column_id: col_id,
+            data_file_id: file2,
+            has_null: false,
+            min_value: Some("100"),
+            max_value: Some("200"),
+            contains_nan: false,
+        })
         .await
         .unwrap();
 

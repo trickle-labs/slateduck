@@ -32,3 +32,8 @@ slateduck-testkit  = { path = "../slateduck-testkit" }
 proptest           = { workspace = true }
 tempfile           = { workspace = true }
 tokio              = { workspace = true }
+criterion          = { workspace = true }
+
+[[bench]]
+name = "circuit_bench"
+harness = false

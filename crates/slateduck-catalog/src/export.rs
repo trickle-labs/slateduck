@@ -534,6 +534,9 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
         };
         let key = keys::key_data_file(table_id, file_id);
         db.put(&key, &values::encode_value(&row)).await?;
+        // Write secondary index for O(log N) snapshot-bounded scans.
+        let sec_key = keys::key_data_file_by_snapshot(table_id, 1 /* snapshot_id */, file_id);
+        db.put(&sec_key, &values::encode_value(&row)).await?;
         file_id += 1;
         file_count += 1;
     }

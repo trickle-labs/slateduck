@@ -8,7 +8,7 @@
 pub struct ManifestLog {
     entries: Vec<ManifestEntry>,
     current_epoch: u64,
-    pending_compaction: Option<CompactionState>,
+    pending_compaction: bool,
     active_ssts: Vec<String>,
 }
 
@@ -26,14 +26,6 @@ pub enum ManifestEntryKind {
     RemoveSst,
     BeginCompaction,
     AbortCompaction,
-}
-
-/// State of an in-progress compaction.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct CompactionState {
-    input_ssts: Vec<String>,
-    output_sst: String,
 }
 
 impl ManifestEntry {
@@ -68,11 +60,8 @@ impl ManifestLog {
     }
 
     /// Begin a compaction operation.
-    pub fn begin_compaction(&mut self, input_ssts: &[String], output_sst: &str) {
-        self.pending_compaction = Some(CompactionState {
-            input_ssts: input_ssts.to_vec(),
-            output_sst: output_sst.to_string(),
-        });
+    pub fn begin_compaction(&mut self, input_ssts: &[String], _output_sst: &str) {
+        self.pending_compaction = true;
         // Add inputs as active if not already present.
         for sst in input_ssts {
             if !self.active_ssts.contains(sst) {
@@ -83,12 +72,12 @@ impl ManifestLog {
 
     /// Check if there's a pending compaction.
     pub fn has_pending_compaction(&self) -> bool {
-        self.pending_compaction.is_some()
+        self.pending_compaction
     }
 
     /// Abort a pending compaction (discard output, keep inputs).
     pub fn abort_compaction(&mut self) {
-        self.pending_compaction = None;
+        self.pending_compaction = false;
     }
 
     /// Acquire a new writer epoch.

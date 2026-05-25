@@ -15,4 +15,7 @@ pub enum SqlDispatchError {
         expected: &'static str,
         actual: String,
     },
+    /// SQLSTATE 42602: invalid channel name for LISTEN/UNLISTEN.
+    #[error("invalid channel name '{channel}' (SQLSTATE 42602): {reason}")]
+    InvalidChannelName { channel: String, reason: String },
 }

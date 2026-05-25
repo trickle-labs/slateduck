@@ -183,21 +183,46 @@ impl CatalogMetrics {
     }
 }
 
-/// Start the metrics HTTP server on the given port.
-pub async fn start_metrics_server(metrics: Arc<CatalogMetrics>, port: u16) -> std::io::Result<()> {
+/// Start the metrics HTTP server on the given port, serving only on `metrics_path`.
+///
+/// Requests to any path other than `metrics_path` receive a 404 response.
+pub async fn start_metrics_server(
+    metrics: Arc<CatalogMetrics>,
+    port: u16,
+    metrics_path: &str,
+) -> std::io::Result<()> {
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
 
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    tracing::info!("Metrics server listening on port {port}");
+    let metrics_path = metrics_path.to_string();
+    tracing::info!("Metrics server listening on port {port}, path {metrics_path}");
 
     loop {
         let (mut socket, _) = listener.accept().await?;
         let metrics = metrics.clone();
+        let path = metrics_path.clone();
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 4096];
-            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+            let n = tokio::io::AsyncReadExt::read(&mut socket, &mut buf)
+                .await
+                .unwrap_or(0);
+
+            // Parse the HTTP request line to extract the requested path.
+            let request_path = String::from_utf8_lossy(&buf[..n]);
+            let req_path = request_path
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+
+            if req_path != path {
+                let response =
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = socket.write_all(response.as_bytes()).await;
+                return;
+            }
 
             let body = metrics.render_prometheus();
             let response = format!(

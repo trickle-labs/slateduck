@@ -100,7 +100,7 @@ pub async fn minimum_leased_snapshot(db: &Db) -> CatalogResult<Option<u64>> {
 }
 
 /// Compute the end key for a prefix scan (increment last byte).
-#[allow(dead_code)]
+#[cfg(test)]
 fn scan_end_for_prefix(prefix: &[u8]) -> Vec<u8> {
     let mut end = prefix.to_vec();
     if let Some(last) = end.last_mut() {

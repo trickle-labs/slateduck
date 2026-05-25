@@ -213,7 +213,13 @@ impl CatalogReader {
     }
 
     pub async fn list_data_files(&self, table_id: u64) -> CatalogResult<Vec<DataFileRow>> {
-        let prefix = keys::prefix_data_files_for_table(table_id);
+        // Use the secondary index TAG_DATA_FILE_BY_SNAPSHOT (0x21) for an
+        // O(log N) range scan bounded by read_snapshot instead of scanning all
+        // data files for the table and filtering in memory.
+        let prefix = keys::prefix_data_files_by_snapshot_for_table(table_id);
+        let upper =
+            keys::prefix_data_files_by_snapshot_upper(table_id, self.dl_snapshot_id.as_u64());
+
         let mut files = Vec::new();
         let mut iter = self.db.scan_prefix(&prefix).await?;
         while let Some(kv) = iter
@@ -221,10 +227,14 @@ impl CatalogReader {
             .await
             .map_err(|e| CatalogError::SlateDb(e.to_string()))?
         {
-            let row: DataFileRow = values::decode_value(&kv.value)?;
-            if row.snapshot_id <= self.dl_snapshot_id.as_u64() {
-                files.push(row);
+            // Stop once we exceed the upper bound (snapshot_id > read_snapshot).
+            if let Some(ref upper_key) = upper {
+                if kv.key.as_ref() >= upper_key.as_slice() {
+                    break;
+                }
             }
+            let row: DataFileRow = values::decode_value(&kv.value)?;
+            files.push(row);
         }
         Ok(files)
     }

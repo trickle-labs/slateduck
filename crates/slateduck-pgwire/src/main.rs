@@ -123,8 +123,10 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let metrics = Arc::new(CatalogMetrics::new(config.max_sessions as u64));
     if let Some(metrics_port) = config.metrics_port {
         let m = metrics.clone();
+        let mpath = config.metrics_path.clone();
         tokio::spawn(async move {
-            if let Err(e) = slateduck_catalog::metrics::start_metrics_server(m, metrics_port).await
+            if let Err(e) =
+                slateduck_catalog::metrics::start_metrics_server(m, metrics_port, &mpath).await
             {
                 tracing::error!("Metrics server error: {e}");
             }
@@ -178,6 +180,8 @@ struct ServeConfig {
     bind_addr: SocketAddr,
     max_sessions: usize,
     metrics_port: Option<u16>,
+    /// HTTP path for the metrics endpoint. Default: `/metrics`.
+    metrics_path: String,
     tls_cert: Option<String>,
     tls_key: Option<String>,
     tls_required: bool,
@@ -206,6 +210,9 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     let mut bind_addr: SocketAddr = "0.0.0.0:5432".parse().unwrap();
     let mut max_sessions = 50;
     let mut metrics_port = None;
+    // Metrics path: read from env first, CLI flag overrides.
+    let mut metrics_path: String =
+        std::env::var("SLATEDUCK_METRICS_PATH").unwrap_or_else(|_| "/metrics".to_string());
     let mut tls_cert = None;
     let mut tls_key = None;
     let mut tls_required = false;
@@ -269,6 +276,13 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     .ok_or("--metrics-bind must be in <host:port> format")
                     .and_then(|(_, p)| p.parse().map_err(|_| "--metrics-bind port is invalid"))?;
                 metrics_port = Some(port);
+            }
+            "--metrics-path" => {
+                i += 1;
+                metrics_path = args
+                    .get(i)
+                    .cloned()
+                    .ok_or("--metrics-path requires a value")?;
             }
             "--encryption-key" => {
                 i += 1;
@@ -363,7 +377,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                 eprintln!(
                     "Usage: slateduck serve --catalog <path> \
                     [--bind <addr>] [--max-sessions <n>] \
-                    [--metrics-port <port>] [--metrics-bind <host:port>] \
+                    [--metrics-port <port>] [--metrics-bind <host:port>] [--metrics-path <path>] \
                     [--tls-cert <path>] [--tls-key <path>] [--tls-required] \
                     [--auth-user <user>] [--auth-password <pass>] \
                     [--mode writer|reader] [--read-only] \
@@ -377,7 +391,8 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     "\nEnvironment variables:\
                     \n  SLATEDUCK_AUTH_USER           Username for authentication\
                     \n  SLATEDUCK_AUTH_PASSWORD        Password for authentication\
-                    \n  SLATEDUCK_EXTENSION_SCHEMAS    Comma-separated allowed extension schema names"
+                    \n  SLATEDUCK_EXTENSION_SCHEMAS    Comma-separated allowed extension schema names\
+                    \n  SLATEDUCK_METRICS_PATH         HTTP path for the metrics endpoint (default: /metrics)"
                 );
                 eprintln!(
                     "\nSupported catalog URLs:\
@@ -406,6 +421,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         bind_addr,
         max_sessions,
         metrics_port,
+        metrics_path,
         tls_cert,
         tls_key,
         tls_required,
