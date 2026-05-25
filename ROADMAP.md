@@ -2763,11 +2763,11 @@ Items deferred from v0.15 because they require the full operator surface or are 
 
 ---
 
-## v0.18 — pg-trickle Compatibility
+## v0.18 — DuckLake Catalog Standard Interface
 
-> **Dependency:** Requires v0.17 merged to `main` (the IVM GA gate). pg-trickle integration testing exercises the full operator surface.
+> **Prerequisites:** Requires v0.17 merged to `main` (the IVM GA gate).
 
-> Make SlateDuck a 100% drop-in replacement for PostgreSQL as the DuckLake catalog backend that pg-trickle targets. pg-trickle is a production-grade PostgreSQL IVM extension that can both *read from* DuckLake tables (O(Δ) via `table_changes()`) and *write IVM results back to* DuckLake (Parquet sink + snapshot commit). All of that traffic goes through the DuckLake catalog SQL API — exactly the PG-wire surface SlateDuck exposes. See [plans/pg-trickle-ducklake-support.md](plans/pg-trickle-ducklake-support.md) for the full gap analysis.
+> Standardize SlateDuck's DuckLake catalog SQL surface to match the interface contract that pg-trickle (and any other DuckLake-compatible IVM system) expects. SlateDuck has no runtime or build dependency on pg-trickle code — instead, it implements a standard contract: `table_changes()` for O(Δ) CDC, stable `rowid` for update tracking, snapshot leases for GC coordination, `NOTIFY` for event-driven refresh, extension schemas for application metadata, and opaque frontier encoding for mixed-source systems. pg-trickle serves as the primary validator of this contract. See [plans/pg-trickle-ducklake-support.md](plans/pg-trickle-ducklake-support.md) for the full gap analysis and interface specification.
 
 ### Gap 1 — `table_changes()` SQL Function
 
