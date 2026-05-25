@@ -24,7 +24,6 @@
 
 use object_store::{memory::InMemory, path::Path as ObjectPath};
 use slateduck_catalog::{CatalogStore, OpenOptions};
-use slateduck_core::rows::SchemaRow;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -34,13 +33,6 @@ fn make_opts(store: Arc<dyn object_store::ObjectStore>) -> OpenOptions {
         path: ObjectPath::from("catalog"),
         encryption: None,
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 // ─── Test 1: Open a fresh catalog ──────────────────────────────────────────
