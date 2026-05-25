@@ -37,8 +37,6 @@ pub struct ParquetOutputConfig {
     pub compaction: CompactionPolicy,
 }
 
-
-
 impl CompactionPolicy {
     /// Parse a compaction policy string (e.g. `"1h"`, `"30m"`, `"never"`).
     pub fn parse(s: &str) -> Self {

@@ -24,8 +24,7 @@ impl Default for BackpressureConfig {
 }
 
 /// Per-shard output publication mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputMode {
     /// Merged: all shards contribute to a single output snapshot.
     #[default]
