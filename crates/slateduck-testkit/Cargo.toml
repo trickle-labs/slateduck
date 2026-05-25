@@ -9,6 +9,7 @@ slateduck-core    = { path = "../slateduck-core" }
 slateduck-catalog = { path = "../slateduck-catalog" }
 slateduck-ivm     = { path = "../slateduck-ivm" }
 
-tokio    = { workspace = true }
-tempfile = { workspace = true }
+tokio        = { workspace = true }
+tempfile     = { workspace = true }
 object_store = { workspace = true }
+serde_json   = { workspace = true }

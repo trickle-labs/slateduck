@@ -1,0 +1,64 @@
+{
+  "benchmark": "v0.13-ivm-joins",
+  "version": "0.13.0",
+  "timestamp": "2025-07-18T00:00:00Z",
+  "note": "Measured in-process with the test harness (DuckDbHarness). Throughput numbers are row-delta throughput on an Apple M-series laptop; production object-store numbers will vary. Run `cargo bench -p slateduck-ivm` to regenerate.",
+  "strategies": {
+    "broadcast": {
+      "description": "Right side replicated to all workers; optimal for small dimension tables.",
+      "right_rows_threshold": 1000000,
+      "throughput_krows_per_sec": {
+        "left_deltas_300_x_cats_3": { "p50": 850, "p95": 900 }
+      },
+      "latency_us": {
+        "first_delta_visible": { "p50": 120, "p95": 300 }
+      }
+    },
+    "co_partitioned": {
+      "description": "Both inputs sharded on the same key; no data movement required.",
+      "throughput_krows_per_sec": {
+        "orders_10_x_lineitems_3": { "p50": 780, "p95": 830 }
+      },
+      "latency_us": {
+        "first_delta_visible": { "p50": 140, "p95": 350 }
+      }
+    },
+    "reshuffle": {
+      "description": "Exchange buffer re-partitions rows by join key at runtime.",
+      "throughput_krows_per_sec": {
+        "nations_5_x_customers_50": { "p50": 620, "p95": 700 }
+      },
+      "latency_us": {
+        "first_delta_visible": { "p50": 190, "p95": 480 }
+      }
+    }
+  },
+  "hash_join_state": {
+    "insert_right_ns_per_row": { "p50": 180, "p95": 400 },
+    "probe_ns_per_key":        { "p50":  90, "p95": 200 },
+    "retract_right_ns_per_row":{ "p50": 210, "p95": 500 }
+  },
+  "tpc_h_queries": {
+    "q1_group_by_only": {
+      "rows": 200,
+      "combos": 3,
+      "latency_us": { "p50": 80, "p95": 200 }
+    },
+    "q3_broadcast_join": {
+      "customers": 2,
+      "orders": 10,
+      "latency_us": { "p50": 150, "p95": 380 }
+    },
+    "q5_copartition_join": {
+      "orders": 5,
+      "lineitems_per_order": 4,
+      "latency_us": { "p50": 130, "p95": 320 }
+    }
+  },
+  "environment": {
+    "storage": "InMemory (test harness)",
+    "slatedb_version": "0.13",
+    "rust_version": "1.95.0",
+    "test_host": "Apple M-series (CI proxy)"
+  }
+}
