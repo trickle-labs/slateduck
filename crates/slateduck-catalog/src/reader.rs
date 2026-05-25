@@ -10,6 +10,58 @@ use slateduck_core::values;
 
 use crate::error::{CatalogError, CatalogResult};
 
+// ─── v0.10: Snapshot Diff ──────────────────────────────────────────────────
+
+/// Structured diff between two DuckLake snapshots.
+///
+/// Contains the sets of catalog facts that were added or retired in the
+/// transition from `from_snapshot` to `to_snapshot`.  This is the primary
+/// primitive for CDC export: every committed snapshot is a natural change
+/// stream.
+#[derive(Debug, Clone)]
+pub struct SnapshotDiff {
+    pub from_snapshot: SnapshotId,
+    pub to_snapshot: SnapshotId,
+    /// Schema rows first written at `to_snapshot`.
+    pub added_schemas: Vec<SchemaRow>,
+    /// Schema rows retired at `to_snapshot`.
+    pub retired_schemas: Vec<SchemaRow>,
+    /// Table rows first written at `to_snapshot`.
+    pub added_tables: Vec<TableRow>,
+    /// Table rows retired at `to_snapshot`.
+    pub retired_tables: Vec<TableRow>,
+    /// Column rows first written at `to_snapshot`.
+    pub added_columns: Vec<ColumnRow>,
+    /// Column rows retired at `to_snapshot`.
+    pub retired_columns: Vec<ColumnRow>,
+    /// Data files registered at `to_snapshot`.
+    pub added_data_files: Vec<DataFileRow>,
+}
+
+impl SnapshotDiff {
+    /// Returns true if there are no changes between the two snapshots.
+    pub fn is_empty(&self) -> bool {
+        self.added_schemas.is_empty()
+            && self.retired_schemas.is_empty()
+            && self.added_tables.is_empty()
+            && self.retired_tables.is_empty()
+            && self.added_columns.is_empty()
+            && self.retired_columns.is_empty()
+            && self.added_data_files.is_empty()
+    }
+
+    /// Total number of changed facts.
+    pub fn change_count(&self) -> usize {
+        self.added_schemas.len()
+            + self.retired_schemas.len()
+            + self.added_tables.len()
+            + self.retired_tables.len()
+            + self.added_columns.len()
+            + self.retired_columns.len()
+            + self.added_data_files.len()
+    }
+}
+
 /// Reads catalog state at a specific DuckLake snapshot ID.
 pub struct CatalogReader {
     db: Db,
@@ -420,5 +472,121 @@ impl CatalogReader {
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    // ─── v0.10: Snapshot Diff (CDC Output Primitive) ────────────────────────
+
+    /// Compute the diff between two snapshots.
+    ///
+    /// Returns the set of catalog facts that changed between `from_snapshot`
+    /// and `to_snapshot` — specifically the rows whose `begin_snapshot` equals
+    /// `to_snapshot` (newly added) and rows whose `end_snapshot` equals
+    /// `to_snapshot` (retired at that snapshot).
+    ///
+    /// This is the foundational primitive for CDC output: every committed
+    /// snapshot is a natural change stream for rows that carry begin/end
+    /// versioning.
+    pub async fn snapshot_diff(
+        &self,
+        from_snapshot: SnapshotId,
+        to_snapshot: SnapshotId,
+    ) -> CatalogResult<SnapshotDiff> {
+        let to = to_snapshot.as_u64();
+        let _from = from_snapshot.as_u64();
+
+        let mut added_schemas: Vec<SchemaRow> = Vec::new();
+        let mut retired_schemas: Vec<SchemaRow> = Vec::new();
+        let mut added_tables: Vec<TableRow> = Vec::new();
+        let mut retired_tables: Vec<TableRow> = Vec::new();
+        let mut added_columns: Vec<ColumnRow> = Vec::new();
+        let mut retired_columns: Vec<ColumnRow> = Vec::new();
+        let mut added_data_files: Vec<DataFileRow> = Vec::new();
+
+        // ── schemas ──────────────────────────────────────────────────────────
+        {
+            let prefix = keys::prefix_for_tag(TAG_SCHEMA);
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let row: SchemaRow = values::decode_value(&kv.value)?;
+                if row.begin_snapshot == to {
+                    added_schemas.push(row.clone());
+                }
+                if row.end_snapshot == Some(to) {
+                    retired_schemas.push(row);
+                }
+            }
+        }
+
+        // ── tables ───────────────────────────────────────────────────────────
+        {
+            let prefix = keys::prefix_for_tag(TAG_TABLE);
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let row: TableRow = values::decode_value(&kv.value)?;
+                if row.begin_snapshot == to {
+                    added_tables.push(row.clone());
+                }
+                if row.end_snapshot == Some(to) {
+                    retired_tables.push(row);
+                }
+            }
+        }
+
+        // ── columns ──────────────────────────────────────────────────────────
+        {
+            let prefix = keys::prefix_for_tag(TAG_COLUMN);
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let row: ColumnRow = values::decode_value(&kv.value)?;
+                if row.begin_snapshot == to {
+                    added_columns.push(row.clone());
+                }
+                if row.end_snapshot == Some(to) {
+                    retired_columns.push(row);
+                }
+            }
+        }
+
+        // ── data files ───────────────────────────────────────────────────────
+        // DataFileRow uses `snapshot_id` (the snapshot at which the file was
+        // registered) rather than begin/end versioning.
+        {
+            let prefix = keys::prefix_for_tag(TAG_DATA_FILE);
+            let mut iter = self.db.scan_prefix(&prefix).await?;
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let row: DataFileRow = values::decode_value(&kv.value)?;
+                if row.snapshot_id == to {
+                    added_data_files.push(row);
+                }
+            }
+        }
+
+        Ok(SnapshotDiff {
+            from_snapshot,
+            to_snapshot,
+            added_schemas,
+            retired_schemas,
+            added_tables,
+            retired_tables,
+            added_columns,
+            retired_columns,
+            added_data_files,
+        })
     }
 }

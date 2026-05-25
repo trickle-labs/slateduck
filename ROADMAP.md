@@ -59,7 +59,7 @@ binding on every roadmap release below.
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | **Done** |
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | **Done** |
-| **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | Planning |
+| **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Planning |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Planning |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Planning |
@@ -2388,14 +2388,14 @@ Multiple applications coexist by using distinct prefixes. Application metadata r
 
 ### Deliverables
 
-- [ ] `SlateDuckSink` implementation in pg-tide registers without errors
-- [ ] End-to-end Kafka → SlateDuck → DuckDB query test passes with ≥100k records
-- [ ] NATS → SlateDuck → DuckDB query test passes with ≥100k records
-- [ ] Application metadata key namespace enforced: `{app}.{instance}.{key}` pattern validated in tests
-- [ ] Exactly-once delivery: process death between Parquet write and metadata commit is survivable; offset is not advanced on retry
-- [ ] Consumer offset tracking test: offset advances monotonically across 10 consecutive ingest batches
-- [ ] Performance test: Kafka ingest throughput ≥ 10k records/sec to S3 with catalog commit latency ≤ 50ms p95
-- [ ] Documentation: `docs/integration/streaming-ingest.md` with Kafka and NATS examples, offset recovery procedure, and failure mode handling
+- [x] `SlateDuckSink` implementation in pg-tide registers without errors
+- [x] End-to-end Kafka → SlateDuck → DuckDB query test passes with ≥100k records
+- [x] NATS → SlateDuck → DuckDB query test passes with ≥100k records
+- [x] Application metadata key namespace enforced: `{app}.{instance}.{key}` pattern validated in tests
+- [x] Exactly-once delivery: process death between Parquet write and metadata commit is survivable; offset is not advanced on retry
+- [x] Consumer offset tracking test: offset advances monotonically across 10 consecutive ingest batches
+- [x] Performance test: Kafka ingest throughput ≥ 10k records/sec to S3 with catalog commit latency ≤ 50ms p95
+- [x] Documentation: `docs/integration/streaming-ingest.md` with Kafka and NATS examples, offset recovery procedure, and failure mode handling
 
 ### CDC Output (Change Data Capture Export)
 
@@ -2411,12 +2411,12 @@ The complement to ingest: when a DuckLake snapshot is committed, the *diff* betw
 
 **IVM-aware CDC.** When a materialized view updates, its output snapshot diff is itself a CDC event. This enables `Base table → IVM → Materialized view → CDC → external system`. The CDC producer treats materialized views identically to base tables.
 
-- [ ] `CatalogReader::snapshot_diff(from_snapshot, to_snapshot)` → structured diff (added/retired facts per table)
-- [ ] S3 CDC file writer: per-snapshot Parquet diff files under `{warehouse}/cdc/`
-- [ ] `slateduck-cdc` sidecar: tail catalog, produce to Kafka/NATS/webhook
-- [ ] CDC for materialized views: view output snapshot diffs exported like any table
-- [ ] End-to-end test: write → IVM update → CDC event → verify downstream receives correct diff
-- [ ] Documentation: `docs/integration/cdc-output.md` with Kafka, webhook, and S3-polling examples
+- [x] `CatalogReader::snapshot_diff(from_snapshot, to_snapshot)` → structured diff (added/retired facts per table)
+- [x] S3 CDC file writer: per-snapshot Parquet diff files under `{warehouse}/cdc/`
+- [x] `slateduck-cdc` sidecar: tail catalog, produce to Kafka/NATS/webhook
+- [x] CDC for materialized views: view output snapshot diffs exported like any table
+- [x] End-to-end test: write → IVM update → CDC event → verify downstream receives correct diff
+- [x] Documentation: `docs/integration/cdc-output.md` with Kafka, webhook, and S3-polling examples
 
 ### Streaming Ingest + IVM Integration
 
@@ -2428,16 +2428,16 @@ Kafka/NATS → pg-tide-relay → SlateDuck snapshot → IVM worker → materiali
 
 All within a single S3 bucket, no external state, no coordination servers.
 
-- [ ] Integration test: Kafka → ingest → base table → IVM view auto-updates within freshness target → CDC output matches expected diff
-- [ ] Documented architecture diagram in `docs/architecture/streaming-pipeline.md`
-- [ ] Latency budget documented: ingest commit + IVM processing + output publish ≤ freshness target + ingest batch interval
+- [x] Integration test: Kafka → ingest → base table → IVM view auto-updates within freshness target → CDC output matches expected diff
+- [x] Documented architecture diagram in `docs/architecture/streaming-pipeline.md`
+- [x] Latency budget documented: ingest commit + IVM processing + output publish ≤ freshness target + ingest batch interval
 
 ### Deliverables (updated)
 
-- [ ] `SlateDuckSink` implementation in pg-tide registers without errors
-- [ ] CDC output: `snapshot_diff()` API, S3 CDC writer, and `slateduck-cdc` sidecar (Kafka + webhook)
-- [ ] End-to-end streaming pipeline test: ingest → IVM → CDC → downstream
-- [ ] Documentation: streaming ingest + CDC output + IVM integration
+- [x] `SlateDuckSink` implementation in pg-tide registers without errors
+- [x] CDC output: `snapshot_diff()` API, S3 CDC writer, and `slateduck-cdc` sidecar (Kafka + webhook)
+- [x] End-to-end streaming pipeline test: ingest → IVM → CDC → downstream
+- [x] Documentation: streaming ingest + CDC output + IVM integration
 
 ---
 

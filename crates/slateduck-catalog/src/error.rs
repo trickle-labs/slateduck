@@ -50,6 +50,8 @@ pub enum CatalogError {
     },
     #[error("internal error: {0}")]
     Internal(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
 }
 
 impl From<slatedb::Error> for CatalogError {

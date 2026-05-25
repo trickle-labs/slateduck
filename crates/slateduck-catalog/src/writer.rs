@@ -799,6 +799,41 @@ impl CatalogWriter {
         Ok(())
     }
 
+    // ─── v0.10: Application Metadata / Streaming Ingest ────────────────────
+
+    /// Write a metadata key/value pair, staged for atomic commit with the next
+    /// snapshot.  For the `Global` scope with application-namespace keys
+    /// (`{app}.{instance}.{key}` format), the key is validated before staging.
+    ///
+    /// # Application Metadata Namespace
+    ///
+    /// Non-DuckDB application state stored in `ducklake_metadata` **must** use
+    /// the dotted-prefix convention:
+    /// ```text
+    /// {application}.{instance}.{key}
+    /// e.g. pg_tide.orders-to-lake.offset  →  "4782"
+    /// ```
+    /// Keys that contain a dot are treated as application-namespace keys and
+    /// must contain **at least two dots** (three dot-separated parts).  Plain
+    /// DuckDB system keys (no dots, e.g. `data_path`) are accepted without
+    /// restriction.
+    pub fn set_metadata(
+        &mut self,
+        scope: slateduck_core::keys::MetadataScope,
+        scope_id: u64,
+        key: &str,
+        value: &str,
+    ) -> CatalogResult<()> {
+        validate_app_metadata_key(key)?;
+        let row = MetadataRow {
+            key: key.to_string(),
+            value: value.to_string(),
+        };
+        let k = keys::key_metadata(scope, scope_id, key);
+        self.stage(k, values::encode_value(&row));
+        Ok(())
+    }
+
     // ─── Internal Helpers ───────────────────────────────────────────────────
 
     async fn begin_tx(&self) -> CatalogResult<DbTransaction> {
@@ -830,4 +865,28 @@ fn hash_tag_key(key: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     key.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Validate an application metadata key.
+///
+/// Keys without dots (DuckDB system keys like `data_path`) are always accepted.
+/// Keys with dots must follow the `{app}.{instance}.{key}` convention — at least
+/// three dot-separated, non-empty parts — and must not be empty.
+pub fn validate_app_metadata_key(key: &str) -> CatalogResult<()> {
+    if key.is_empty() {
+        return Err(CatalogError::InvalidInput(
+            "metadata key must not be empty".to_string(),
+        ));
+    }
+    if key.contains('.') {
+        let parts: Vec<&str> = key.splitn(4, '.').collect();
+        if parts.len() < 3 || parts.iter().any(|p| p.is_empty()) {
+            return Err(CatalogError::InvalidInput(format!(
+                "application metadata key must follow {{app}}.{{instance}}.{{key}} \
+                 convention (at least 3 non-empty dot-separated parts); got {:?}",
+                key
+            )));
+        }
+    }
+    Ok(())
 }
