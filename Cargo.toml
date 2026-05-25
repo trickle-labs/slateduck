@@ -45,8 +45,8 @@ sqlparser = { version = "0.55", features = ["visitor"] }
 pgwire = "0.28"
 
 # IVM engine (hand-rolled Z-difference shim; see docs/design-decisions/ivm-architecture.md)
-# WASM UDF execution — pinned to wasmtime 29.x (fuel API stable within major)
-wasmtime = "29"
+# WASM UDF execution — pinned to wasmtime 43.x (fuel API stable within major)
+wasmtime = "43"
 
 # Testing
 proptest = "1"

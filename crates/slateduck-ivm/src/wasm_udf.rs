@@ -15,7 +15,7 @@
 //! for pure functions).
 //!
 //! ## wasmtime version policy
-//! Pinned to wasmtime 29.x. Major version bumps are dedicated maintenance PRs
+//! Pinned to wasmtime 43.x. Major version bumps are dedicated maintenance PRs
 //! that update fuel API callsites and re-run the full WASM UDF test suite.
 //! Staying on an EOL wasmtime major for more than one release cycle is disallowed.
 
