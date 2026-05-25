@@ -62,9 +62,10 @@ binding on every roadmap release below.
 | **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
-| **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Planning |
+| **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Done |
 | **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak | Planning |
 | **v0.15 — IVM Feature Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries, recursive CTEs, non-det capture, WASM UDFs | Planning |
+| **v0.16 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, mixed frontiers, extension schema support | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2012,67 +2013,67 @@ Each matview owns `shard_count` shards. A shard is identified by `(matview_id, s
 
 The common case: join a large fact table with one or more dimension tables. Dimension tables are broadcast to every shard.
 
-- [ ] Detect broadcast candidates at view creation: input estimated row count below `WITH (broadcast_threshold = N)` (default 1M rows)
-- [ ] Replicate broadcast inputs into each shard's state store at backfill; incremental updates propagated to all shards
-- [ ] Bounded memory: broadcast inputs above threshold reject view creation with a clear error message
-- [ ] Tested with TPC-H Q3 (`orders ⋈ lineitem ⋈ customer`) where `customer` and `nation` are broadcast
+- [x] Detect broadcast candidates at view creation: input estimated row count below `WITH (broadcast_threshold = N)` (default 1M rows)
+- [x] Replicate broadcast inputs into each shard's state store at backfill; incremental updates propagated to all shards
+- [x] Bounded memory: broadcast inputs above threshold reject view creation with a clear error message
+- [x] Tested with TPC-H Q3 (`orders ⋈ lineitem ⋈ customer`) where `customer` and `nation` are broadcast
 
 ### Co-Partitioned Join Support
 
 When both inputs share the same shard key, joins are local. No exchange required.
 
-- [ ] Detect co-partitioned joins via shard-key analysis in the SQL plan
-- [ ] Both inputs read filtered to the same key range
-- [ ] Local hash join via DBSP's join operator
-- [ ] Tested with TPC-H Q4 (`orders ⋈ lineitem` on `o_orderkey = l_orderkey` with `shard_key = orderkey`)
+- [x] Detect co-partitioned joins via shard-key analysis in the SQL plan
+- [x] Both inputs read filtered to the same key range
+- [x] Local hash join via DBSP's join operator
+- [x] Tested with TPC-H Q4 (`orders ⋈ lineitem` on `o_orderkey = l_orderkey` with `shard_key = orderkey`)
 
 ### Re-Shuffle Exchange
 
 When neither broadcast nor co-partitioning applies, one side is re-partitioned at the join boundary.
 
-- [ ] Insert exchange operator that writes intermediate state to a temporary SlateDB region keyed by the join key
-- [ ] Reader on the other side reads the matching key range from the intermediate region
-- [ ] Cost: one extra round-trip through SlateDB per join input; documented as the most expensive option
-- [ ] Tested with TPC-H Q5 (`customer ⋈ orders ⋈ lineitem ⋈ supplier ⋈ nation ⋈ region`)
+- [x] Insert exchange operator that writes intermediate state to a temporary SlateDB region keyed by the join key
+- [x] Reader on the other side reads the matching key range from the intermediate region
+- [x] Cost: one extra round-trip through SlateDB per join input; documented as the most expensive option
+- [x] Tested with TPC-H Q5 (`customer ⋈ orders ⋈ lineitem ⋈ supplier ⋈ nation ⋈ region`)
 
 ### Join Plan Selection
 
-- [ ] `EXPLAIN MATERIALIZED VIEW v` shows chosen join strategy per operator
-- [ ] `WITH (join_strategy = 'broadcast' | 'co_partition' | 'reshuffle')` overrides per-view default
-- [ ] Cost-based planner selects strategy automatically when not overridden
+- [x] `EXPLAIN MATERIALIZED VIEW v` shows chosen join strategy per operator
+- [x] `WITH (join_strategy = 'broadcast' | 'co_partition' | 'reshuffle')` overrides per-view default
+- [x] Cost-based planner selects strategy automatically when not overridden
 
 ### Delete Propagation in Joins
 
-- [ ] `(-1)` updates from delete files propagate correctly through join operators
-- [ ] Documented limitation: high-volume delete campaigns over joined views may require `REFRESH ... FULL`
+- [x] `(-1)` updates from delete files propagate correctly through join operators
+- [x] Documented limitation: high-volume delete campaigns over joined views may require `REFRESH ... FULL`
 
 ### Testing: Tier 6c (IVM Joins) & Tier 5 Extension (Live Client Compat)
 
-- [ ] **Tier 6c — IVM join tests** (`crates/slateduck-ivm/tests/join_tests.rs`): 7 tests — broadcast join (events × categories), co-partition join (shared shard key), reshuffle join (non-collocated), TPC-H Q1 streaming correctness, TPC-H Q3 broadcast correctness, TPC-H Q5 co-partition correctness, `EXPLAIN MATERIALIZED VIEW` returns correct `join_strategy`
-- [ ] All Tier 6c tests use `IvmWorkerHarness` against MinIO; correctness verified by comparing output Parquet to DuckDB single-shot reference via `DuckDbHarness`
-- [ ] **`DuckDbHarness`** implemented in `slateduck-testkit`: spawns a DuckDB process (Testcontainers `duckdb/duckdb` image), runs SQL, returns rows — used for join correctness assertions
-- [ ] **Tier 5 extension** — `crates/slateduck-pgwire/tests/compat_tests.rs`: live DuckDB E2E test `duckdb_full_ducklake_tutorial_against_minio` (create schema + table + INSERT + SELECT + time-travel + ALTER + DROP against a live PgWire server backed by MinIO)
-- [ ] `EXPLAIN MATERIALIZED VIEW` output format documented and golden-tested
+- [x] **Tier 6c — IVM join tests** (`crates/slateduck-ivm/tests/join_tests.rs`): 7 tests — broadcast join (events × categories), co-partition join (shared shard key), reshuffle join (non-collocated), TPC-H Q1 streaming correctness, TPC-H Q3 broadcast correctness, TPC-H Q5 co-partition correctness, `EXPLAIN MATERIALIZED VIEW` returns correct `join_strategy`
+- [x] All Tier 6c tests use `IvmWorkerHarness` against MinIO; correctness verified by comparing output Parquet to DuckDB single-shot reference via `DuckDbHarness`
+- [x] **`DuckDbHarness`** implemented in `slateduck-testkit`: spawns a DuckDB process (Testcontainers `duckdb/duckdb` image), runs SQL, returns rows — used for join correctness assertions
+- [x] **Tier 5 extension** — `crates/slateduck-pgwire/tests/compat_tests.rs`: live DuckDB E2E test `duckdb_full_ducklake_tutorial_against_minio` (create schema + table + INSERT + SELECT + time-travel + ALTER + DROP against a live PgWire server backed by MinIO)
+- [x] `EXPLAIN MATERIALIZED VIEW` output format documented and golden-tested
 
 ### Acceptance Criteria
 
-- [ ] TPC-H Q3 maintained incrementally with broadcast `nation`/`region`
-- [ ] TPC-H Q5 maintained incrementally with explicit `WITH (shard_key = …)` on co-partitionable side
-- [ ] Re-shuffle exchange operator correctness verified by golden-output comparison against DuckDB single-shot execution
-- [ ] No correctness regression for v0.11/v0.12 single-input views
-- [ ] **Tier 6c test suite green**: all 7 join strategy tests pass in large-runner CI on every merge
-- [ ] **Live DuckDB E2E test** (`duckdb_full_ducklake_tutorial_against_minio`) green in large-runner CI
-- [ ] Per-join-strategy cost numbers published in `benchmarks/v0.13-ivm-joins.json`
+- [x] TPC-H Q3 maintained incrementally with broadcast `nation`/`region`
+- [x] TPC-H Q5 maintained incrementally with explicit `WITH (shard_key = …)` on co-partitionable side
+- [x] Re-shuffle exchange operator correctness verified by golden-output comparison against DuckDB single-shot execution
+- [x] No correctness regression for v0.11/v0.12 single-input views
+- [x] **Tier 6c test suite green**: all 7 join strategy tests pass in large-runner CI on every merge
+- [x] **Live DuckDB E2E test** (`duckdb_full_ducklake_tutorial_against_minio`) green in large-runner CI
+- [x] Per-join-strategy cost numbers published in `benchmarks/v0.13-ivm-joins.json`
 
 ### Deliverables
 
-- [ ] Three join strategies shipped behind a common DBSP join operator interface
-- [ ] Plan-selection logic in `slateduck-ivm/src/circuit.rs`
-- [ ] Tier 6c join test suite (`join_tests.rs`) with 7 passing tests
-- [ ] `DuckDbHarness` implemented in `slateduck-testkit`
-- [ ] Tier 5 live DuckDB E2E test (`compat_tests.rs`)
-- [ ] TPC-H Q3 / Q4 / Q5 maintained as continuous integration tests
-- [ ] Documentation updated with join sizing guidance
+- [x] Three join strategies shipped behind a common DBSP join operator interface
+- [x] Plan-selection logic in `slateduck-ivm/src/circuit.rs`
+- [x] Tier 6c join test suite (`join_tests.rs`) with 7 passing tests
+- [x] `DuckDbHarness` implemented in `slateduck-testkit`
+- [x] Tier 5 live DuckDB E2E test (`compat_tests.rs`)
+- [x] TPC-H Q3 / Q4 / Q5 maintained as continuous integration tests
+- [x] Documentation updated with join sizing guidance
 
 ---
 
@@ -2387,6 +2388,154 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] `docs/reference/udfs.md` authoring guide
 - [ ] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage
 - [ ] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.15 additions
+
+---
+
+## v0.16 — pg-trickle Compatibility
+
+> Make SlateDuck a 100% drop-in replacement for PostgreSQL as the DuckLake catalog backend that pg-trickle targets. pg-trickle is a production-grade PostgreSQL IVM extension that can both *read from* DuckLake tables (O(Δ) via `table_changes()`) and *write IVM results back to* DuckLake (Parquet sink + snapshot commit). All of that traffic goes through the DuckLake catalog SQL API — exactly the PG-wire surface SlateDuck exposes. See [plans/pg-trickle-ducklake-support.md](plans/pg-trickle-ducklake-support.md) for the full gap analysis.
+
+### Gap 1 — `table_changes()` SQL Function
+
+Expose `reader.rs::SnapshotDiff` as a callable SQL table function over PG-wire:
+
+```sql
+SELECT rowid, change_type, <user_columns>
+FROM table_changes('schema.table', start_snapshot := 42, end_snapshot := 45);
+-- change_type ∈ { insert, delete, update_preimage, update_postimage }
+```
+
+Without this, pg-trickle falls back to O(N) polling (`EXCEPT ALL` full diff) instead of O(Δ) incremental CDC. For a 10M-row table with a 100-row delta, this is ~10⁷× more work per refresh cycle.
+
+**Implementation:**
+- Add `table_changes` to the bounded SQL dispatcher in `crates/slateduck-sql/src/`.
+- Wire through `reader.rs::SnapshotDiff` with the DuckLake change-record vocabulary.
+- Return `SQLSTATE 55000` (snapshot too old) when `start_snapshot` has been GC'd so pg-trickle can fall back gracefully to full refresh.
+
+**Acceptance criteria:**
+- [ ] `table_changes()` callable from DuckDB `ATTACH 'ducklake:postgresql://slateduck-sidecar/…'`
+- [ ] pg-trickle `cdc_mode` reports `DUCKLAKE_CHANGE_FEED` when source is SlateDuck-backed DuckLake
+- [ ] Property test: apply change records from `table_changes(start, end)` to `start` state → produces `end` state (multiset equality)
+
+### Gap 2 — Stable `rowid` on DuckLake Tables
+
+Every SlateDuck-managed DuckLake table must expose a stable `rowid` column that survives UPDATE, file compaction, and Parquet file re-registration. pg-trickle's EC-01 phantom-row fix (see `plans/pg-trickle.md` §4) matches insert/delete pairs by `rowid`; without it, delete deltas are silently dropped and stale rows accumulate in pg-trickle's stream tables.
+
+**Implementation:**
+- Derive `rowid` from the per-table monotone counter already available at key `0xFE | 0x10 | table_id`.
+- Assign `rowid` at row-creation time; persist alongside the row in Parquet as a hidden column.
+- Expose `rowid` in `table_changes()` output.
+- Document the stability guarantee in `docs/concepts/ducklake.md`.
+
+**Acceptance criteria:**
+- [ ] `rowid` appears in `table_changes()` output
+- [ ] `rowid` is stable across compaction, GC, and file splits (test with `slateduck compact` between two change windows)
+- [ ] EC-01 test case: delete row from both source and joined table in same refresh window; pg-trickle stream table matches full recompute
+
+### Gap 3 — Snapshot Lease / Hold Mechanism
+
+GC must not advance past a snapshot ID that an external consumer (pg-trickle) has registered as its frontier. Otherwise, the next `table_changes(start_snapshot=42, …)` call returns `55000` and pg-trickle must do a full refresh unnecessarily.
+
+**Implementation:**
+- New catalog tag `0x22`: `snapshot_lease` with columns `(consumer_id TEXT, min_snapshot_id BIGINT, expires_at TIMESTAMPTZ)`.
+- SQL function: `SELECT slateduck.hold_snapshot(min_snapshot_id := 42, consumer_id := 'pgtrickle:stream_1', ttl_seconds := 300)`.
+- SQL function: `SELECT slateduck.release_snapshot(consumer_id := 'pgtrickle:stream_1')`.
+- `gc.rs` reads minimum leased snapshot before advancing the visibility frontier.
+- TTL prevents leaked leases from indefinitely blocking GC after ungraceful pg-trickle shutdown.
+
+**Acceptance criteria:**
+- [ ] GC blocked at leased snapshot; advances once lease released
+- [ ] TTL expiry allows GC to advance after consumer disappears
+- [ ] `slateduck.hold_snapshot()` / `slateduck.release_snapshot()` callable via PG-wire from pg-trickle
+
+### Gap 4 — `NOTIFY` on Snapshot Advance
+
+pg-trickle's event-driven scheduler wakes up immediately when a `NOTIFY pgt_source_changed_<relid>` is emitted. Without this, pg-trickle falls back to polling (default 1 s), adding latency.
+
+**Implementation:**
+- After each `INSERT INTO ducklake_snapshot` (any source), emit `NOTIFY pgt_source_changed_<table_id>` to all connected PG-wire clients that have issued a matching `LISTEN`.
+- Implement `LISTEN channel` and `UNLISTEN channel` in `slateduck-pgwire`.
+- Clean up subscriptions on connection close.
+
+**Acceptance criteria:**
+- [ ] `LISTEN`/`NOTIFY`/`UNLISTEN` round-trip via PG-wire
+- [ ] pg-trickle `scheduler` uses event-driven mode (not polling) when connected to SlateDuck
+- [ ] Latency test: snapshot advance → pg-trickle refresh start ≤ 50 ms end-to-end
+
+### Gap 5 — Extension Schema Tables (`pgtrickle.*`)
+
+pg-trickle issues `CREATE TABLE IF NOT EXISTS pgtrickle.pgt_ducklake_provenance (…)` and `INSERT INTO pgtrickle.pgt_ducklake_provenance (…)` against the catalog database at install time. SlateDuck's bounded SQL dispatcher currently returns `SQLSTATE 0A000` for user-schema DDL/DML.
+
+**Implementation (minimal-viable):** Add a reserved extension-metadata key range (tag `0x23`) and handle `CREATE TABLE IF NOT EXISTS <extension_schema>.<table>` DDL for known extension schemas. Support `INSERT`, `SELECT`, `DELETE` against these tables.
+
+**Alternative (lower-effort):** Provide a configuration shim in SlateDuck's `slateduck-pgwire` that silently ACKs `pgtrickle.*` writes and stores them in a sidecar SQLite file. Document this as the supported compatibility mode.
+
+**Acceptance criteria:**
+- [ ] pg-trickle installs without errors against SlateDuck
+- [ ] `INSERT INTO pgtrickle.pgt_ducklake_provenance` succeeds
+- [ ] `SELECT * FROM pgtrickle.pgt_ducklake_provenance` returns inserted rows
+
+### Gap 6 — Encryption Key Pass-Through
+
+When DuckLake per-file Parquet encryption is enabled, `INSERT INTO ducklake_data_file` includes an `encryption_key` column. Audit and validate that SlateDuck stores and returns this column without mangling it.
+
+**Acceptance criteria:**
+- [ ] `encryption_key` column present in `ducklake_data_file` schema
+- [ ] Round-trip test: insert file with `encryption_key = '\xDEADBEEF…'`, select it back, bytes identical
+- [ ] pg-trickle fixture corpus includes an encryption-key-bearing INSERT
+
+### Gap 7 — Mixed Frontier (DuckLake Snapshot + WAL LSN)
+
+For stream tables that read from both SlateDuck-backed DuckLake tables and PostgreSQL heap tables, the frontier must be a vector clock over heterogeneous source types.
+
+**Implementation:**
+- Extend frontier type in `state_store.rs`: `BTreeMap<SourceId, SourceFrontier>` where `SourceFrontier` is `{SequenceNumber(u64) | DuckLakeSnapshot(i64) | WalLsn(u64)}`.
+- `plan.rs` must resolve each source's frontier type from `MatviewInputSource` variant.
+- Serialize frontier as JSON (matching pg-trickle's `{"ducklake:lake.events": {"snapshot_id": 42}, "wal:postgres": {"lsn": "…"}}` format) for cross-system observability.
+
+**Acceptance criteria:**
+- [ ] View definition mixing DuckLake source + PG heap source plans and refreshes correctly
+- [ ] Frontier serialized as JSON, visible in `pgt_stream_tables.frontier`
+
+### pg-trickle Compatibility Test Suite
+
+A dedicated test crate (or test module in `slateduck-testkit`) that validates the full pg-trickle × SlateDuck integration:
+
+**Tier A — Catalog Write Compatibility:** replay pg-trickle's internal DuckLake catalog SQL corpus against SlateDuck PG-wire; assert no `0A000` errors and correct final state.
+
+**Tier B — `table_changes()` Property Tests:** property-based test applying change records to reconstruct any target snapshot; multiset equality assertion.
+
+**Tier C — End-to-End Pipeline (Docker):** actual pg-trickle container → PostgreSQL sources → SlateDuck sink → DuckDB query verification.
+
+**Tier D — Snapshot Hold Under GC:** GC blocked by lease; advances after release; TTL expiry.
+
+### Acceptance Criteria
+
+All of the following must be green before v0.16 is tagged:
+
+- [ ] pg-trickle connects to SlateDuck PG-wire sidecar with zero configuration changes vs. a standard PostgreSQL catalog
+- [ ] `CdcMode::DUCKLAKE_CHANGE_FEED` activates automatically when source table is SlateDuck-backed DuckLake
+- [ ] `table_changes()` passes the Tier-B property test suite
+- [ ] pg-trickle sink (`sink => 'ducklake'`) writes Parquet and commits DuckLake snapshots through SlateDuck
+- [ ] Provenance table (`pgtrickle.pgt_ducklake_provenance`) readable from pg-trickle
+- [ ] Snapshot lease prevents GC from breaking pg-trickle's frontier
+- [ ] `LISTEN`/`NOTIFY` round-trip enables event-driven scheduling
+- [ ] Encryption key pass-through validated
+- [ ] Tier A + B + D tests green in CI; Tier C green in pre-release gate
+- [ ] `docs/operations/pgtrickle-compatibility.md` published
+
+### Deliverables
+
+- [ ] `table_changes()` SQL function in `crates/slateduck-sql/src/`
+- [ ] Stable `rowid` implementation in `crates/slateduck-catalog/src/writer.rs` and `crates/slateduck-ivm/src/parquet.rs`
+- [ ] Snapshot lease catalog tag `0x22` + `slateduck.hold_snapshot()` / `release_snapshot()` SQL API
+- [ ] `LISTEN`/`NOTIFY`/`UNLISTEN` in `crates/slateduck-pgwire/src/`
+- [ ] Extension schema compatibility shim for `pgtrickle.*` tables
+- [ ] Encryption key column audit + fixture
+- [ ] Mixed frontier support in `crates/slateduck-ivm/src/state_store.rs` and `plan.rs`
+- [ ] Compatibility test suite: `tests/compat/pgtrickle_*.rs`
+- [ ] `docs/operations/pgtrickle-compatibility.md`
+- [ ] DuckLake Spec Upgrade Policy updated to include pg-trickle `CHANGELOG.md` in review process
 
 ---
 

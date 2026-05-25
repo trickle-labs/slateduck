@@ -5715,6 +5715,7 @@ name = "slateduck-testkit"
 version = "0.1.0"
 dependencies = [
  "object_store 0.12.5",
+ "serde_json",
  "slateduck-catalog",
  "slateduck-core",
  "slateduck-ivm",

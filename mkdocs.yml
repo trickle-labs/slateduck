@@ -185,6 +185,7 @@ nav:
     - Troubleshooting: operations/troubleshooting.md
     - Upgrades: operations/upgrades.md
     - Verify & Repair: operations/verify-repair.md
+    - IVM Join Sizing: operations/ivm-join-sizing.md
   - Integration:
     - integration/index.md
     - DuckDB: integration/duckdb.md
