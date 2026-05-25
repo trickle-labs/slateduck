@@ -18,6 +18,9 @@ async fn main() {
                 lease_duration_ms: args.lease_duration_ms,
                 poll_interval_ms: args.poll_interval_ms,
                 max_rows_per_tick: args.max_rows_per_tick,
+                shard_limit: args.shard_limit,
+                max_drain_time_ms: args.max_drain_time_ms,
+                cost_mode: args.cost_mode.parse().unwrap_or_default(),
             };
 
             eprintln!(

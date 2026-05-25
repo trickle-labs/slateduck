@@ -15,6 +15,34 @@ pub struct WorkerConfig {
     pub poll_interval_ms: u64,
     /// Maximum number of input rows to process per tick.
     pub max_rows_per_tick: usize,
+    /// Maximum number of shards this worker will claim simultaneously.
+    /// 0 = unlimited.
+    pub shard_limit: u32,
+    /// Maximum time in milliseconds to drain before a forced exit on SIGTERM.
+    pub max_drain_time_ms: u64,
+    /// Cost mode: "standard" or "spot".  Affects retry and backoff behaviour.
+    pub cost_mode: CostMode,
+}
+
+/// Worker cost mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CostMode {
+    /// Default: normal SLA-optimised retry behaviour.
+    #[default]
+    Standard,
+    /// Spot: aggressive retry after preemption; faster backoff.
+    Spot,
+}
+
+impl std::str::FromStr for CostMode {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "spot" => Self::Spot,
+            _ => Self::Standard,
+        })
+    }
 }
 
 impl Default for WorkerConfig {
@@ -25,6 +53,9 @@ impl Default for WorkerConfig {
             lease_duration_ms: 30_000,
             poll_interval_ms: 500,
             max_rows_per_tick: 10_000,
+            shard_limit: 0,
+            max_drain_time_ms: 60_000,
+            cost_mode: CostMode::Standard,
         }
     }
 }
@@ -79,6 +110,18 @@ pub struct ServeArgs {
     /// Maximum rows processed per tick.
     #[arg(long, default_value = "10000")]
     pub max_rows_per_tick: usize,
+
+    /// Maximum number of shards to claim simultaneously. 0 = unlimited.
+    #[arg(long, default_value = "0")]
+    pub shard_limit: u32,
+
+    /// Maximum drain time in milliseconds before forced exit on SIGTERM.
+    #[arg(long, default_value = "60000")]
+    pub max_drain_time_ms: u64,
+
+    /// Cost mode: standard (default) or spot.
+    #[arg(long, default_value = "standard")]
+    pub cost_mode: String,
 }
 
 /// Arguments for the `status` subcommand.

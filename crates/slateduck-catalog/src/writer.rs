@@ -889,6 +889,8 @@ impl CatalogWriter {
             end_snapshot: 0,
             status: MatviewStatus::Active as u32,
             encoding_version: 1,
+            output_mode: 0,
+            circuit_compilation_version: 0,
         };
         self.stage(name_check_key, values::encode_value(&row));
 
@@ -1024,6 +1026,7 @@ impl CatalogWriter {
                         key_range_hi: Vec::new(),
                         generation: 0,
                         encoding_version: 1,
+                        last_input_snapshot: 0,
                     },
                     true,
                 )
@@ -1056,6 +1059,7 @@ impl CatalogWriter {
                 key_range_hi: current_row.key_range_hi.clone(),
                 generation: new_generation,
                 encoding_version: 1,
+                last_input_snapshot: current_row.last_input_snapshot,
             };
 
             tx.put(&key, values::encode_value(&new_row))
@@ -1153,6 +1157,124 @@ impl CatalogWriter {
             row.generation += 1;
             row.owner_worker = String::new();
             row.lease_expires_unix_ms = 0;
+            tx.put(&key, values::encode_value(&row))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            match tx.commit().await {
+                Ok(_) => return Ok(()),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    // ─── v0.12 IVM Scale-Out Methods ───────────────────────────────────────
+
+    /// Update a matview's `output_mode` field.
+    ///
+    /// 0 = Consistent (default): output snapshot waits for all shards.
+    /// 1 = PerShard: shards publish independently.
+    pub async fn set_matview_output_mode(
+        &mut self,
+        matview_id: u64,
+        begin_snapshot: u64,
+        output_mode: u32,
+    ) -> CatalogResult<()> {
+        let key = keys::key_matview(matview_id, begin_snapshot);
+        let existing = self
+            .db
+            .get(&key)
+            .await?
+            .ok_or_else(|| CatalogError::NotFound(format!("matview {matview_id}")))?;
+        let mut row: MatviewRow = values::decode_value(&existing)?;
+        row.output_mode = output_mode;
+        self.stage(key, values::encode_value(&row));
+        Ok(())
+    }
+
+    /// Update a matview's `circuit_compilation_version`.
+    ///
+    /// Bump this value when the view SQL changes in a backward-incompatible way.
+    /// Workers that see a mismatch between the persisted state version and the
+    /// current value will trigger a full rebuild of their shard.
+    pub async fn bump_circuit_compilation_version(
+        &mut self,
+        matview_id: u64,
+        begin_snapshot: u64,
+    ) -> CatalogResult<u64> {
+        let key = keys::key_matview(matview_id, begin_snapshot);
+        let existing = self
+            .db
+            .get(&key)
+            .await?
+            .ok_or_else(|| CatalogError::NotFound(format!("matview {matview_id}")))?;
+        let mut row: MatviewRow = values::decode_value(&existing)?;
+        row.circuit_compilation_version += 1;
+        let version = row.circuit_compilation_version;
+        self.stage(key, values::encode_value(&row));
+        Ok(version)
+    }
+
+    /// Initiate a re-sharding operation by staging a new `MatviewRow` with
+    /// `shard_count = new_shard_count` and `status = Rebuilding`.
+    ///
+    /// The old row (at `begin_snapshot`) has its `end_snapshot` set so that
+    /// readers see the view as entering the `Rebuilding` state.  New shard rows
+    /// are populated by the IVM worker once this snapshot commits.
+    /// Caller must call `create_snapshot()` to commit.
+    pub async fn re_shard_matview(
+        &mut self,
+        matview_id: u64,
+        begin_snapshot: u64,
+        new_shard_count: u32,
+    ) -> CatalogResult<()> {
+        let snapshot_id = self.counters.peek_snapshot_id();
+        let key = keys::key_matview(matview_id, begin_snapshot);
+        let existing = self
+            .db
+            .get(&key)
+            .await?
+            .ok_or_else(|| CatalogError::NotFound(format!("matview {matview_id}")))?;
+        let mut row: MatviewRow = values::decode_value(&existing)?;
+        // Close the old row.
+        row.end_snapshot = snapshot_id;
+        self.stage(key, values::encode_value(&row));
+
+        // Open a new row with the updated shard count and Rebuilding status.
+        let new_row = MatviewRow {
+            shard_count: new_shard_count,
+            status: MatviewStatus::Rebuilding as u32,
+            begin_snapshot: snapshot_id,
+            end_snapshot: 0,
+            circuit_compilation_version: row.circuit_compilation_version,
+            ..row
+        };
+        self.stage(
+            keys::key_matview(matview_id, snapshot_id),
+            values::encode_value(&new_row),
+        );
+        self.mark_schema_changed();
+        Ok(())
+    }
+
+    /// Update the `last_input_snapshot` field on a shard row (no-CAS version,
+    /// for heartbeat/checkpoint updates where the worker already holds the lease).
+    pub async fn update_shard_last_input_snapshot(
+        &mut self,
+        matview_id: u64,
+        shard_id: u32,
+        last_input_snapshot: u64,
+    ) -> CatalogResult<()> {
+        let key = keys::key_matview_shard(matview_id, shard_id);
+        loop {
+            let tx = self.begin_tx().await?;
+            let bytes = tx
+                .get(&key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+                .ok_or_else(|| {
+                    CatalogError::NotFound(format!("shard ({matview_id},{shard_id})"))
+                })?;
+            let mut row: MatviewShardRow = values::decode_value(&bytes)?;
+            row.last_input_snapshot = last_input_snapshot;
             tx.put(&key, values::encode_value(&row))
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
             match tx.commit().await {

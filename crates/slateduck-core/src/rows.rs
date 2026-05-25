@@ -567,6 +567,33 @@ pub struct MatviewRow {
     pub status: u32,
     #[prost(uint32, tag = "14")]
     pub encoding_version: u32,
+    /// OutputMode as u32: 0=Consistent (default), 1=PerShard.
+    #[prost(uint32, tag = "15")]
+    pub output_mode: u32,
+    /// Monotonically increasing counter for DBSP circuit schema changes.
+    /// A mismatch between persisted state and this value triggers a rebuild.
+    #[prost(uint64, tag = "16")]
+    pub circuit_compilation_version: u64,
+}
+
+/// Output publication mode for a materialized view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[repr(u32)]
+pub enum OutputMode {
+    /// Default: output snapshot waits for all shards (globally consistent).
+    #[default]
+    Consistent = 0,
+    /// Each shard publishes independently; reader merges at query time.
+    PerShard = 1,
+}
+
+impl OutputMode {
+    pub fn from_u32(v: u32) -> Self {
+        match v {
+            1 => Self::PerShard,
+            _ => Self::Consistent,
+        }
+    }
 }
 
 /// Matview dependency row (tag 0x1E, AppendOnly).
@@ -636,4 +663,7 @@ pub struct MatviewShardRow {
     pub generation: u64,
     #[prost(uint32, tag = "8")]
     pub encoding_version: u32,
+    /// Most recently consumed input snapshot by this shard.
+    #[prost(uint64, tag = "9")]
+    pub last_input_snapshot: u64,
 }

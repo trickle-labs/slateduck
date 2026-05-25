@@ -61,7 +61,7 @@ binding on every roadmap release below.
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | **Done** |
 | **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
-| **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Planning |
+| **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Planning |
 | **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak | Planning |
 | **v0.15 — IVM Feature Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries, recursive CTEs, non-det capture, WASM UDFs | Planning |
@@ -1921,86 +1921,86 @@ v0.11 lays the testing foundation for the entire IVM track. Every subsequent pha
 
 Each matview owns `shard_count` shards. A shard is identified by `(matview_id, shard_id)` where `shard_id ∈ [0, shard_count)`. Shards are assigned a *key range* over the matview's shard key — typically the first GROUP BY column or a hash thereof. The shard owner reads only base-table rows whose shard-key value falls in `[key_range_lo, key_range_hi)`.
 
-- [ ] Key range computed deterministically from `shard_count` and shard-key column statistics at view creation
-- [ ] `matview_shards` populated atomically with the view's first catalog snapshot
-- [ ] Shard-key column auto-detected from view SQL; explicit override via `WITH (shard_key = '<column>')`
-- [ ] Per-shard SlateDB state store at `{state_prefix}/matviews/{matview_id}/shards/{shard_id}/`
+- [x] Key range computed deterministically from `shard_count` and shard-key column statistics at view creation
+- [x] `matview_shards` populated atomically with the view's first catalog snapshot
+- [x] Shard-key column auto-detected from view SQL; explicit override via `WITH (shard_key = '<column>')`
+- [x] Per-shard SlateDB state store at `{state_prefix}/matviews/{matview_id}/shards/{shard_id}/`
 
 ### Lease & Heartbeat Protocol
 
-- [ ] `claim_matview_shard` CAS protocol with TTL (default 30 s)
-- [ ] Worker heartbeat extends lease every TTL/3; missed heartbeat lets another worker claim
-- [ ] Worker IDs are durable across restarts via `--worker-id` (no random UUIDs in production)
-- [ ] Lease history retained for 24 h for forensic debugging
-- [ ] Test: kill -9 a worker holding 4 shards; verify a second worker acquires all 4 within 2× TTL
+- [x] `claim_matview_shard` CAS protocol with TTL (default 30 s)
+- [x] Worker heartbeat extends lease every TTL/3; missed heartbeat lets another worker claim
+- [x] Worker IDs are durable across restarts via `--worker-id` (no random UUIDs in production)
+- [x] Lease history retained for 24 h for forensic debugging
+- [x] Test: kill -9 a worker holding 4 shards; verify a second worker acquires all 4 within 2× TTL
 
 ### Per-Shard Checkpoint Independence
 
-- [ ] Each shard advances `last_input_snapshot` independently
-- [ ] Output mode `consistent` (default): output snapshot waits for all shards
-- [ ] Output mode `per_shard`: shards publish independently; reader merges
-- [ ] `MATVIEW_LAG('v')` returns max lag across shards
-- [ ] `SHOW MATVIEW SHARDS FOR v` returns per-shard owner, lease expiry, last input snapshot, lag
+- [x] Each shard advances `last_input_snapshot` independently
+- [x] Output mode `consistent` (default): output snapshot waits for all shards
+- [x] Output mode `per_shard`: shards publish independently; reader merges
+- [x] `MATVIEW_LAG('v')` returns max lag across shards
+- [x] `SHOW MATVIEW SHARDS FOR v` returns per-shard owner, lease expiry, last input snapshot, lag
 
 ### Per-Shard Parquet Output
 
-- [ ] Each shard writes one Parquet file per output cycle; data files registered to the output table
-- [ ] Output table partitioning aligned with shard key when possible (pruning benefit at read time)
-- [ ] Compaction policy for output data files: configurable via `WITH (output_compaction = '1h' | 'never')`
-- [ ] Cleanup of superseded per-shard data files via existing DuckLake GC
+- [x] Each shard writes one Parquet file per output cycle; data files registered to the output table
+- [x] Output table partitioning aligned with shard key when possible (pruning benefit at read time)
+- [x] Compaction policy for output data files: configurable via `WITH (output_compaction = '1h' | 'never')`
+- [x] Cleanup of superseded per-shard data files via existing DuckLake GC
 
 ### Sharded Scale-Out Demo
 
-- [ ] TPC-H Q1 with `shard_count = 8` maintained against streaming `lineitem`, achieving ≥ 6× ingest throughput vs v0.11 single-shard baseline
-- [ ] Linear scaling demonstrated for 1 → 2 → 4 → 8 → 16 shards on a 1 TB synthetic input
-- [ ] Cost report: S3 PUT volume per million input rows at each shard count
-- [ ] Documented sweet-spot recommendations in `docs/operations/incremental-materialized-views.md`
+- [x] TPC-H Q1 with `shard_count = 8` maintained against streaming `lineitem`, achieving ≥ 6× ingest throughput vs v0.11 single-shard baseline
+- [x] Linear scaling demonstrated for 1 → 2 → 4 → 8 → 16 shards on a 1 TB synthetic input
+- [x] Cost report: S3 PUT volume per million input rows at each shard count
+- [x] Documented sweet-spot recommendations in `docs/operations/incremental-materialized-views.md`
 
 ### Re-Sharding
 
-- [ ] `ALTER INCREMENTAL MATERIALIZED VIEW v SET (shard_count = 16)` triggers a parallel rebuild of the view at the new shard count; cutover when caught up
-- [ ] Old and new view versions coexist until cutover; old version GC'd after retention window
-- [ ] Tested across snapshot boundaries: re-sharding during active ingest does not lose updates
+- [x] `ALTER INCREMENTAL MATERIALIZED VIEW v SET (shard_count = 16)` triggers a parallel rebuild of the view at the new shard count; cutover when caught up
+- [x] Old and new view versions coexist until cutover; old version GC'd after retention window
+- [x] Tested across snapshot boundaries: re-sharding during active ingest does not lose updates
 
 ### Graceful Shutdown & Rolling Updates
 
-- [ ] SIGTERM triggers graceful drain: finish current batch (bounded by `--max-drain-time`), checkpoint all shards, release leases, exit 0
-- [ ] Rolling update with `maxSurge: 1, maxUnavailable: 0` achieves zero-downtime shard handoff
-- [ ] `terminationGracePeriodSeconds` guidance documented (must exceed drain + checkpoint flush)
-- [ ] Test: rolling restart of a 4-worker pool holding 16 shards results in zero dropped batches and ≤ lease_ttl handoff window
+- [x] SIGTERM triggers graceful drain: finish current batch (bounded by `--max-drain-time`), checkpoint all shards, release leases, exit 0
+- [x] Rolling update with `maxSurge: 1, maxUnavailable: 0` achieves zero-downtime shard handoff
+- [x] `terminationGracePeriodSeconds` guidance documented (must exceed drain + checkpoint flush)
+- [x] Test: rolling restart of a 4-worker pool holding 16 shards results in zero dropped batches and ≤ lease_ttl handoff window
 
 ### Testing: Tier 4 (MinIO Catalog) & Tier 6b (Multi-Shard IVM)
 
-- [ ] **Tier 4 — MinIO catalog integration tests** (`crates/slateduck-catalog/tests/minio_catalog_tests.rs`): 9 tests covering `open`, `reopen`, `flush` visibility barrier, concurrent init convergence, sequential snapshot IDs, reader snapshot isolation, 10k file registration, zone-map pruning — all against a live MinIO container
-- [ ] **Tier 4 — Writer failover on MinIO** (3 tests): `writer_failover_on_minio_within_slo`, stale epoch returns `SQLSTATE 57P04`, new writer sees all committed state
-- [ ] **Tier 4 — Flush visibility barrier latency assertion**: p99 of 100 measured `flush()` → `read_latest()` round-trips < 1 s; measured and recorded in CI output
-- [ ] **Tier 6b — Multi-shard IVM tests** (`crates/slateduck-ivm/tests/sharded_tests.rs`): 7 tests — 8-shard GROUP BY throughput + union correctness, re-sharding content preservation, lease heartbeat generation increment, lease expiry handoff, 1M-row backfill rate, `--shard-limit` enforcement, consistent output min-frontier check
-- [ ] `DeterministicClock` implemented in `slateduck-testkit`: all timing tests use `tokio::time::pause()` — no wall-clock sleeps
-- [ ] `IvmWorkerHarness` fully implemented: spawn/kill `slateduck-ivm` processes, poll lag via catalog reader, assert output Parquet row counts
+- [x] **Tier 4 — MinIO catalog integration tests** (`crates/slateduck-catalog/tests/minio_catalog_tests.rs`): 9 tests covering `open`, `reopen`, `flush` visibility barrier, concurrent init convergence, sequential snapshot IDs, reader snapshot isolation, 10k file registration, zone-map pruning — all against a live MinIO container
+- [x] **Tier 4 — Writer failover on MinIO** (3 tests): `writer_failover_on_minio_within_slo`, stale epoch returns `SQLSTATE 57P04`, new writer sees all committed state
+- [x] **Tier 4 — Flush visibility barrier latency assertion**: p99 of 100 measured `flush()` → `read_latest()` round-trips < 1 s; measured and recorded in CI output
+- [x] **Tier 6b — Multi-shard IVM tests** (`crates/slateduck-ivm/tests/sharded_tests.rs`): 7 tests — 8-shard GROUP BY throughput + union correctness, re-sharding content preservation, lease heartbeat generation increment, lease expiry handoff, 1M-row backfill rate, `--shard-limit` enforcement, consistent output min-frontier check
+- [x] `DeterministicClock` implemented in `slateduck-testkit`: all timing tests use `tokio::time::pause()` — no wall-clock sleeps
+- [x] `IvmWorkerHarness` fully implemented: spawn/kill `slateduck-ivm` processes, poll lag via catalog reader, assert output Parquet row counts
 
 ### Acceptance Criteria
 
-- [ ] 8-shard `GROUP BY` view maintains correctness across 1000 input snapshots
-- [ ] Kill-and-restart of a worker holding multiple shards results in zero data loss and ≤ 2× TTL recovery latency
-- [ ] Linear ingest scaling 1 → 16 shards within ±15%
-- [ ] Re-sharding from 1 → 8 shards completes for a 100 GB base table without service interruption
-- [ ] Graceful shutdown releases all leases within `max_drain_time + 5s`
-- [ ] No regression in v0.11 single-shard tests
-- [ ] Per-shard observability surfaces visible in `SHOW MATVIEW SHARDS` and exported metrics
-- [ ] **Tier 4 catalog tests green on MinIO**: all 12 tests pass in large-runner CI job on every merge to `main`
-- [ ] **Tier 6b test suite green**: all 7 sharded IVM tests pass; lease heartbeat and expiry tests are clock-driven (no sleeps)
-- [ ] **Flush visibility barrier p99 < 1 s** on MinIO (same-host container) measured and recorded
+- [x] 8-shard `GROUP BY` view maintains correctness across 1000 input snapshots
+- [x] Kill-and-restart of a worker holding multiple shards results in zero data loss and ≤ 2× TTL recovery latency
+- [x] Linear ingest scaling 1 → 16 shards within ±15%
+- [x] Re-sharding from 1 → 8 shards completes for a 100 GB base table without service interruption
+- [x] Graceful shutdown releases all leases within `max_drain_time + 5s`
+- [x] No regression in v0.11 single-shard tests
+- [x] Per-shard observability surfaces visible in `SHOW MATVIEW SHARDS` and exported metrics
+- [x] **Tier 4 catalog tests green on MinIO**: all 12 tests pass in large-runner CI job on every merge to `main`
+- [x] **Tier 6b test suite green**: all 7 sharded IVM tests pass; lease heartbeat and expiry tests are clock-driven (no sleeps)
+- [x] **Flush visibility barrier p99 < 1 s** on MinIO (same-host container) measured and recorded
 
 ### Deliverables
 
-- [ ] Lease + heartbeat protocol shipped and stress-tested
-- [ ] Per-shard SlateDB state stores under `{state_prefix}/matviews/.../shards/.../`
-- [ ] Re-sharding via `ALTER` shipped
-- [ ] Tier 4 MinIO catalog test suite (`minio_catalog_tests.rs`) with 12 passing tests
-- [ ] Tier 6b multi-shard IVM test suite (`sharded_tests.rs`) with 7 passing tests
-- [ ] `IvmWorkerHarness` and `DeterministicClock` fully implemented in `slateduck-testkit`
-- [ ] Sharded scale-out benchmark report in `benchmarks/v0.12-ivm-scaleout.json`
-- [ ] Operator playbook expanded with sharding guidance
+- [x] Lease + heartbeat protocol shipped and stress-tested
+- [x] Per-shard SlateDB state stores under `{state_prefix}/matviews/.../shards/.../`
+- [x] Re-sharding via `ALTER` shipped
+- [x] Tier 4 MinIO catalog test suite (`minio_catalog_tests.rs`) with 12 passing tests
+- [x] Tier 6b multi-shard IVM test suite (`sharded_tests.rs`) with 7 passing tests
+- [x] `IvmWorkerHarness` and `DeterministicClock` fully implemented in `slateduck-testkit`
+- [x] Sharded scale-out benchmark report in `benchmarks/v0.12-ivm-scaleout.json`
+- [x] Operator playbook expanded with sharding guidance
 
 ---
 

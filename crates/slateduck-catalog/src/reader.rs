@@ -732,4 +732,26 @@ impl CatalogReader {
             .last()
             .map(|cp| now_unix_ms.saturating_sub(cp.durable_at_unix_ms)))
     }
+
+    /// Compute the maximum lag across all shards for a matview.
+    ///
+    /// Used by the `MATVIEW_LAG('v')` SQL function.  Returns `None` if no
+    /// shard has produced a checkpoint yet.
+    pub async fn matview_max_lag_ms(
+        &self,
+        matview_id: u64,
+        now_unix_ms: u64,
+    ) -> CatalogResult<Option<u64>> {
+        let shards = self.list_matview_shards(matview_id).await?;
+        let mut max_lag: Option<u64> = None;
+        for shard in &shards {
+            if let Some(lag) = self
+                .matview_lag_ms(matview_id, shard.shard_id, now_unix_ms)
+                .await?
+            {
+                max_lag = Some(max_lag.map_or(lag, |m: u64| m.max(lag)));
+            }
+        }
+        Ok(max_lag)
+    }
 }

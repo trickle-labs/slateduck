@@ -8,6 +8,7 @@ members = [
     "crates/slateduck-ffi",
     "crates/slateduck-datafusion",
     "crates/slateduck-ivm",
+    "crates/slateduck-testkit",
 ]
 resolver = "2"
 

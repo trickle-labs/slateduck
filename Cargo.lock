@@ -5646,12 +5646,14 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dbsp",
+ "object_store 0.12.5",
  "serde",
  "serde_json",
  "slatedb",
  "slateduck-catalog",
  "slateduck-core",
  "slateduck-sql",
+ "slateduck-testkit",
  "sqlparser 0.55.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -5706,6 +5708,18 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "slateduck-testkit"
+version = "0.1.0"
+dependencies = [
+ "object_store 0.12.5",
+ "slateduck-catalog",
+ "slateduck-core",
+ "slateduck-ivm",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
