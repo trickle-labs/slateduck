@@ -589,4 +589,147 @@ impl CatalogReader {
             added_data_files,
         })
     }
+
+    // ─── v0.11 IVM Reader Methods ──────────────────────────────────────────
+
+    /// List all active matviews visible at the current snapshot.
+    pub async fn list_matviews(&self) -> CatalogResult<Vec<MatviewRow>> {
+        let prefix = keys::prefix_for_tag(TAG_MATVIEW);
+        let mut result = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: MatviewRow = values::decode_value(&kv.value)?;
+            if mvcc::is_visible(
+                row.begin_snapshot,
+                Some(row.end_snapshot).filter(|&e| e != 0),
+                self.dl_snapshot_id,
+            ) {
+                result.push(row);
+            }
+        }
+        Ok(result)
+    }
+
+    /// Get a matview by ID at the current snapshot.
+    pub async fn get_matview(&self, matview_id: u64) -> CatalogResult<Option<MatviewRow>> {
+        let prefix = keys::prefix_matview(matview_id);
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: MatviewRow = values::decode_value(&kv.value)?;
+            if mvcc::is_visible(
+                row.begin_snapshot,
+                Some(row.end_snapshot).filter(|&e| e != 0),
+                self.dl_snapshot_id,
+            ) {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get a matview by name and schema at the current snapshot.
+    pub async fn get_matview_by_name(
+        &self,
+        schema_name: &str,
+        name: &str,
+    ) -> CatalogResult<Option<MatviewRow>> {
+        for row in self.list_matviews().await? {
+            if row.schema_name == schema_name && row.name == name {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
+    }
+
+    /// List all dependency rows for a matview.
+    pub async fn list_matview_deps(&self, matview_id: u64) -> CatalogResult<Vec<MatviewDepRow>> {
+        let prefix = keys::prefix_matview_deps(matview_id);
+        let mut result = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            result.push(values::decode_value::<MatviewDepRow>(&kv.value)?);
+        }
+        Ok(result)
+    }
+
+    /// List all shards for a matview.
+    pub async fn list_matview_shards(
+        &self,
+        matview_id: u64,
+    ) -> CatalogResult<Vec<MatviewShardRow>> {
+        let prefix = keys::prefix_matview_shards(matview_id);
+        let mut result = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            result.push(values::decode_value::<MatviewShardRow>(&kv.value)?);
+        }
+        Ok(result)
+    }
+
+    /// List all shards currently owned by a specific worker.
+    pub async fn list_shards_for_worker(
+        &self,
+        matview_id: u64,
+        worker_id: &str,
+        now_unix_ms: u64,
+    ) -> CatalogResult<Vec<MatviewShardRow>> {
+        Ok(self
+            .list_matview_shards(matview_id)
+            .await?
+            .into_iter()
+            .filter(|s| s.owner_worker == worker_id && s.lease_expires_unix_ms > now_unix_ms)
+            .collect())
+    }
+
+    /// Read the checkpoint history for (matview_id, shard_id), ordered by seq.
+    pub async fn read_checkpoint_history(
+        &self,
+        matview_id: u64,
+        shard_id: u32,
+    ) -> CatalogResult<Vec<MatviewCheckpointRow>> {
+        let prefix = keys::prefix_matview_checkpoints(matview_id, shard_id);
+        let mut result = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            result.push(values::decode_value::<MatviewCheckpointRow>(&kv.value)?);
+        }
+        // Entries are already key-sorted by seq (big-endian u64).
+        Ok(result)
+    }
+
+    /// Compute the approximate lag in milliseconds for a (matview_id, shard_id).
+    ///
+    /// Returns the difference between `now_unix_ms` and the most recent
+    /// checkpoint's `durable_at_unix_ms`, or `None` if no checkpoint exists.
+    pub async fn matview_lag_ms(
+        &self,
+        matview_id: u64,
+        shard_id: u32,
+        now_unix_ms: u64,
+    ) -> CatalogResult<Option<u64>> {
+        let history = self.read_checkpoint_history(matview_id, shard_id).await?;
+        Ok(history
+            .last()
+            .map(|cp| now_unix_ms.saturating_sub(cp.durable_at_unix_ms)))
+    }
 }

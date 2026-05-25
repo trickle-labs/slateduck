@@ -1,0 +1,4 @@
+# Matview fixture: lease_acquired
+# Corpus for shard lease acquisition and extension.
+# matview_id=1, shard_id=0, worker=worker-a, lease_duration_ms=30000
+# Expected outcome: Acquired { generation=1, expires_unix_ms=<now+30000> }

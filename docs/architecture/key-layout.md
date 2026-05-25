@@ -231,3 +231,24 @@ Only `begin_snapshot` is in the key, not `end_snapshot`. This is because `end_sn
 - **[MVCC Implementation](mvcc-implementation.md)** — How version filtering uses these keys
 - **[SQL Dispatcher](sql-dispatcher.md)** — How SQL queries map to prefix scan patterns
 - **[Internals: Tag Allocation](../internals/tag-allocation.md)** — How new tag values are assigned as the format evolves
+- **[IVM Plane](ivm-plane.md)** — Architecture of the v0.11 IVM extensions
+
+## v0.11 IVM Tag Extensions
+
+Tag bytes `0x1D`–`0x20` are additive IVM extensions introduced in v0.11.
+They follow the same key-encoding conventions as earlier tags.
+
+| Tag    | Table                            | Key shape                                                         | MVCC             |
+|--------|----------------------------------|-------------------------------------------------------------------|------------------|
+| `0x1D` | `slateduck_matview`              | `tag \| matview_id(u64 BE) \| begin_snapshot(u64 BE)`            | Versioned        |
+| `0x1E` | `slateduck_matview_dep`          | `tag \| matview_id(u64 BE) \| base_table_id(u64 BE)`             | AppendOnly       |
+| `0x1F` | `slateduck_matview_checkpoint`   | `tag \| matview_id(u64 BE) \| shard_id(u32 BE) \| seq(u64 BE)`   | AppendOnly       |
+| `0x20` | `slateduck_matview_shard`        | `tag \| matview_id(u64 BE) \| shard_id(u32 BE)`                  | MutableSingleton |
+
+Tag bytes `0x21`–`0x2F` are reserved for future IVM-related tables.
+
+### Tag Extensibility Guarantees
+
+- **Unknown tags are skipped** during prefix scans. The first byte of every key is checked against `ALL_TAGS`; unknown values produce a `KeyError::UnknownTag` on direct access but are silently skipped during iteration.
+- **Older binaries** that do not know about IVM tags will never encounter `0x1D`–`0x20` keys during normal DuckLake catalog operations because those operations use tag-specific prefix scans (e.g. `prefix_for_tag(TAG_TABLE)` returns `[0x04]`).
+- **Forward compatibility**: a v0.10 reader scanning all keys and encountering `0x1D` bytes should skip them. This is enforced by the `is_known_tag()` check in `extract_tag()`.

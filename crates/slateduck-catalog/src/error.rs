@@ -52,6 +52,8 @@ pub enum CatalogError {
     Internal(String),
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("generation mismatch: expected {expected}, actual {actual} (CAS conflict)")]
+    GenerationMismatch { expected: u64, actual: u64 },
 }
 
 impl From<slatedb::Error> for CatalogError {

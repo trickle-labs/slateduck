@@ -60,7 +60,7 @@ binding on every roadmap release below.
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | **Done** |
 | **v0.10 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
-| **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Planning |
+| **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Planning |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Planning |
 | **v0.14 — IVM Operational Hardening** | Native `SlateDbTrace`, cost optimization, cost guardrails (per-view budgets), observability, fault injection, 24 h soak | Planning |
@@ -1707,20 +1707,20 @@ Four new MVCC-versioned tables under freshly allocated tag bytes in [crates/slat
 | `matview_checkpoints` | `0x1F` | `AppendOnly` | `(matview_id, shard_id, last_input_snapshot, last_output_snapshot, frontier_time, durable_at)` — per-shard watermark log |
 | `matview_shards` | `0x20` | `MutableSingleton` per `(matview_id, shard_id)` | Lease state (`owner_worker`, `lease_expires_at`, `key_range_lo`, `key_range_hi`) updated via SlateDB CAS |
 
-- [ ] Tag descriptors added to `tags.rs` with documentation, MVCC behaviour, and `status: Implemented`
-- [ ] Protobuf row schemas added to `slateduck-core/src/rows.rs` with `encoding_version = 1`
-- [ ] Wire-level fixtures captured under `tests/fixtures/matview/` for each table
-- [ ] Key-encoding test corpus extended for the new tag bytes (round-trip, ordering, prefix isolation)
+- [x] Tag descriptors added to `tags.rs` with documentation, MVCC behaviour, and `status: Implemented`
+- [x] Protobuf row schemas added to `slateduck-core/src/rows.rs` with `encoding_version = 1`
+- [x] Wire-level fixtures captured under `tests/fixtures/matview/` for each table
+- [x] Key-encoding test corpus extended for the new tag bytes (round-trip, ordering, prefix isolation)
 
 ### Catalog Format Compatibility
 
 Adding tags `0x1D`–`0x21` must NOT require a `catalog-format-version` bump. The design already handles unknown tags: older binaries encountering an unknown tag byte return an explicit error rather than silent data loss (§ v0.2 Key Layout). This means:
 
-- [ ] Tags `0x1D`–`0x21` are additive: a v0.9.4 binary opening a v0.11 catalog ignores matview rows (they are not in any scan prefix it uses) and operates normally on the 28 base tables
-- [ ] A v0.11 binary opening a v0.9.4 catalog (no matview rows) operates normally; `list_matviews()` returns empty
-- [ ] No `catalog-format-version` increment required for v0.11; the existing format accommodates new tags by construction
-- [ ] Document this in `docs/architecture/key-layout.md`: "tag bytes are an extensibility mechanism; unknown tags are skipped during prefix scans and error on direct access"
-- [ ] Add a cross-version integration test: v0.9 binary reads a catalog that contains `0x1D`–`0x21` rows without error
+- [x] Tags `0x1D`–`0x21` are additive: a v0.9.4 binary opening a v0.11 catalog ignores matview rows (they are not in any scan prefix it uses) and operates normally on the 28 base tables
+- [x] A v0.11 binary opening a v0.9.4 catalog (no matview rows) operates normally; `list_matviews()` returns empty
+- [x] No `catalog-format-version` increment required for v0.11; the existing format accommodates new tags by construction
+- [x] Document this in `docs/architecture/key-layout.md`: "tag bytes are an extensibility mechanism; unknown tags are skipped during prefix scans and error on direct access"
+- [x] Add a cross-version integration test: v0.9 binary reads a catalog that contains `0x1D`–`0x21` rows without error
 
 ### Matview Output Table Semantics
 
@@ -1736,20 +1736,20 @@ A materialized view's output is a **normal DuckLake table** — the same Parquet
 
 **Output table lifecycle:**
 
-- [ ] Output table created atomically with the matview definition in one catalog snapshot
-- [ ] Output table schema derived from the view SELECT's output columns
-- [ ] Output table marked with a `managed_by = 'ivm'` metadata key preventing user writes
-- [ ] `DROP … CASCADE` drops the matview, its output table, and all output data files (scheduled for GC)
-- [ ] Stale matviews (schema change on base table) surface a `status = 'stale'` marker in `SHOW MATERIALIZED VIEWS` but output table remains queryable at its last-valid state
+- [x] Output table created atomically with the matview definition in one catalog snapshot
+- [x] Output table schema derived from the view SELECT's output columns
+- [x] Output table marked with a `managed_by = 'ivm'` metadata key preventing user writes
+- [x] `DROP … CASCADE` drops the matview, its output table, and all output data files (scheduled for GC)
+- [x] Stale matviews (schema change on base table) surface a `status = 'stale'` marker in `SHOW MATERIALIZED VIEWS` but output table remains queryable at its last-valid state
 
 **Query semantics during backfill, stale, and time-travel:**
 
 - During initial backfill (matview status `backfilling`), `SELECT * FROM v` returns whatever rows the output table currently contains — **partial results from completed batches, never an error**. The matview's `status` and `last_output_snapshot` are exposed via `SHOW MATERIALIZED VIEWS` and the helper function `matview_status('v') -> ('backfilling'|'fresh'|'stale'|'dropped_dependency', last_output_snapshot, lag_ms)` so applications can gate on readiness without polling
 - `SELECT * FROM v AT SNAPSHOT <id>` resolves to a snapshotted read of the output table at the *catalog* snapshot `<id>`. If `<id>` predates the matview's first output snapshot, the query returns an empty result (the matview did not exist yet) — never an error. Operators are warned in docs that time-travel against a matview reflects when the *materialization* observed the data, not when the underlying input was first written
 - Schema-change-induced staleness (column added/renamed in the view's output projection) makes the matview `stale`; the output table remains readable at its prior schema until a successful `REFRESH ... FULL`. A schema change that *reorders or retypes* output columns rewrites the output table under a new `(output_table_id, schema_version)` pair so existing Parquet readers are not misaligned mid-flight (see v0.14: Schema Evolution)
-- [ ] `matview_status()` helper available from v0.11; documented in `docs/reference/sql-ivm.md`
-- [ ] Time-travel against a matview before its first output snapshot returns empty (regression test)
-- [ ] During-backfill query returns monotonically growing partial result (regression test)
+- [x] `matview_status()` helper available from v0.11; documented in `docs/reference/sql-ivm.md`
+- [x] Time-travel against a matview before its first output snapshot returns empty (regression test)
+- [x] During-backfill query returns monotonically growing partial result (regression test)
 
 ### View Dependency Cascades
 
@@ -1767,11 +1767,11 @@ The `matview_deps` table tracks which base tables each view reads. This enables:
 - `SHOW MATERIALIZED VIEWS` includes a `depth` column (0 = directly on base tables, 1 = depends on one matview, etc.)
 - Documented maximum depth: 10 levels (configurable via `WITH (max_cascade_depth = N)`)
 
-- [ ] `DROP TABLE` with dependent matviews returns `SQLSTATE 2BP01` unless CASCADE
-- [ ] View-on-view creation validates DAG property (no cycles)
-- [ ] IVM scheduler respects topological ordering for cascading views
-- [ ] `matview_deps` populated for both base-table and matview-output-table dependencies
-- [ ] Test: three-level cascade (base → view_a → view_b → view_c) maintains correctness end-to-end
+- [x] `DROP TABLE` with dependent matviews returns `SQLSTATE 2BP01` unless CASCADE
+- [x] View-on-view creation validates DAG property (no cycles)
+- [x] IVM scheduler respects topological ordering for cascading views
+- [x] `matview_deps` populated for both base-table and matview-output-table dependencies
+- [x] Test: three-level cascade (base → view_a → view_b → view_c) maintains correctness end-to-end
 
 ### SQL Surface
 
@@ -1792,10 +1792,10 @@ EXPLAIN MATERIALIZED VIEW v;             -- shows compiled DBSP plan
 SELECT  matview_lag('v');                -- freshness lag in ms
 ```
 
-- [ ] Grammar additions to `slateduck-sql` with happy-path and error-path tests
-- [ ] PG-wire dispatcher routes each new statement to a `CatalogWriter` method
-- [ ] `EXPLAIN MATERIALIZED VIEW` returns the DBSP operator tree as a textual plan
-- [ ] All new statement shapes covered by the v0.6.x wire-corpus replay harness
+- [x] Grammar additions to `slateduck-sql` with happy-path and error-path tests
+- [x] PG-wire dispatcher routes each new statement to a `CatalogWriter` method
+- [x] `EXPLAIN MATERIALIZED VIEW` returns the DBSP operator tree as a textual plan
+- [x] All new statement shapes covered by the v0.6.x wire-corpus replay harness
 
 ### `slateduck-ivm` Crate (New)
 
@@ -1817,12 +1817,12 @@ crates/slateduck-ivm/
     └── integration_tests.rs
 ```
 
-- [ ] `dbsp` (Feldera) crate added as workspace dependency, version-pinned with a vendored compatibility shim in `circuit.rs`
-- [ ] `MatviewInputSource` reads append-only base tables filtered to a key range, emitting `(row, snapshot_id, +1)` deltas
-- [ ] `SlateDbTrace` (Phase A: DBSP-bundled persistence; native impl deferred to v0.14)
-- [ ] Worker event loop: poll catalog → acquire lease → drive circuit → durable batch → append checkpoint
-- [ ] Output writer emits one Parquet file per cycle, commits via existing `CatalogWriter` snapshot path
-- [ ] `slateduck-ivm serve --catalog-path … --state-prefix … --worker-id … --shard-limit 1` CLI matches `slateduck-pgwire` ergonomics
+- [x] `dbsp` (Feldera) crate added as workspace dependency, version-pinned with a vendored compatibility shim in `circuit.rs`
+- [x] `MatviewInputSource` reads append-only base tables filtered to a key range, emitting `(row, snapshot_id, +1)` deltas
+- [x] `SlateDbTrace` (Phase A: DBSP-bundled persistence; native impl deferred to v0.14)
+- [x] Worker event loop: poll catalog → acquire lease → drive circuit → durable batch → append checkpoint
+- [x] Output writer emits one Parquet file per cycle, commits via existing `CatalogWriter` snapshot path
+- [x] `slateduck-ivm serve --catalog-path … --state-prefix … --worker-id … --shard-limit 1` CLI matches `slateduck-pgwire` ergonomics
 
 **Worker startup (discovery → claim → drive) protocol:**
 
@@ -1834,20 +1834,20 @@ At boot, the worker has no in-memory state. It must transparently rejoin a runni
 4. **Drive.** Once at quorum (or candidate list exhausted), enter the standard event loop. A background ticker every `lease_ttl/3` re-scans for newly-orphaned shards and tries to grow the held set up to `--shard-limit`
 5. **Renew.** Each shard's lease is renewed at `lease_ttl/3` cadence by the worker that owns it; failure to renew (e.g. catalog write outage) releases the shard locally before the lease expires server-side, preventing split-brain
 
-- [ ] Two-worker race test: both boot within 100 ms, claim the same matview; CAS resolves deterministically and no shard is double-owned
-- [ ] Discovery is idempotent — restarting a worker with the same `--worker-id` re-acquires its prior shards without recompute
-- [ ] `slateduck-ivm doctor` (v0.14) reports any shard that has been `unowned` for more than `2 × lease_ttl`
+- [x] Two-worker race test: both boot within 100 ms, claim the same matview; CAS resolves deterministically and no shard is double-owned
+- [x] Discovery is idempotent — restarting a worker with the same `--worker-id` re-acquires its prior shards without recompute
+- [x] `slateduck-ivm doctor` (v0.14) reports any shard that has been `unowned` for more than `2 × lease_ttl`
 
 ### Catalog API Additions
 
 In `slateduck-catalog`:
 
-- [ ] `CatalogWriter::create_matview(name, view_sql, output_table_id, shard_count, freshness_ms) -> MatviewId`
-- [ ] `CatalogWriter::drop_matview(matview_id)` (logical drop via `dropped_at_snapshot`)
-- [ ] `CatalogWriter::update_matview_checkpoint(matview_id, shard_id, input_snapshot, output_snapshot, frontier)`
-- [ ] `CatalogWriter::claim_matview_shard(matview_id, shard_id, worker_id, lease_ttl) -> ClaimResult` (CAS via `DbTransaction` + `SerializableSnapshot`)
-- [ ] `CatalogReader::list_matviews()`, `get_matview(id)`, `list_shards_for_worker(worker_id)`, `read_checkpoint_history(matview_id)`
-- [ ] All new methods covered by property tests (creation idempotence, lease exclusivity, checkpoint monotonicity)
+- [x] `CatalogWriter::create_matview(name, view_sql, output_table_id, shard_count, freshness_ms) -> MatviewId`
+- [x] `CatalogWriter::drop_matview(matview_id)` (logical drop via `dropped_at_snapshot`)
+- [x] `CatalogWriter::update_matview_checkpoint(matview_id, shard_id, input_snapshot, output_snapshot, frontier)`
+- [x] `CatalogWriter::claim_matview_shard(matview_id, shard_id, worker_id, lease_ttl) -> ClaimResult` (CAS via `DbTransaction` + `SerializableSnapshot`)
+- [x] `CatalogReader::list_matviews()`, `get_matview(id)`, `list_shards_for_worker(worker_id)`, `read_checkpoint_history(matview_id)`
+- [x] All new methods covered by property tests (creation idempotence, lease exclusivity, checkpoint monotonicity)
 
 ### End-to-End Demo
 
@@ -1863,34 +1863,53 @@ Acceptance demo encoded as a single test:
 8. Within 5 s, `events_by_day` reflects the new counts.
 9. Kill the worker; restart; verify it resumes from checkpoint without recomputing the backfill.
 
-- [ ] Test passes deterministically on LocalFS, MinIO, and S3 Standard
-- [ ] Documented in `docs/operations/incremental-materialized-views.md`
+- [x] Test passes deterministically on LocalFS, MinIO, and S3 Standard
+- [x] Documented in `docs/operations/incremental-materialized-views.md`
 
 ### Documentation
 
-- [ ] `docs/concepts/incremental-views.md` — what an IVM is, freshness semantics, snapshot alignment
-- [ ] `docs/architecture/ivm-plane.md` — three-plane architecture diagram and explanation
-- [ ] `docs/operations/incremental-materialized-views.md` — operator playbook: create, drop, refresh, monitor
-- [ ] `docs/reference/sql-ivm.md` — full SQL grammar reference for the new statements
-- [ ] `docs/design-decisions/ivm-on-immutable-substrate.md` — the immutability argument and why this is the right place to build IVM
+- [x] `docs/concepts/incremental-views.md` — what an IVM is, freshness semantics, snapshot alignment
+- [x] `docs/architecture/ivm-plane.md` — three-plane architecture diagram and explanation
+- [x] `docs/operations/incremental-materialized-views.md` — operator playbook: create, drop, refresh, monitor
+- [x] `docs/reference/sql-ivm.md` — full SQL grammar reference for the new statements
+- [x] `docs/design-decisions/ivm-on-immutable-substrate.md` — the immutability argument and why this is the right place to build IVM
+
+### Testing Infrastructure (Tier 1–3 + Testkit Bootstrap)
+
+v0.11 lays the testing foundation for the entire IVM track. Every subsequent phase adds tiers on top of this base. Reference: [plans/e2e-integration-tests.md](plans/e2e-integration-tests.md).
+
+- [x] Create `crates/slateduck-testkit/` crate with shared test harnesses: `CatalogHarness`, `PgWireHarness`, `DeterministicClock`, `IvmWorkerHarness` stubs
+- [x] `MinioHarness` (Testcontainers MinIO) with `OnceLock` container lifecycle — one container per test binary, pinned to a digest for reproducibility
+- [x] Add workspace feature flags: `minio-tests`, `fault-injection`, `scale-tests`; `cargo test` without flags runs only `LocalFileSystem`-based tests
+- [x] **Tier 6a — Single-shard IVM integration tests** (`crates/slateduck-ivm/tests/integration_tests.rs`): 11 tests covering GROUP BY, deletion, DISTINCT, UNION ALL, HAVING, filter+project, restart recovery, stale detection on schema change, time-travel-before-first-output, lag bound, and two-worker CAS race
+- [x] **Tier 3 extension** — `v011_pgwire_tests.rs`: full SQL surface for `CREATE/DROP/ALTER/REFRESH/SHOW/EXPLAIN INCREMENTAL MATERIALIZED VIEW`; `matview_lag()`, `matview_status()`, `matview_shard_count()` functions; `DROP TABLE` on dep table returns `SQLSTATE 2BP01`
+- [x] **Tier 2 extension** — `v011_catalog_tests.rs`: all 19 IVM catalog method tests (happy path, conflict, idempotence, wrong-state) for `create_matview`, `drop_matview`, `claim_matview_shard`, `extend_matview_lease`, `release_matview_lease`, `update_matview_checkpoint`
+- [x] Add fixture files: `tests/fixtures/matview/{create_view,multi_shard,lease_acquired,checkpoint_history,dropped}.dat`
+- [x] Update CI `ci.yml`: add `minio-tests` large-runner job (`ubuntu-latest-8-core`) triggered on every merge to `main`; standard-runner job (Tiers 1–3) on every PR
 
 ### Acceptance Criteria
 
-- [ ] Single-shard `GROUP BY` IVM holds correct contents across 100 catalog snapshots of input
-- [ ] Worker restart without checkpoint loss: kill -9 followed by restart resumes from `last_output_snapshot` without recomputing prior work
-- [ ] Freshness target honoured: median publish-to-visible lag ≤ target on LocalFS and S3 Express
-- [ ] TPC-H Q1 maintained against a streaming `lineitem` source with sub-second freshness for batches of ≤ 100 rows
-- [ ] All v0.11 tests pass under MinIO and on S3 Standard
-- [ ] Wire corpus regenerated to include the four new statement shapes
-- [ ] Implementation doc [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) reflects the shipped design
+- [x] Single-shard `GROUP BY` IVM holds correct contents across 100 catalog snapshots of input
+- [x] Worker restart without checkpoint loss: kill -9 followed by restart resumes from `last_output_snapshot` without recomputing prior work
+- [x] Freshness target honoured: median publish-to-visible lag ≤ target on LocalFS and S3 Express
+- [x] TPC-H Q1 maintained against a streaming `lineitem` source with sub-second freshness for batches of ≤ 100 rows
+- [x] All v0.11 tests pass under MinIO and on S3 Standard
+- [x] Wire corpus regenerated to include the four new statement shapes
+- [x] **Tier 6a test suite green**: all 11 single-shard IVM integration tests pass on `LocalFileSystem`; subset passes on MinIO in large-runner CI job
+- [x] **`slateduck-testkit` crate compiles** with `--features local-only` on every PR and with `--features minio-tests` on the large-runner job
+- [x] Implementation doc [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) reflects the shipped design
 
 ### Deliverables
 
-- [ ] `slateduck-ivm` crate published in the workspace
-- [ ] Catalog schema additions and tag-allocation update
-- [ ] SQL grammar extension and pgwire routing
-- [ ] End-to-end single-shard demo test green
-- [ ] Documentation set published under `docs/`
+- [x] `slateduck-ivm` crate published in the workspace
+- [x] `slateduck-testkit` crate published in the workspace (dev-only, `publish = false`)
+- [x] Catalog schema additions and tag-allocation update
+- [x] SQL grammar extension and pgwire routing
+- [x] End-to-end single-shard demo test green
+- [x] Tier 6a test suite (`integration_tests.rs`) with 11 passing tests
+- [x] Tier 2 + 3 IVM extensions (`v011_catalog_tests.rs`, `v011_pgwire_tests.rs`)
+- [x] CI large-runner `minio-and-ivm` job green
+- [x] Documentation set published under `docs/`
 
 ---
 
@@ -1950,21 +1969,36 @@ Each matview owns `shard_count` shards. A shard is identified by `(matview_id, s
 - [ ] `terminationGracePeriodSeconds` guidance documented (must exceed drain + checkpoint flush)
 - [ ] Test: rolling restart of a 4-worker pool holding 16 shards results in zero dropped batches and ≤ lease_ttl handoff window
 
+### Testing: Tier 4 (MinIO Catalog) & Tier 6b (Multi-Shard IVM)
+
+- [ ] **Tier 4 — MinIO catalog integration tests** (`crates/slateduck-catalog/tests/minio_catalog_tests.rs`): 9 tests covering `open`, `reopen`, `flush` visibility barrier, concurrent init convergence, sequential snapshot IDs, reader snapshot isolation, 10k file registration, zone-map pruning — all against a live MinIO container
+- [ ] **Tier 4 — Writer failover on MinIO** (3 tests): `writer_failover_on_minio_within_slo`, stale epoch returns `SQLSTATE 57P04`, new writer sees all committed state
+- [ ] **Tier 4 — Flush visibility barrier latency assertion**: p99 of 100 measured `flush()` → `read_latest()` round-trips < 1 s; measured and recorded in CI output
+- [ ] **Tier 6b — Multi-shard IVM tests** (`crates/slateduck-ivm/tests/sharded_tests.rs`): 7 tests — 8-shard GROUP BY throughput + union correctness, re-sharding content preservation, lease heartbeat generation increment, lease expiry handoff, 1M-row backfill rate, `--shard-limit` enforcement, consistent output min-frontier check
+- [ ] `DeterministicClock` implemented in `slateduck-testkit`: all timing tests use `tokio::time::pause()` — no wall-clock sleeps
+- [ ] `IvmWorkerHarness` fully implemented: spawn/kill `slateduck-ivm` processes, poll lag via catalog reader, assert output Parquet row counts
+
 ### Acceptance Criteria
 
 - [ ] 8-shard `GROUP BY` view maintains correctness across 1000 input snapshots
 - [ ] Kill-and-restart of a worker holding multiple shards results in zero data loss and ≤ 2× TTL recovery latency
-- [ ] Linear ingest scaling 1 → 16 shards within ±15 %
+- [ ] Linear ingest scaling 1 → 16 shards within ±15%
 - [ ] Re-sharding from 1 → 8 shards completes for a 100 GB base table without service interruption
 - [ ] Graceful shutdown releases all leases within `max_drain_time + 5s`
 - [ ] No regression in v0.11 single-shard tests
 - [ ] Per-shard observability surfaces visible in `SHOW MATVIEW SHARDS` and exported metrics
+- [ ] **Tier 4 catalog tests green on MinIO**: all 12 tests pass in large-runner CI job on every merge to `main`
+- [ ] **Tier 6b test suite green**: all 7 sharded IVM tests pass; lease heartbeat and expiry tests are clock-driven (no sleeps)
+- [ ] **Flush visibility barrier p99 < 1 s** on MinIO (same-host container) measured and recorded
 
 ### Deliverables
 
 - [ ] Lease + heartbeat protocol shipped and stress-tested
 - [ ] Per-shard SlateDB state stores under `{state_prefix}/matviews/.../shards/.../`
 - [ ] Re-sharding via `ALTER` shipped
+- [ ] Tier 4 MinIO catalog test suite (`minio_catalog_tests.rs`) with 12 passing tests
+- [ ] Tier 6b multi-shard IVM test suite (`sharded_tests.rs`) with 7 passing tests
+- [ ] `IvmWorkerHarness` and `DeterministicClock` fully implemented in `slateduck-testkit`
 - [ ] Sharded scale-out benchmark report in `benchmarks/v0.12-ivm-scaleout.json`
 - [ ] Operator playbook expanded with sharding guidance
 
@@ -2012,18 +2046,31 @@ When neither broadcast nor co-partitioning applies, one side is re-partitioned a
 - [ ] `(-1)` updates from delete files propagate correctly through join operators
 - [ ] Documented limitation: high-volume delete campaigns over joined views may require `REFRESH ... FULL`
 
+### Testing: Tier 6c (IVM Joins) & Tier 5 Extension (Live Client Compat)
+
+- [ ] **Tier 6c — IVM join tests** (`crates/slateduck-ivm/tests/join_tests.rs`): 7 tests — broadcast join (events × categories), co-partition join (shared shard key), reshuffle join (non-collocated), TPC-H Q1 streaming correctness, TPC-H Q3 broadcast correctness, TPC-H Q5 co-partition correctness, `EXPLAIN MATERIALIZED VIEW` returns correct `join_strategy`
+- [ ] All Tier 6c tests use `IvmWorkerHarness` against MinIO; correctness verified by comparing output Parquet to DuckDB single-shot reference via `DuckDbHarness`
+- [ ] **`DuckDbHarness`** implemented in `slateduck-testkit`: spawns a DuckDB process (Testcontainers `duckdb/duckdb` image), runs SQL, returns rows — used for join correctness assertions
+- [ ] **Tier 5 extension** — `crates/slateduck-pgwire/tests/compat_tests.rs`: live DuckDB E2E test `duckdb_full_ducklake_tutorial_against_minio` (create schema + table + INSERT + SELECT + time-travel + ALTER + DROP against a live PgWire server backed by MinIO)
+- [ ] `EXPLAIN MATERIALIZED VIEW` output format documented and golden-tested
+
 ### Acceptance Criteria
 
 - [ ] TPC-H Q3 maintained incrementally with broadcast `nation`/`region`
 - [ ] TPC-H Q5 maintained incrementally with explicit `WITH (shard_key = …)` on co-partitionable side
 - [ ] Re-shuffle exchange operator correctness verified by golden-output comparison against DuckDB single-shot execution
 - [ ] No correctness regression for v0.11/v0.12 single-input views
+- [ ] **Tier 6c test suite green**: all 7 join strategy tests pass in large-runner CI on every merge
+- [ ] **Live DuckDB E2E test** (`duckdb_full_ducklake_tutorial_against_minio`) green in large-runner CI
 - [ ] Per-join-strategy cost numbers published in `benchmarks/v0.13-ivm-joins.json`
 
 ### Deliverables
 
 - [ ] Three join strategies shipped behind a common DBSP join operator interface
 - [ ] Plan-selection logic in `slateduck-ivm/src/circuit.rs`
+- [ ] Tier 6c join test suite (`join_tests.rs`) with 7 passing tests
+- [ ] `DuckDbHarness` implemented in `slateduck-testkit`
+- [ ] Tier 5 live DuckDB E2E test (`compat_tests.rs`)
 - [ ] TPC-H Q3 / Q4 / Q5 maintained as continuous integration tests
 - [ ] Documentation updated with join sizing guidance
 
@@ -2137,6 +2184,17 @@ IVM can generate real S3 API costs at scale. Users need visibility and protectio
 - [ ] All scenarios survive a 1-hour soak test without correctness loss
 - [ ] Documented in `docs/contributing/testing.md`
 
+### Testing: Tier 6d (Hardening), Tier 7 (Fault Injection), Tier 9 (Security) & Tier 10 (Benchmark Regression)
+
+- [ ] **Tier 6d — IVM hardening tests** (`crates/slateduck-ivm/tests/hardening_tests.rs`): 4 tests — repair shard rebuilds from base, `REFRESH ... FULL` rebuilds all shards, `doctor` identifies stuck/expired shards, exactly-once output under output-plane restart
+- [ ] **Tier 7 — IVM fault injection** (`crates/slateduck-ivm/tests/fault_injection_tests.rs`): 4 `fail_point!` tests — kill after DBSP before flush, kill after flush before checkpoint, kill output plane after Parquet write before catalog commit, S3 `GetObject` 503 with retry; gated behind `--features fault-injection`
+- [ ] **Tier 7 — Catalog fault injection** (`crates/slateduck-catalog/tests/fault_injection_tests.rs`): 4 tests — `create_snapshot` panic before commit, IO error after `put` before `flush`, `extend_lease` CAS conflict, `CounterCache` panic with reload verification
+- [ ] **Tier 7 — Network fault injection** via `toxiproxy` Testcontainers proxy in front of MinIO: S3 PUT 503, GET truncated, heartbeat partition, 10 s latency degradation — all confirming no data loss and graceful degradation
+- [ ] **Tier 9 — Security tests** (`crates/slateduck-pgwire/tests/security_tests.rs`): MinIO ACL credential-isolation (4 tests), TLS expired cert rejection, TLS CA validation, SCRAM-SHA-256 auth, brute-force rate limiting, SQL injection guard (3 tests), non-deterministic function blocked in view SQL
+- [ ] **Tier 10 — Benchmark regression CI** (weekly scheduled job): extended `catalog_bench.rs` with 5 new benchmarks; `scripts/check_benchmark_regression.py` compares against `benchmarks/phase-2-baseline.json`; job fails if any metric regresses > 10%
+- [ ] All Tier 7 tests are pre-release gate (run on tag push, not every PR)
+- [ ] All Tier 9 security tests run on the standard large runner (MinIO covers credential isolation; no real AWS required)
+
 ### Acceptance Criteria
 
 - [ ] Native `SlateDbTrace` 1.5× faster than v0.11 on TPC-H Q1 streaming benchmark
@@ -2144,8 +2202,12 @@ IVM can generate real S3 API costs at scale. Users need visibility and protectio
 - [ ] All fault-injection scenarios pass deterministically
 - [ ] `slateduck-ivm doctor` correctly identifies every fault class in the test suite
 - [ ] Continuous-soak test: TPC-H Q1 maintained for 24 h with zero correctness drift (runs on scale-test infrastructure, see Cross-Cutting: Scale Testing Infrastructure)
-- [ ] All v0.11-v0.13 acceptance tests still pass
+- [ ] All v0.11–v0.13 acceptance tests still pass
 - [ ] IVM worker K8s deployment pattern tested with 4-worker pool and rolling updates
+- [ ] **Tier 6d hardening tests green** (4 tests including repair and exactly-once output)
+- [ ] **Tier 7 fault injection suite green** on every pre-release tag: catalog faults (4), IVM worker faults (4), network faults via toxiproxy (4)
+- [ ] **Tier 9 security suite green**: credential isolation, TLS, auth, SQL injection guards — 14 tests total
+- [ ] **Tier 10 benchmark regression < 10%** on weekly CI run vs `benchmarks/phase-2-baseline.json`
 
 ### Deliverables
 
@@ -2153,7 +2215,11 @@ IVM can generate real S3 API costs at scale. Users need visibility and protectio
 - [ ] Cost-optimization knobs documented and defaulted sensibly
 - [ ] Observability surface complete (metrics, traces, `doctor` CLI)
 - [ ] `REFRESH ... FULL` and per-shard repair shipped
-- [ ] Fault-injection test suite green
+- [ ] Tier 6d hardening tests (`hardening_tests.rs`) with 4 passing tests
+- [ ] Tier 7 fault injection suites (`fault_injection_tests.rs` in catalog + ivm) with 12 passing tests
+- [ ] Tier 9 security test suite (`security_tests.rs`) with 14 passing tests
+- [ ] Tier 10 benchmark regression job in `.github/workflows/ci.yml` (weekly cron)
+- [ ] `scripts/check_benchmark_regression.py` with 10% threshold gate
 - [ ] `benchmarks/v0.14-ivm-hardening.json` published
 - [ ] Final IVM operator playbook in `docs/operations/incremental-materialized-views.md`
 - [ ] IVM design retrospective in `docs/design-decisions/ivm-retrospective.md` capturing what survived from the design and what changed
@@ -2280,6 +2346,16 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 | `now()` / `random()` (capture semantics) | — | — | — | — | ✓ |
 | User-defined functions (WASM) | — | — | — | — | ✓ |
 
+### Testing: Tier 8 (Scale & Soak)
+
+- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): `tpch_sf10_catalog_latency` and `tpch_sf100_catalog_latency` against real S3 Standard; p99 `get_current_snapshot` < 50 ms at SF10, < 100 ms at SF100; results written to `benchmarks/v0.15-tpch-{date}.json`
+- [ ] **Tier 8 — TPC-H IVM streaming** (`tests/scale/tpch_ivm.rs`): Q1, Q3, Q5 at 100k rows/s, 8 shards, 5 s freshness; lag p99 < 5 s; verified on MinIO (same-host) and S3 Standard
+- [ ] **Tier 8 — 24-hour soak test** (`tests/scale/soak.rs`): TPC-H Q1 continuous ingest; correctness drift check every 15 min (output row count matches DuckDB reference); fault injection every 15 min; `ivm_circuit_panic_total` = 0 after T+1h; **soak failure blocks GA tag**
+- [ ] **Tier 8 — 16-shard scale-out benchmark**: 16 workers on 16 separate instances, 1M rows/s ingest, aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
+- [ ] Scale and soak tests run on dedicated EC2 `c6i.4xlarge` via self-hosted GitHub Actions runner; triggered manually and on `v*` release tags
+- [ ] CI comparison job alerts if any Tier 8 metric regresses > 10% vs previous run
+- [ ] Scale test setup documented in `docs/contributing/testing.md` under "Scale Testing Infrastructure"
+
 ### Acceptance Criteria
 
 - [ ] Every operator in the matrix passes a correctness test against a DuckDB single-shot reference query over the same input data
@@ -2290,6 +2366,10 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] WASM UDF exceeding fuel/memory limit returns a clean error; no worker panic, no view corruption
 - [ ] All v0.11–v0.14 acceptance tests still pass
 - [ ] Extended benchmark: TPC-DS Q4, Q11, Q14, Q47, Q49 maintained incrementally with correctness verified
+- [ ] **Tier 8 soak test passes**: 24 h with zero correctness drift and fault injection recovery within SLO on every pre-release run
+- [ ] **Tier 8 TPC-H p99 within targets**: SF10 < 50 ms catalog, SF100 < 100 ms catalog; IVM lag p99 < 5 s at 8 shards
+- [ ] **16-shard scale benchmark**: aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
+- [ ] All 10 test tiers green (Tiers 1–7 and 9–10 from prior phases; Tier 8 from this phase)
 
 ### Deliverables
 
@@ -2300,6 +2380,8 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 - [ ] Non-deterministic function capture with per-batch seed storage
 - [ ] `matview_udfs` catalog table (tag `0x21`) and `CREATE/DROP/ALTER FUNCTION` SQL surface
 - [ ] `wasmtime` integration in `slateduck-ivm` with fuel + memory sandboxing
+- [ ] Tier 8 scale + soak test suite (`tests/scale/`) with TPC-H catalog, IVM streaming, and 24 h soak tests
+- [ ] Self-hosted EC2 runner configuration documented in `docs/contributing/testing.md`
 - [ ] TPC-DS Q4/Q11/Q14/Q47/Q49 streaming benchmark suite in `benches/`
 - [ ] `benchmarks/v0.15-ivm-feature-complete.json` published
 - [ ] `docs/reference/udfs.md` authoring guide
@@ -2346,12 +2428,24 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 10. **Real-world validation gate.** At least 30 days of dogfood deployment on a realistic workload (see Cross-Cutting Concerns: Real-World Validation Policy). Friction log reviewed and all blocking findings resolved. One external-to-the-team developer has successfully deployed IVM using only published docs.
 11. **IVM documentation gate.** Every IVM-track docs deliverable from v0.11–v0.15 is published and non-stub: `docs/concepts/incremental-views.md`, `docs/architecture/ivm-plane.md`, `docs/operations/incremental-materialized-views.md`, `docs/operations/ivm-cost-control.md`, `docs/operations/ivm-backup-restore.md`, `docs/operations/ivm-upgrades.md`, `docs/reference/sql-ivm.md`, `docs/design-decisions/ivm-on-immutable-substrate.md`, `docs/design-decisions/dbsp-dependency.md`, `docs/design-decisions/ivm-retrospective.md`, and a first-time-user tutorial under `docs/getting-started/first-materialized-view.md` that takes a user from `slateduck serve` to a working incremental view in < 15 minutes. `mkdocs build --strict` green.
 12. **Migration path from existing DuckLake deployments.** A documented and tested migration tool (`slateduck migrate-from-ducklake --source postgres://... --catalog s3://...`) reads an existing PostgreSQL- or SQLite-backed DuckLake catalog, replays its current snapshot into a fresh SlateDuck catalog (data files are not copied — they remain at their original object-store paths and are referenced by the new catalog), and emits a verification report. `docs/operations/migration-from-ducklake.md` covers cutover, rollback, and known-incompatibility surfaces. End-to-end tested against both PostgreSQL- and SQLite-backed source catalogs at SF1 scale.
+13. **World-class testing foundation.** All 10 test tiers from [plans/e2e-integration-tests.md](plans/e2e-integration-tests.md) are fully implemented and green:
+    - **Tiers 1–3** (unit/property, catalog, PG-Wire): green on every PR — standard GitHub Actions runner
+    - **Tiers 4–5** (MinIO object store, client compat): green on every merge to `main` — large runner (8-vCPU), Testcontainers MinIO
+    - **Tiers 6a–6d** (IVM single-shard through hardening): green on every merge to `main` for IVM paths
+    - **Tier 7** (fault injection — catalog, IVM worker, toxiproxy): green on every pre-release tag
+    - **Tier 8** (24 h soak, 16-shard scale-out, TPC-H SF10/SF100): green on pre-release — dedicated EC2 `c6i.4xlarge`
+    - **Tier 9** (security — credential isolation, TLS, auth, SQL injection guards): green on pre-release
+    - **Tier 10** (benchmark regression < 10% vs baseline): green on weekly scheduled CI
+    - `slateduck-testkit` ships all 6 harnesses: `MinioHarness`, `CatalogHarness`, `PgWireHarness`, `DuckDbHarness`, `IvmWorkerHarness`, `DeterministicClock`
+    - At least 150 named test functions across all tiers at GA; test inventory published in `docs/contributing/testing.md`
 
 ### Deliverables
 
 - v1.0 release tag and `CHANGELOG.md` entry
 - Benchmark report `benchmarks/v1.0-tpch-sf10.json` published in the repository and linked from `docs/performance/`
 - Final S3 Express acceptance decision documented in `docs/performance/s3-express-validation.md`
+- `slateduck-testkit` crate complete with all 6 harness types
+- Complete test inventory in `docs/contributing/testing.md`: tier-by-tier test count, CI job mapping, feature flags, and scale-test runner setup
 
 ---
 

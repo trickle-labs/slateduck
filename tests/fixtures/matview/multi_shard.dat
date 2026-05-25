@@ -1,0 +1,5 @@
+# Matview fixture: multi_shard
+# Documents multi-shard matview creation and shard claim corpus.
+CREATE INCREMENTAL MATERIALIZED VIEW main.large_mv AS SELECT region, COUNT(*) AS cnt FROM events GROUP BY region
+# shard_count=4, worker=worker-0 claims shard 0
+SHOW MATVIEW SHARDS main.large_mv

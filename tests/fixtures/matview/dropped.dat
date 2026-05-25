@@ -1,0 +1,4 @@
+# Matview fixture: dropped
+# Corpus for matview logical-deletion.
+DROP INCREMENTAL MATERIALIZED VIEW main.region_counts
+# Expected: matview not visible in list_matviews after drop snapshot

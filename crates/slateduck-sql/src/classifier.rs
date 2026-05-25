@@ -80,12 +80,55 @@ pub enum StatementKind {
         table_name: String,
     },
 
+    // ─── v0.11 IVM Statements ───────────────────────────────────────────
+    /// `CREATE INCREMENTAL MATERIALIZED VIEW [schema.]name AS <select>`
+    CreateIncrementalMatview {
+        name: String,
+        schema: Option<String>,
+        select_sql: String,
+        with_options: Vec<(String, String)>,
+    },
+    /// `DROP INCREMENTAL MATERIALIZED VIEW [IF EXISTS] [schema.]name`
+    DropIncrementalMatview {
+        name: String,
+        schema: Option<String>,
+        if_exists: bool,
+    },
+    /// `ALTER INCREMENTAL MATERIALIZED VIEW [schema.]name SET (option=value, ...)`
+    AlterIncrementalMatview {
+        name: String,
+        schema: Option<String>,
+        options: Vec<(String, String)>,
+    },
+    /// `REFRESH INCREMENTAL MATERIALIZED VIEW [schema.]name FULL`
+    RefreshIncrementalMatviewFull {
+        name: String,
+        schema: Option<String>,
+    },
+    /// `SHOW MATERIALIZED VIEWS`
+    ShowMaterializedViews,
+    /// `SHOW MATVIEW SHARDS [schema.]name`
+    ShowMatviewShards {
+        view_name: String,
+        schema: Option<String>,
+    },
+    /// `EXPLAIN MATVIEW [schema.]name`
+    ExplainMatview {
+        view_name: String,
+        schema: Option<String>,
+    },
+
     // ─── Unsupported ───────────────────────────────────────────────────
     Unsupported(String),
 }
 
 /// Classify a SQL string into a `StatementKind`.
 pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> {
+    // Pre-parse fast path for IVM custom syntax not supported by sqlparser-rs.
+    if let Some(kind) = classify_ivm_prefix(sql) {
+        return Ok(kind);
+    }
+
     let dialect = PostgreSqlDialect {};
     let statements = Parser::parse_sql(&dialect, sql)
         .map_err(|e| SqlDispatchError::ParseError(e.to_string()))?;
@@ -95,6 +138,121 @@ pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> 
     }
 
     Ok(classify_ast(&statements[0]))
+}
+
+/// Fast string-based pre-classifier for IVM DDL statements that sqlparser-rs
+/// cannot parse (non-standard keyword combinations like INCREMENTAL).
+fn classify_ivm_prefix(sql: &str) -> Option<StatementKind> {
+    let upper = sql.trim().to_uppercase();
+    let trimmed = sql.trim();
+
+    if upper.starts_with("CREATE INCREMENTAL MATERIALIZED VIEW") {
+        // Extract "[[schema.]name] AS ..."
+        let rest = &trimmed["CREATE INCREMENTAL MATERIALIZED VIEW".len()..].trim_start();
+        // Split off the AS clause.
+        let (name_part, select_sql) = if let Some(pos) = find_as_keyword(rest) {
+            (&rest[..pos].trim(), rest[pos + 2..].trim().to_string())
+        } else {
+            return Some(StatementKind::Unsupported(
+                "CREATE INCREMENTAL MATERIALIZED VIEW missing AS clause".to_string(),
+            ));
+        };
+        let (schema, name) = split_qualified_name(name_part);
+        return Some(StatementKind::CreateIncrementalMatview {
+            name,
+            schema,
+            select_sql,
+            with_options: Vec::new(),
+        });
+    }
+
+    if upper.starts_with("DROP INCREMENTAL MATERIALIZED VIEW") {
+        let rest = trimmed["DROP INCREMENTAL MATERIALIZED VIEW".len()..].trim_start();
+        let (if_exists, name_part) = if rest.to_uppercase().starts_with("IF EXISTS") {
+            (true, rest["IF EXISTS".len()..].trim_start())
+        } else {
+            (false, rest)
+        };
+        let (schema, name) = split_qualified_name(name_part);
+        return Some(StatementKind::DropIncrementalMatview {
+            name,
+            schema,
+            if_exists,
+        });
+    }
+
+    if upper.starts_with("ALTER INCREMENTAL MATERIALIZED VIEW") {
+        let rest = trimmed["ALTER INCREMENTAL MATERIALIZED VIEW".len()..].trim_start();
+        // Just capture the name; options parsing is a v0.12 concern.
+        let (schema, name) = split_qualified_name(rest);
+        return Some(StatementKind::AlterIncrementalMatview {
+            name,
+            schema,
+            options: Vec::new(),
+        });
+    }
+
+    if upper.starts_with("REFRESH INCREMENTAL MATERIALIZED VIEW") {
+        let rest = trimmed["REFRESH INCREMENTAL MATERIALIZED VIEW".len()..].trim_start();
+        let name_part = rest
+            .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_')
+            .trim();
+        let (schema, name) = split_qualified_name(name_part);
+        return Some(StatementKind::RefreshIncrementalMatviewFull { name, schema });
+    }
+
+    if upper.starts_with("SHOW MATERIALIZED VIEWS") {
+        return Some(StatementKind::ShowMaterializedViews);
+    }
+
+    if upper.starts_with("SHOW MATVIEW SHARDS") {
+        let rest = trimmed["SHOW MATVIEW SHARDS".len()..].trim_start();
+        let (schema, name) = split_qualified_name(rest);
+        return Some(StatementKind::ShowMatviewShards {
+            view_name: name,
+            schema,
+        });
+    }
+
+    if upper.starts_with("EXPLAIN MATVIEW") {
+        let rest = trimmed["EXPLAIN MATVIEW".len()..].trim_start();
+        let (schema, name) = split_qualified_name(rest);
+        return Some(StatementKind::ExplainMatview {
+            view_name: name,
+            schema,
+        });
+    }
+
+    None
+}
+
+/// Find the byte position of a standalone ` AS ` keyword (case-insensitive).
+fn find_as_keyword(s: &str) -> Option<usize> {
+    let upper = s.to_uppercase();
+    // Search for " AS " with word boundaries (space on both sides).
+    let mut i = 0;
+    while i + 4 <= upper.len() {
+        if &upper[i..i + 4] == " AS " {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Split "schema.name" or just "name" from a name fragment.
+/// Returns `(schema, name)`.
+fn split_qualified_name(s: &str) -> (Option<String>, String) {
+    // Take just the first "word" (identifiers, dots, underscores).
+    let token: String = s
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.' || *c == '"')
+        .collect();
+    if let Some(dot) = token.find('.') {
+        (Some(token[..dot].to_string()), token[dot + 1..].to_string())
+    } else {
+        (None, token)
+    }
 }
 
 fn classify_ast(stmt: &Statement) -> StatementKind {

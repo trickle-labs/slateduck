@@ -28,6 +28,9 @@ proptest = { workspace = true }
 criterion = { workspace = true }
 slateduck-ffi = { path = "../slateduck-ffi" }
 slateduck-datafusion = { path = "../slateduck-datafusion" }
+slateduck-ivm = { path = "../slateduck-ivm" }
+slateduck-sql = { path = "../slateduck-sql" }
+serde_json = { workspace = true }
 datafusion = "45"
 
 [[bench]]

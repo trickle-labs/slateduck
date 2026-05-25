@@ -424,6 +424,79 @@ pub fn audit_prefix() -> Vec<u8> {
 
 // ─── Prefix Helpers ────────────────────────────────────────────────────────
 
+// ─── v0.11 IVM Key Builders ────────────────────────────────────────────────
+
+/// Key for a matview definition row: `0x1D | matview_id(u64 BE) | begin_snapshot(u64 BE)`.
+pub fn key_matview(matview_id: u64, begin_snapshot: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(17);
+    buf.push(TAG_MATVIEW);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf.extend_from_slice(&encode_u64(begin_snapshot));
+    buf
+}
+
+/// Key for a matview dependency row: `0x1E | matview_id(u64 BE) | base_table_id(u64 BE)`.
+pub fn key_matview_dep(matview_id: u64, base_table_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(17);
+    buf.push(TAG_MATVIEW_DEP);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf.extend_from_slice(&encode_u64(base_table_id));
+    buf
+}
+
+/// Key for a matview checkpoint row: `0x1F | matview_id(u64 BE) | shard_id(u32 BE) | seq(u64 BE)`.
+pub fn key_matview_checkpoint(matview_id: u64, shard_id: u32, seq: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(21);
+    buf.push(TAG_MATVIEW_CHECKPOINT);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf.extend_from_slice(&encode_u32(shard_id));
+    buf.extend_from_slice(&encode_u64(seq));
+    buf
+}
+
+/// Key for a matview shard row: `0x20 | matview_id(u64 BE) | shard_id(u32 BE)`.
+pub fn key_matview_shard(matview_id: u64, shard_id: u32) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(13);
+    buf.push(TAG_MATVIEW_SHARD);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf.extend_from_slice(&encode_u32(shard_id));
+    buf
+}
+
+/// Scan prefix for all versions of a matview: `0x1D | matview_id(u64 BE)`.
+pub fn prefix_matview(matview_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(9);
+    buf.push(TAG_MATVIEW);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf
+}
+
+/// Scan prefix for all deps of a matview: `0x1E | matview_id(u64 BE)`.
+pub fn prefix_matview_deps(matview_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(9);
+    buf.push(TAG_MATVIEW_DEP);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf
+}
+
+/// Scan prefix for checkpoint history of (matview_id, shard_id):
+/// `0x1F | matview_id(u64 BE) | shard_id(u32 BE)`.
+pub fn prefix_matview_checkpoints(matview_id: u64, shard_id: u32) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(13);
+    buf.push(TAG_MATVIEW_CHECKPOINT);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf.extend_from_slice(&encode_u32(shard_id));
+    buf
+}
+
+/// Scan prefix for all shards of a matview: `0x20 | matview_id(u64 BE)`.
+pub fn prefix_matview_shards(matview_id: u64) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(9);
+    buf.push(TAG_MATVIEW_SHARD);
+    buf.extend_from_slice(&encode_u64(matview_id));
+    buf
+}
+
 /// Build a scan prefix for all entries of a given table tag.
 pub fn prefix_for_tag(tag: u8) -> Vec<u8> {
     vec![tag]
@@ -675,5 +748,76 @@ mod tests {
     #[test]
     fn extract_tag_empty() {
         assert!(extract_tag(&[]).is_err());
+    }
+
+    // ─── v0.11 IVM key tests ─────────────────────────────────────────────
+
+    #[test]
+    fn matview_key_structure() {
+        let k = key_matview(1, 10);
+        assert_eq!(k[0], TAG_MATVIEW);
+        assert_eq!(&k[1..9], &encode_u64(1));
+        assert_eq!(&k[9..17], &encode_u64(10));
+    }
+
+    #[test]
+    fn matview_dep_key_structure() {
+        let k = key_matview_dep(2, 99);
+        assert_eq!(k[0], TAG_MATVIEW_DEP);
+        assert_eq!(&k[1..9], &encode_u64(2));
+        assert_eq!(&k[9..17], &encode_u64(99));
+    }
+
+    #[test]
+    fn matview_checkpoint_key_structure() {
+        let k = key_matview_checkpoint(3, 0, 42);
+        assert_eq!(k[0], TAG_MATVIEW_CHECKPOINT);
+        assert_eq!(&k[1..9], &encode_u64(3));
+        assert_eq!(&k[9..13], &encode_u32(0));
+        assert_eq!(&k[13..21], &encode_u64(42));
+    }
+
+    #[test]
+    fn matview_shard_key_structure() {
+        let k = key_matview_shard(5, 3);
+        assert_eq!(k[0], TAG_MATVIEW_SHARD);
+        assert_eq!(&k[1..9], &encode_u64(5));
+        assert_eq!(&k[9..13], &encode_u32(3));
+    }
+
+    #[test]
+    fn matview_key_prefix_isolation() {
+        // Different IVM tags must not share prefixes with each other.
+        assert_ne!(TAG_MATVIEW, TAG_MATVIEW_DEP);
+        assert_ne!(TAG_MATVIEW, TAG_MATVIEW_CHECKPOINT);
+        assert_ne!(TAG_MATVIEW, TAG_MATVIEW_SHARD);
+        assert_ne!(TAG_MATVIEW_DEP, TAG_MATVIEW_CHECKPOINT);
+        assert_ne!(TAG_MATVIEW_DEP, TAG_MATVIEW_SHARD);
+        assert_ne!(TAG_MATVIEW_CHECKPOINT, TAG_MATVIEW_SHARD);
+    }
+
+    #[test]
+    fn matview_checkpoint_seq_ordering() {
+        // Higher seq must sort after lower seq for the same (matview_id, shard_id).
+        let k1 = key_matview_checkpoint(1, 0, 1);
+        let k2 = key_matview_checkpoint(1, 0, 2);
+        assert!(k2 > k1);
+    }
+
+    #[test]
+    fn extract_tag_recognizes_ivm_tags() {
+        assert_eq!(extract_tag(&key_matview(1, 1)).unwrap(), TAG_MATVIEW);
+        assert_eq!(
+            extract_tag(&key_matview_dep(1, 1)).unwrap(),
+            TAG_MATVIEW_DEP
+        );
+        assert_eq!(
+            extract_tag(&key_matview_checkpoint(1, 0, 1)).unwrap(),
+            TAG_MATVIEW_CHECKPOINT
+        );
+        assert_eq!(
+            extract_tag(&key_matview_shard(1, 0)).unwrap(),
+            TAG_MATVIEW_SHARD
+        );
     }
 }

@@ -1,0 +1,29 @@
+[package]
+name = "slateduck-ivm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+slateduck-core   = { path = "../slateduck-core" }
+slateduck-catalog = { path = "../slateduck-catalog" }
+slateduck-sql    = { path = "../slateduck-sql" }
+
+slatedb          = { workspace = true }
+dbsp             = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+tokio            = { workspace = true }
+tracing          = { workspace = true }
+thiserror        = { workspace = true }
+sqlparser        = { workspace = true }
+clap             = { version = "4", features = ["derive"] }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "slateduck-ivm"
+path = "src/bin/slateduck_ivm.rs"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio    = { workspace = true }

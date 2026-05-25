@@ -2,7 +2,7 @@
 
 > **Scope.** Engineering plan for delivering incremental view maintenance (IVM) as a v0.11–v0.14 track culminating in v1.0 GA. Companion to the architectural design in [plans/slateduck-differential-dataflow.md](slateduck-differential-dataflow.md) and the substrate analysis in [plans/slatedb-differential-dataflow.md](slatedb-differential-dataflow.md). Anchored in the roadmap entries for [v0.11](../ROADMAP.md#v011--incremental-view-maintenance-foundations), [v0.12](../ROADMAP.md#v012--ivm-scale-out-sharding--lease-management), [v0.13](../ROADMAP.md#v013--ivm-joins), and [v0.14](../ROADMAP.md#v014--ivm-operational-hardening).
 >
-> **Status.** Planning. Implementation begins after v0.9.4 (GA Ready) lands.
+> **Status.** v0.11 phase **Shipped** (v0.11.0). Subsequent phases (v0.12–v0.14) are in planning.
 >
 > **Audience.** Contributors and reviewers implementing each phase. This document is intentionally concrete: tag bytes, function signatures, key layouts, file boundaries, test names, failure modes.
 

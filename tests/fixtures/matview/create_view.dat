@@ -1,0 +1,5 @@
+# Matview fixture: create_view
+# This file documents the wire corpus for CREATE INCREMENTAL MATERIALIZED VIEW.
+# Format: one SQL statement per line, used by corpus replay tests.
+CREATE INCREMENTAL MATERIALIZED VIEW main.region_counts AS SELECT region, COUNT(*) AS cnt FROM events GROUP BY region
+CREATE INCREMENTAL MATERIALIZED VIEW main.dept_totals AS SELECT dept, SUM(amount) AS total FROM orders GROUP BY dept

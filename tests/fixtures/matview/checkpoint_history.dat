@@ -1,0 +1,7 @@
+# Matview fixture: checkpoint_history
+# Corpus for checkpoint watermark advancement.
+# matview_id=1, shard_id=0
+# seq=1, last_input_snapshot=10, last_output_snapshot=10
+# seq=2, last_input_snapshot=20, last_output_snapshot=20
+# seq=3, last_input_snapshot=30, last_output_snapshot=30
+# Expected: history ordered by seq ascending, lag_ms decreasing over time.

@@ -7,13 +7,14 @@ members = [
     "crates/slateduck-pgwire",
     "crates/slateduck-ffi",
     "crates/slateduck-datafusion",
+    "crates/slateduck-ivm",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.93"
 license = "Apache-2.0"
 repository = "https://github.com/trickle-labs/slateduck"
 
@@ -41,6 +42,9 @@ sqlparser = { version = "0.55", features = ["visitor"] }
 
 # PG wire protocol
 pgwire = "0.28"
+
+# IVM engine
+dbsp = "0.299.0"
 
 # Testing
 proptest = "1"

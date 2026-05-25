@@ -508,3 +508,132 @@ pub struct SecondaryIndexEntry {
     #[prost(string, tag = "2")]
     pub path: String,
 }
+
+// ─── v0.11 IVM Row Types ───────────────────────────────────────────────────
+
+/// Matview status values (encoding_version = 1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
+pub enum MatviewStatus {
+    Active = 0,
+    Stale = 1,
+    Rebuilding = 2,
+    Dropped = 3,
+}
+
+impl MatviewStatus {
+    pub fn from_u32(v: u32) -> Self {
+        match v {
+            1 => Self::Stale,
+            2 => Self::Rebuilding,
+            3 => Self::Dropped,
+            _ => Self::Active,
+        }
+    }
+}
+
+/// Incremental materialized view definition row (tag 0x1D, Versioned).
+/// encoding_version = 1.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct MatviewRow {
+    #[prost(uint64, tag = "1")]
+    pub matview_id: u64,
+    #[prost(string, tag = "2")]
+    pub name: String,
+    #[prost(string, tag = "3")]
+    pub schema_name: String,
+    #[prost(string, tag = "4")]
+    pub view_sql: String,
+    #[prost(uint64, tag = "5")]
+    pub output_table_id: u64,
+    #[prost(uint32, tag = "6")]
+    pub shard_count: u32,
+    #[prost(uint32, tag = "7")]
+    pub freshness_target_ms: u32,
+    #[prost(string, tag = "8")]
+    pub state_uri: String,
+    /// Empty = auto-detected from GROUP BY.
+    #[prost(string, tag = "9")]
+    pub shard_key_column: String,
+    #[prost(uint64, tag = "10")]
+    pub created_at_snapshot: u64,
+    #[prost(uint64, tag = "11")]
+    pub begin_snapshot: u64,
+    /// 0 = open (still active).
+    #[prost(uint64, tag = "12")]
+    pub end_snapshot: u64,
+    /// MatviewStatus as u32: 0=Active, 1=Stale, 2=Rebuilding, 3=Dropped.
+    #[prost(uint32, tag = "13")]
+    pub status: u32,
+    #[prost(uint32, tag = "14")]
+    pub encoding_version: u32,
+}
+
+/// Matview dependency row (tag 0x1E, AppendOnly).
+/// One row per (matview_id, base_table_id) pair.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct MatviewDepRow {
+    #[prost(uint64, tag = "1")]
+    pub matview_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub base_table_id: u64,
+    #[prost(string, repeated, tag = "3")]
+    pub columns: Vec<String>,
+    /// True if this input is broadcast to every shard.
+    #[prost(bool, tag = "4")]
+    pub is_broadcast: bool,
+    #[prost(uint64, tag = "5")]
+    pub begin_snapshot: u64,
+    #[prost(uint32, tag = "6")]
+    pub encoding_version: u32,
+}
+
+/// Per-shard checkpoint watermark row (tag 0x1F, AppendOnly).
+/// Monotonically advancing `seq` per (matview_id, shard_id).
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct MatviewCheckpointRow {
+    #[prost(uint64, tag = "1")]
+    pub matview_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub shard_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub seq: u64,
+    #[prost(uint64, tag = "4")]
+    pub last_input_snapshot: u64,
+    #[prost(uint64, tag = "5")]
+    pub last_output_snapshot: u64,
+    #[prost(uint64, tag = "6")]
+    pub frontier_time: u64,
+    #[prost(uint64, tag = "7")]
+    pub durable_at_unix_ms: u64,
+    #[prost(string, tag = "8")]
+    pub worker_id: String,
+    #[prost(uint32, tag = "9")]
+    pub encoding_version: u32,
+}
+
+/// Per-shard lease state row (tag 0x20, MutableSingleton per (matview_id, shard_id)).
+/// Updated atomically via CAS; `generation` is bumped on every successful update.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct MatviewShardRow {
+    #[prost(uint64, tag = "1")]
+    pub matview_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub shard_id: u32,
+    /// Empty string = unowned.
+    #[prost(string, tag = "3")]
+    pub owner_worker: String,
+    #[prost(uint64, tag = "4")]
+    pub lease_expires_unix_ms: u64,
+    /// Inclusive lower bound of the shard's key range (raw bytes).
+    #[prost(bytes = "vec", tag = "5")]
+    pub key_range_lo: Vec<u8>,
+    /// Exclusive upper bound of the shard's key range (raw bytes).
+    #[prost(bytes = "vec", tag = "6")]
+    pub key_range_hi: Vec<u8>,
+    /// Bumped on every CAS update; used for optimistic locking.
+    #[prost(uint64, tag = "7")]
+    pub generation: u64,
+    #[prost(uint32, tag = "8")]
+    pub encoding_version: u32,
+}

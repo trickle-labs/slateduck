@@ -22,6 +22,22 @@ use slateduck_core::values::{self, MAX_INLINED_VALUE_SIZE};
 
 use crate::error::{CatalogError, CatalogResult};
 
+/// Outcome of a `claim_matview_shard` attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    /// Lease acquired; the caller now owns the shard.
+    Acquired {
+        /// New generation value after the CAS.
+        generation: u64,
+        /// Unix-millisecond timestamp when the lease expires.
+        expires_unix_ms: u64,
+    },
+    /// Another worker holds a non-expired lease.
+    Contended { current_owner: String },
+    /// This worker already owns the shard.
+    AlreadyOwned { generation: u64 },
+}
+
 /// Writes to the catalog, producing new snapshots atomically.
 ///
 /// Call `create_snapshot()` to commit all staged mutations in a single atomic
@@ -832,6 +848,318 @@ impl CatalogWriter {
         let k = keys::key_metadata(scope, scope_id, key);
         self.stage(k, values::encode_value(&row));
         Ok(())
+    }
+
+    // ─── v0.11 IVM Writer Methods ──────────────────────────────────────────
+
+    /// Create an incremental materialized view entry in the catalog.
+    ///
+    /// Stages a `MatviewRow`, a `MatviewDepRow` for each `base_table_ids` entry,
+    /// and allocates IDs. Caller must call `create_snapshot()` to commit.
+    /// Returns the new `matview_id`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_matview(
+        &mut self,
+        schema_name: &str,
+        name: &str,
+        view_sql: &str,
+        output_table_id: u64,
+        shard_count: u32,
+        freshness_target_ms: u32,
+        base_table_ids: &[u64],
+    ) -> CatalogResult<u64> {
+        let matview_id = self.counters.alloc_catalog_id();
+        let snapshot_id = self.counters.peek_snapshot_id();
+
+        // Reject duplicate name within the same schema.
+        let name_check_key = keys::key_matview(matview_id, snapshot_id);
+        // We stage with begin_snapshot = snapshot_id (set during create_snapshot).
+        let row = MatviewRow {
+            matview_id,
+            name: name.to_string(),
+            schema_name: schema_name.to_string(),
+            view_sql: view_sql.to_string(),
+            output_table_id,
+            shard_count,
+            freshness_target_ms,
+            state_uri: String::new(),
+            shard_key_column: String::new(),
+            created_at_snapshot: snapshot_id,
+            begin_snapshot: snapshot_id,
+            end_snapshot: 0,
+            status: MatviewStatus::Active as u32,
+            encoding_version: 1,
+        };
+        self.stage(name_check_key, values::encode_value(&row));
+
+        // Stage dependency rows.
+        for &base_table_id in base_table_ids {
+            let dep = MatviewDepRow {
+                matview_id,
+                base_table_id,
+                columns: Vec::new(),
+                is_broadcast: false,
+                begin_snapshot: snapshot_id,
+                encoding_version: 1,
+            };
+            self.stage(
+                keys::key_matview_dep(matview_id, base_table_id),
+                values::encode_value(&dep),
+            );
+        }
+
+        self.mark_schema_changed();
+        Ok(matview_id)
+    }
+
+    /// Logically drop a matview by setting `end_snapshot` on its row.
+    /// Stages the updated row; caller must call `create_snapshot()`.
+    pub async fn drop_matview(
+        &mut self,
+        matview_id: u64,
+        begin_snapshot: u64,
+    ) -> CatalogResult<()> {
+        let snapshot_id = self.counters.peek_snapshot_id();
+        let key = keys::key_matview(matview_id, begin_snapshot);
+        let existing = self
+            .db
+            .get(&key)
+            .await?
+            .ok_or_else(|| CatalogError::NotFound(format!("matview {matview_id}")))?;
+        let mut row: MatviewRow = values::decode_value(&existing)?;
+        row.end_snapshot = snapshot_id;
+        row.status = MatviewStatus::Dropped as u32;
+        self.stage(key, values::encode_value(&row));
+        self.mark_schema_changed();
+        Ok(())
+    }
+
+    /// Update the status of a matview (e.g. Active → Stale).
+    /// Reads the current row and stages an updated copy.
+    pub async fn set_matview_status(
+        &mut self,
+        matview_id: u64,
+        begin_snapshot: u64,
+        status: MatviewStatus,
+    ) -> CatalogResult<()> {
+        let key = keys::key_matview(matview_id, begin_snapshot);
+        let existing = self
+            .db
+            .get(&key)
+            .await?
+            .ok_or_else(|| CatalogError::NotFound(format!("matview {matview_id}")))?;
+        let mut row: MatviewRow = values::decode_value(&existing)?;
+        row.status = status as u32;
+        self.stage(key, values::encode_value(&row));
+        Ok(())
+    }
+
+    /// Append a checkpoint watermark for a (matview_id, shard_id) pair.
+    /// `seq` must be strictly greater than any existing seq for this pair.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_matview_checkpoint(
+        &mut self,
+        matview_id: u64,
+        shard_id: u32,
+        seq: u64,
+        last_input_snapshot: u64,
+        last_output_snapshot: u64,
+        frontier_time: u64,
+        worker_id: &str,
+    ) -> CatalogResult<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let row = MatviewCheckpointRow {
+            matview_id,
+            shard_id,
+            seq,
+            last_input_snapshot,
+            last_output_snapshot,
+            frontier_time,
+            durable_at_unix_ms: now_ms,
+            worker_id: worker_id.to_string(),
+            encoding_version: 1,
+        };
+        self.stage(
+            keys::key_matview_checkpoint(matview_id, shard_id, seq),
+            values::encode_value(&row),
+        );
+        Ok(())
+    }
+
+    /// Claim a matview shard for exclusive processing via CAS.
+    ///
+    /// On success the shard row is updated with `owner_worker` and
+    /// `lease_expires_unix_ms`.  The `generation` field is incremented.
+    /// Returns [`ClaimOutcome`] to let the caller distinguish the three cases.
+    pub async fn claim_matview_shard(
+        &mut self,
+        matview_id: u64,
+        shard_id: u32,
+        worker_id: &str,
+        lease_duration_ms: u64,
+        now_unix_ms: u64,
+    ) -> CatalogResult<ClaimOutcome> {
+        let key = keys::key_matview_shard(matview_id, shard_id);
+
+        loop {
+            let tx = self.begin_tx().await?;
+            let current_val = tx
+                .get(&key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+            let (current_row, is_new) = if let Some(bytes) = &current_val {
+                (values::decode_value::<MatviewShardRow>(bytes)?, false)
+            } else {
+                (
+                    MatviewShardRow {
+                        matview_id,
+                        shard_id,
+                        owner_worker: String::new(),
+                        lease_expires_unix_ms: 0,
+                        key_range_lo: Vec::new(),
+                        key_range_hi: Vec::new(),
+                        generation: 0,
+                        encoding_version: 1,
+                    },
+                    true,
+                )
+            };
+
+            // Already owned by this worker?
+            if current_row.owner_worker == worker_id {
+                return Ok(ClaimOutcome::AlreadyOwned {
+                    generation: current_row.generation,
+                });
+            }
+
+            // Owned by another worker with an active lease?
+            if !current_row.owner_worker.is_empty()
+                && current_row.lease_expires_unix_ms > now_unix_ms
+            {
+                return Ok(ClaimOutcome::Contended {
+                    current_owner: current_row.owner_worker.clone(),
+                });
+            }
+
+            // Expired or unowned — try to acquire.
+            let new_generation = current_row.generation + 1;
+            let new_row = MatviewShardRow {
+                matview_id,
+                shard_id,
+                owner_worker: worker_id.to_string(),
+                lease_expires_unix_ms: now_unix_ms + lease_duration_ms,
+                key_range_lo: current_row.key_range_lo.clone(),
+                key_range_hi: current_row.key_range_hi.clone(),
+                generation: new_generation,
+                encoding_version: 1,
+            };
+
+            tx.put(&key, values::encode_value(&new_row))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+            match tx.commit().await {
+                Ok(_) => {
+                    if !is_new {
+                        // Sync the staged copy so the in-memory writer reflects reality.
+                        self.stage(key.clone(), values::encode_value(&new_row));
+                    }
+                    return Ok(ClaimOutcome::Acquired {
+                        generation: new_generation,
+                        expires_unix_ms: now_unix_ms + lease_duration_ms,
+                    });
+                }
+                Err(_) => {
+                    // CAS conflict — loop and retry.
+                    continue;
+                }
+            }
+        }
+    }
+
+    /// Extend a shard lease using optimistic CAS.
+    ///
+    /// The `expected_generation` must match the stored value; if it does not
+    /// the lease extension fails with [`CatalogError::GenerationMismatch`].
+    pub async fn extend_matview_lease(
+        &mut self,
+        matview_id: u64,
+        shard_id: u32,
+        worker_id: &str,
+        expected_generation: u64,
+        new_expires_unix_ms: u64,
+    ) -> CatalogResult<u64> {
+        let key = keys::key_matview_shard(matview_id, shard_id);
+        loop {
+            let tx = self.begin_tx().await?;
+            let bytes = tx
+                .get(&key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+                .ok_or_else(|| {
+                    CatalogError::NotFound(format!("shard ({matview_id},{shard_id})"))
+                })?;
+            let mut row: MatviewShardRow = values::decode_value(&bytes)?;
+
+            if row.generation != expected_generation {
+                return Err(CatalogError::GenerationMismatch {
+                    expected: expected_generation,
+                    actual: row.generation,
+                });
+            }
+            if row.owner_worker != worker_id {
+                return Err(CatalogError::NotFound(format!(
+                    "shard ({matview_id},{shard_id}) not owned by {worker_id}"
+                )));
+            }
+
+            row.generation += 1;
+            row.lease_expires_unix_ms = new_expires_unix_ms;
+            tx.put(&key, values::encode_value(&row))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            match tx.commit().await {
+                Ok(_) => return Ok(row.generation),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Release a matview shard lease idempotently.
+    ///
+    /// If the shard is not owned by `worker_id` (or does not exist) this is a no-op.
+    pub async fn release_matview_lease(
+        &mut self,
+        matview_id: u64,
+        shard_id: u32,
+        worker_id: &str,
+    ) -> CatalogResult<()> {
+        let key = keys::key_matview_shard(matview_id, shard_id);
+        loop {
+            let tx = self.begin_tx().await?;
+            let current = tx
+                .get(&key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let Some(bytes) = current else {
+                return Ok(());
+            };
+            let mut row: MatviewShardRow = values::decode_value(&bytes)?;
+            if row.owner_worker != worker_id {
+                return Ok(()); // idempotent
+            }
+            row.generation += 1;
+            row.owner_worker = String::new();
+            row.lease_expires_unix_ms = 0;
+            tx.put(&key, values::encode_value(&row))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            match tx.commit().await {
+                Ok(_) => return Ok(()),
+                Err(_) => continue,
+            }
+        }
     }
 
     // ─── Internal Helpers ───────────────────────────────────────────────────
