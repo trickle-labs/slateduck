@@ -147,4 +147,4 @@ Emit the following metrics from your application layer to track IVM join health:
 
 - [Join strategies — architecture doc](../architecture/mvcc-implementation.md)
 - [IVM concepts](../concepts/mvcc.md)
-- [v0.13 benchmark results](../../benchmarks/v0.13-ivm-joins.json)
+- Benchmark results: `benchmarks/v0.13-ivm-joins.json` (workspace root)
