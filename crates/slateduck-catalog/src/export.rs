@@ -390,6 +390,7 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
             "ducklake_data_file" => {
                 let data_file_id = req_u64!(d, "data_file_id", tbl);
                 let table_id = req_u64!(d, "table_id", tbl);
+                let snapshot_id = req_u64!(d, "snapshot_id", tbl);
                 let row = DataFileRow {
                     data_file_id,
                     table_id,
@@ -397,9 +398,11 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
                     file_format: req_str!(d, "file_format", tbl),
                     row_count: req_u64!(d, "row_count", tbl),
                     file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
-                    snapshot_id: req_u64!(d, "snapshot_id", tbl),
+                    snapshot_id,
                     footer_size: d["footer_size"].as_str().map(|s| s.to_string()),
                     encryption_key: d["encryption_key"].as_str().map(|s| s.to_string()),
+                    begin_snapshot: Some(snapshot_id),
+                    end_snapshot: None,
                 };
                 let key = keys::key_data_file(table_id, data_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
@@ -526,6 +529,8 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
             snapshot_id: 1,
             footer_size: None,
             encryption_key: None,
+            begin_snapshot: Some(1),
+            end_snapshot: None,
         };
         let key = keys::key_data_file(table_id, file_id);
         db.put(&key, &values::encode_value(&row)).await?;

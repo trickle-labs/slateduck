@@ -5,7 +5,7 @@
 //! a separate SQLite sidecar and guarantees crash-consistent storage.
 
 use prost::Message;
-use slatedb::Db;
+use slatedb::{Db, IsolationLevel};
 use slateduck_core::keys;
 use slateduck_core::rows::ExtensionSchemaRow;
 
@@ -52,52 +52,74 @@ pub async fn create_extension_table(
 }
 
 /// Insert a row into an extension table. Returns the assigned row_id.
+///
+/// v0.19: Uses a serializable transaction to atomically read the counter,
+/// write the data row, and update the counter — preventing duplicate row IDs
+/// under concurrent inserts.
 pub async fn insert_extension_row(
     db: &Db,
     extension_id: u8,
     table_name: &str,
     data_json: &str,
 ) -> CatalogResult<u64> {
-    // Use a simple counter to assign row IDs.
     let counter_key = keys::key_extension_schema(extension_id, table_name, 0);
-    let next_id = match db.get(&counter_key).await? {
-        Some(data) => {
-            if let Ok(marker) = ExtensionSchemaRow::decode(data.as_ref()) {
-                // Parse the next_id from the marker's data_json field.
-                let next: u64 = marker
-                    .data_json
-                    .strip_prefix("{\"next_id\":")
-                    .and_then(|s| s.strip_suffix('}'))
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(1);
-                next
-            } else {
-                1
+
+    loop {
+        let tx = db
+            .begin(IsolationLevel::SerializableSnapshot)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+        // Read counter inside transaction.
+        let next_id = match tx
+            .get(&counter_key)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            Some(data) => {
+                if let Ok(marker) = ExtensionSchemaRow::decode(data.as_ref()) {
+                    marker
+                        .data_json
+                        .strip_prefix("{\"next_id\":")
+                        .and_then(|s| s.strip_suffix('}'))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(1)
+                } else {
+                    1
+                }
             }
+            None => 1,
+        };
+
+        // Write the data row inside the transaction.
+        let row = ExtensionSchemaRow {
+            extension_id: extension_id as u32,
+            table_name: table_name.to_string(),
+            row_id: next_id,
+            data_json: data_json.to_string(),
+        };
+        let key = keys::key_extension_schema(extension_id, table_name, next_id);
+        tx.put(&key, row.encode_to_vec())
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+        // Update the marker with next_id + 1 inside the transaction.
+        let new_next = next_id.checked_add(1).ok_or_else(|| {
+            CatalogError::InvalidInput("extension row ID overflow".to_string())
+        })?;
+        let marker = ExtensionSchemaRow {
+            extension_id: extension_id as u32,
+            table_name: table_name.to_string(),
+            row_id: 0,
+            data_json: format!("{{\"next_id\":{new_next}}}"),
+        };
+        tx.put(&counter_key, marker.encode_to_vec())
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+        match tx.commit().await {
+            Ok(_) => return Ok(next_id),
+            Err(_) => continue, // Retry on contention
         }
-        None => 1,
-    };
-
-    // Write the data row.
-    let row = ExtensionSchemaRow {
-        extension_id: extension_id as u32,
-        table_name: table_name.to_string(),
-        row_id: next_id,
-        data_json: data_json.to_string(),
-    };
-    let key = keys::key_extension_schema(extension_id, table_name, next_id);
-    db.put(&key, &row.encode_to_vec()).await?;
-
-    // Update the marker with the next ID.
-    let marker = ExtensionSchemaRow {
-        extension_id: extension_id as u32,
-        table_name: table_name.to_string(),
-        row_id: 0,
-        data_json: format!("{{\"next_id\":{}}}", next_id + 1),
-    };
-    db.put(&counter_key, &marker.encode_to_vec()).await?;
-
-    Ok(next_id)
+    }
 }
 
 /// Select all rows from an extension table.

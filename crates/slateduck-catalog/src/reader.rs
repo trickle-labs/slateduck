@@ -34,8 +34,10 @@ pub struct SnapshotDiff {
     pub added_columns: Vec<ColumnRow>,
     /// Column rows retired at `to_snapshot`.
     pub retired_columns: Vec<ColumnRow>,
-    /// Data files registered at `to_snapshot`.
+    /// Data files registered in the `(from_snapshot, to_snapshot]` window.
     pub added_data_files: Vec<DataFileRow>,
+    /// Data files logically deleted/replaced in the `(from_snapshot, to_snapshot]` window.
+    pub retired_data_files: Vec<DataFileRow>,
 }
 
 impl SnapshotDiff {
@@ -48,6 +50,7 @@ impl SnapshotDiff {
             && self.added_columns.is_empty()
             && self.retired_columns.is_empty()
             && self.added_data_files.is_empty()
+            && self.retired_data_files.is_empty()
     }
 
     /// Total number of changed facts.
@@ -59,6 +62,7 @@ impl SnapshotDiff {
             + self.added_columns.len()
             + self.retired_columns.len()
             + self.added_data_files.len()
+            + self.retired_data_files.len()
     }
 }
 
@@ -492,7 +496,7 @@ impl CatalogReader {
         to_snapshot: SnapshotId,
     ) -> CatalogResult<SnapshotDiff> {
         let to = to_snapshot.as_u64();
-        let _from = from_snapshot.as_u64();
+        let from = from_snapshot.as_u64();
 
         let mut added_schemas: Vec<SchemaRow> = Vec::new();
         let mut retired_schemas: Vec<SchemaRow> = Vec::new();
@@ -501,6 +505,7 @@ impl CatalogReader {
         let mut added_columns: Vec<ColumnRow> = Vec::new();
         let mut retired_columns: Vec<ColumnRow> = Vec::new();
         let mut added_data_files: Vec<DataFileRow> = Vec::new();
+        let mut retired_data_files: Vec<DataFileRow> = Vec::new();
 
         // ── schemas ──────────────────────────────────────────────────────────
         {
@@ -512,11 +517,13 @@ impl CatalogReader {
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
                 let row: SchemaRow = values::decode_value(&kv.value)?;
-                if row.begin_snapshot == to {
+                if row.begin_snapshot > from && row.begin_snapshot <= to {
                     added_schemas.push(row.clone());
                 }
-                if row.end_snapshot == Some(to) {
-                    retired_schemas.push(row);
+                if let Some(end) = row.end_snapshot {
+                    if end > from && end <= to {
+                        retired_schemas.push(row);
+                    }
                 }
             }
         }
@@ -531,11 +538,13 @@ impl CatalogReader {
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
                 let row: TableRow = values::decode_value(&kv.value)?;
-                if row.begin_snapshot == to {
+                if row.begin_snapshot > from && row.begin_snapshot <= to {
                     added_tables.push(row.clone());
                 }
-                if row.end_snapshot == Some(to) {
-                    retired_tables.push(row);
+                if let Some(end) = row.end_snapshot {
+                    if end > from && end <= to {
+                        retired_tables.push(row);
+                    }
                 }
             }
         }
@@ -550,18 +559,20 @@ impl CatalogReader {
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
                 let row: ColumnRow = values::decode_value(&kv.value)?;
-                if row.begin_snapshot == to {
+                if row.begin_snapshot > from && row.begin_snapshot <= to {
                     added_columns.push(row.clone());
                 }
-                if row.end_snapshot == Some(to) {
-                    retired_columns.push(row);
+                if let Some(end) = row.end_snapshot {
+                    if end > from && end <= to {
+                        retired_columns.push(row);
+                    }
                 }
             }
         }
 
         // ── data files ───────────────────────────────────────────────────────
-        // DataFileRow uses `snapshot_id` (the snapshot at which the file was
-        // registered) rather than begin/end versioning.
+        // v0.19: Scan the full (from, to] interval. Use begin_snapshot/end_snapshot
+        // fields if present, falling back to snapshot_id for pre-v0.19 data.
         {
             let prefix = keys::prefix_for_tag(TAG_DATA_FILE);
             let mut iter = self.db.scan_prefix(&prefix).await?;
@@ -571,8 +582,14 @@ impl CatalogReader {
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
                 let row: DataFileRow = values::decode_value(&kv.value)?;
-                if row.snapshot_id == to {
-                    added_data_files.push(row);
+                let begin = row.begin_snapshot.unwrap_or(row.snapshot_id);
+                if begin > from && begin <= to {
+                    added_data_files.push(row.clone());
+                }
+                if let Some(end) = row.end_snapshot {
+                    if end > from && end <= to {
+                        retired_data_files.push(row);
+                    }
                 }
             }
         }
@@ -587,6 +604,7 @@ impl CatalogReader {
             added_columns,
             retired_columns,
             added_data_files,
+            retired_data_files,
         })
     }
 

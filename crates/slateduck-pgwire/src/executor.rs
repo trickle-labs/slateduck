@@ -1391,6 +1391,47 @@ async fn execute_table_changes<'a>(
         .await
         .map_err(SlateDuckError::from)?;
 
+    // v0.19: Build row-level change records using real data from files.
+    // Extract rows from added/retired data files and compute CDC records.
+    let mut added_rows = Vec::new();
+    let mut base_rowid = 0u64;
+    for file in &diff.added_data_files {
+        let rows = slateduck_sql::table_changes::extract_rows_from_file(
+            &file.path,
+            file.row_count,
+            base_rowid,
+            "{}",
+        );
+        base_rowid += file.row_count;
+        added_rows.extend(rows);
+    }
+
+    let mut removed_rows = Vec::new();
+    base_rowid = 0;
+    for file in &diff.retired_data_files {
+        let rows = slateduck_sql::table_changes::extract_rows_from_file(
+            &file.path,
+            file.row_count,
+            base_rowid,
+            "{}",
+        );
+        base_rowid += file.row_count;
+        removed_rows.extend(rows);
+    }
+
+    let cdc_result = slateduck_sql::table_changes::compute_table_changes(
+        table_ref,
+        start_snapshot,
+        end_snapshot,
+        retain_from,
+        &added_rows,
+        &removed_rows,
+    )
+    .map_err(|e| SlateDuckError::SqlState {
+        code: e.sqlstate().to_string(),
+        message: e.to_string(),
+    })?;
+
     // Build response with change records
     let schema = Arc::new(vec![
         FieldInfo::new("rowid".into(), None, None, Type::INT8, FieldFormat::Text),
@@ -1402,7 +1443,7 @@ async fn execute_table_changes<'a>(
             FieldFormat::Text,
         ),
         FieldInfo::new(
-            "table_ref".into(),
+            "columns_json".into(),
             None,
             None,
             Type::TEXT,
@@ -1412,26 +1453,25 @@ async fn execute_table_changes<'a>(
 
     let mut data_rows = Vec::new();
 
-    // Added data files → INSERT records
-    for _file in &diff.added_data_files {
+    for record in &cdc_result.records {
         let mut encoder = DataRowEncoder::new(schema.clone());
         encoder
             .encode_field_with_type_and_format(
-                &Some("0".to_string()),
+                &record.rowid.map(|r| r.to_string()),
                 &Type::INT8,
                 FieldFormat::Text,
             )
             .unwrap();
         encoder
             .encode_field_with_type_and_format(
-                &Some("insert".to_string()),
+                &Some(record.change_type.as_str().to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
             .unwrap();
         encoder
             .encode_field_with_type_and_format(
-                &Some(table_ref.to_string()),
+                &Some(record.columns_json.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )

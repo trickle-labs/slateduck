@@ -156,6 +156,19 @@ impl CdcSnapshot {
                 }),
             });
         }
+        for row in &diff.retired_data_files {
+            events.push(CdcEvent {
+                snapshot_id: to,
+                table: "ducklake_data_file".to_string(),
+                kind: CdcChangeKind::Retire,
+                row: serde_json::json!({
+                    "data_file_id": row.data_file_id,
+                    "table_id": row.table_id,
+                    "path": row.path,
+                    "end_snapshot": row.end_snapshot,
+                }),
+            });
+        }
 
         CdcSnapshot {
             from_snapshot: diff.from_snapshot.as_u64(),

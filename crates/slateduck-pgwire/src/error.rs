@@ -68,7 +68,7 @@ pub enum SlateDuckError {
 
 impl SlateDuckError {
     /// Map to PostgreSQL SQLSTATE code.
-    pub fn sqlstate(&self) -> &'static str {
+    pub fn sqlstate(&self) -> &str {
         match self {
             Self::WriterFenced => "57P04",
             Self::SnapshotOutOfRetention => "22023",
@@ -88,7 +88,8 @@ impl SlateDuckError {
             Self::PgWire(_) => "XX000",
             Self::Catalog(e) => catalog_error_sqlstate(e),
             Self::SqlDispatch(_) => "0A000",
-            Self::SqlState { .. } => "55000",
+            // v0.19: Return the stored code, not a hardcoded "55000".
+            Self::SqlState { code, .. } => code.as_str(),
         }
     }
 

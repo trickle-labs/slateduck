@@ -7,10 +7,23 @@
 //! counter updates and the snapshot row in **one atomic SlateDB transaction**.
 //! A crash before `create_snapshot()` leaves the catalog unchanged.
 //!
-//! Non-MVCC ancillary writes (`update_table_stats`, `upsert_file_column_stats`,
-//! `upsert_file_variant_stats`, `add_macro_parameter`,
-//! `schedule_file_deletion`, `remove_scheduled_deletion`) are written directly
-//! and are safe to write outside the snapshot boundary.
+//! # Non-MVCC direct writes (v0.19 staged write discipline)
+//!
+//! The following methods write directly via `self.db.put()` and are intentionally
+//! **not** staged through `create_snapshot()`. They are safe to write outside
+//! the snapshot boundary because they are ancillary metadata that does not
+//! participate in MVCC versioning and does not need crash-atomic commit with
+//! the snapshot row:
+//!
+//! - `update_table_stats()` — aggregate statistics, recomputable from data files
+//! - `upsert_file_column_stats()` — per-file zone maps, recomputable from Parquet
+//! - `upsert_file_variant_stats()` — variant stats, recomputable
+//! - `add_macro_parameter()` — macro metadata, idempotent
+//! - `schedule_file_deletion()` — deletion scheduling, advisory
+//! - `remove_scheduled_deletion()` — cleanup of scheduling metadata
+//!
+//! A partial write of any of these is always recoverable: either the data is
+//! recomputed on next access, or the operation is idempotent on retry.
 
 use slatedb::{Db, DbTransaction, IsolationLevel};
 use slateduck_core::counters::CounterCache;
@@ -311,6 +324,8 @@ impl CatalogWriter {
             snapshot_id,
             footer_size: None,
             encryption_key: None,
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
         };
 
         let key = keys::key_data_file(table_id, data_file_id);
@@ -1291,7 +1306,14 @@ impl CatalogWriter {
     ///
     /// Returns `(start_rowid, end_rowid)` where the range is `[start, end)`.
     /// The counter at key `0xFE | 0x11 | table_id` is atomically advanced.
+    ///
+    /// v0.19: Uses `checked_add`; rejects `count == 0` and overflow.
     pub async fn next_rowid_range(&self, table_id: u64, count: u64) -> CatalogResult<(u64, u64)> {
+        if count == 0 {
+            return Err(CatalogError::InvalidInput(
+                "rowid range count must be > 0".to_string(),
+            ));
+        }
         let key = keys::key_counter_rowid(table_id);
         loop {
             let tx = self.begin_tx().await?;
@@ -1304,7 +1326,11 @@ impl CatalogWriter {
                 None => 0,
             };
             let start = current;
-            let end = current + count;
+            let end = current.checked_add(count).ok_or_else(|| {
+                CatalogError::InvalidInput(format!(
+                    "rowid overflow: {current} + {count} exceeds u64::MAX"
+                ))
+            })?;
             tx.put(&key, values::encode_counter(end))
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
             match tx.commit().await {
@@ -1325,13 +1351,19 @@ impl CatalogWriter {
 
     async fn check_epoch(&self, tx: &DbTransaction) -> CatalogResult<()> {
         let epoch_key = keys::key_system(SYSTEM_WRITER_EPOCH);
-        if let Some(data) = tx
+        match tx
             .get(&epoch_key)
             .await
             .map_err(|e| CatalogError::SlateDb(e.to_string()))?
         {
-            let stored_epoch = values::decode_counter(&data)?;
-            if stored_epoch != self.writer_epoch {
+            Some(data) => {
+                let stored_epoch = values::decode_counter(&data)?;
+                if stored_epoch != self.writer_epoch {
+                    return Err(CatalogError::WriterEpochMismatch);
+                }
+            }
+            // v0.19: Missing epoch key means corruption or concurrent deletion — fail closed.
+            None => {
                 return Err(CatalogError::WriterEpochMismatch);
             }
         }
@@ -1375,7 +1407,14 @@ pub fn validate_app_metadata_key(key: &str) -> CatalogResult<()> {
 ///
 /// Returns `(start_rowid, end_rowid)` where the range is `[start, end)`.
 /// Uses serializable snapshot transactions for atomicity.
+///
+/// v0.19: Uses `checked_add`; rejects `count == 0` and overflow.
 pub async fn next_rowid_range(db: &Db, table_id: u64, count: u64) -> CatalogResult<(u64, u64)> {
+    if count == 0 {
+        return Err(CatalogError::InvalidInput(
+            "rowid range count must be > 0".to_string(),
+        ));
+    }
     let key = keys::key_counter_rowid(table_id);
     loop {
         let tx = db
@@ -1391,7 +1430,11 @@ pub async fn next_rowid_range(db: &Db, table_id: u64, count: u64) -> CatalogResu
             None => 0,
         };
         let start = current;
-        let end = current + count;
+        let end = current.checked_add(count).ok_or_else(|| {
+            CatalogError::InvalidInput(format!(
+                "rowid overflow: {current} + {count} exceeds u64::MAX"
+            ))
+        })?;
         tx.put(&key, values::encode_counter(end))
             .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
         match tx.commit().await {

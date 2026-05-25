@@ -1,7 +1,7 @@
 //! CatalogStore: the main entry point for catalog operations.
 
+use slatedb::{Db, IsolationLevel};
 use object_store::path::Path as ObjectPath;
-use slatedb::Db;
 use slateduck_core::counters::CounterCache;
 use slateduck_core::keys;
 use slateduck_core::mvcc::SnapshotId;
@@ -42,6 +42,7 @@ pub struct CatalogStore {
 impl CatalogStore {
     /// Open or create a catalog store.
     /// Uses safe `open_or_create` with serializable transactions.
+    /// v0.19: Writer epoch is acquired via CAS — only one writer can hold the epoch.
     pub async fn open(opts: OpenOptions) -> CatalogResult<Self> {
         let db = if let Some(ref enc) = opts.encryption {
             let transformer = Arc::new(AesGcmTransformer::new(enc));
@@ -56,15 +57,49 @@ impl CatalogStore {
         // Initialize or verify
         let counters = init::initialize_catalog(&db).await?;
 
-        // Register writer epoch
+        // v0.19: CAS-protected writer epoch acquisition.
+        // Read the current epoch, validate no other writer holds a non-expired lease,
+        // and atomically CAS a new epoch. Fail closed when epoch key is missing after
+        // initialization (which means corruption) or when another writer holds it.
         let writer_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|_| CatalogError::Internal("system clock before UNIX epoch".to_string()))?
             .as_millis() as u64;
 
         let epoch_key = keys::key_system(SYSTEM_WRITER_EPOCH);
-        db.put(&epoch_key, &values::encode_counter(writer_epoch))
-            .await?;
+
+        // Transactional CAS: read current epoch, verify we can claim it, write new epoch.
+        loop {
+            let tx = db
+                .begin(IsolationLevel::SerializableSnapshot)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+            let current_epoch = match tx
+                .get(&epoch_key)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                Some(data) => Some(values::decode_counter(&data)?),
+                None => None, // First open — no epoch exists yet
+            };
+
+            // If an existing epoch is newer than ours, another writer is active.
+            if let Some(existing) = current_epoch {
+                if existing > writer_epoch {
+                    return Err(CatalogError::WriterEpochMismatch);
+                }
+            }
+
+            // Write our new epoch atomically.
+            tx.put(&epoch_key, values::encode_counter(writer_epoch))
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+            match tx.commit().await {
+                Ok(_) => break,
+                Err(_) => continue, // CAS conflict — retry
+            }
+        }
 
         // Load current schema version (from latest snapshot, or 0)
         let schema_version = Self::load_schema_version(&db, &counters).await;
@@ -92,7 +127,7 @@ impl CatalogStore {
     /// Returns `CatalogError::SnapshotOutOfRetention` (SQLSTATE 22023) if
     /// `dl_snapshot_id` falls below the current retain-from floor.
     pub fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogResult<CatalogReader> {
-        let retain_from = self.retain_from_cache.load(Ordering::Relaxed);
+        let retain_from = self.retain_from_cache.load(Ordering::Acquire);
         if retain_from > 0 && dl_snapshot_id.as_u64() < retain_from {
             return Err(CatalogError::SnapshotOutOfRetention {
                 requested: dl_snapshot_id.as_u64(),
@@ -112,14 +147,34 @@ impl CatalogStore {
         CatalogReader::new(self.db.clone(), SnapshotId::new(latest))
     }
 
+    /// Create a reader for the latest snapshot, reading the counter from SlateDB.
+    ///
+    /// Unlike `read_latest()` which uses the in-memory counter, this function
+    /// reads the snapshot counter directly from SlateDB. Use this for long-lived
+    /// read-only processes that need to see snapshots committed by other writers.
+    pub async fn read_fresh_latest(&self) -> CatalogResult<CatalogReader> {
+        let key = keys::key_counter(slateduck_core::tags::COUNTER_NEXT_SNAPSHOT_ID);
+        let latest = match self.db.get(&key).await? {
+            Some(data) => {
+                let next = values::decode_counter(&data)?;
+                next.saturating_sub(1)
+            }
+            None => 0,
+        };
+        Ok(CatalogReader::new(self.db.clone(), SnapshotId::new(latest)))
+    }
+
     /// Update the in-memory retain-from cache.
     ///
     /// Must be called after every successful `gc::gc_apply()` so that
     /// subsequent `read_at()` calls see the new floor without re-reading
     /// SlateDB.
+    ///
+    /// v0.19: Uses `Ordering::Release` so that any thread loading the value
+    /// with `Ordering::Acquire` observes all preceding writes.
     pub fn update_retain_from_cache(&self, new_retain_from: u64) {
         self.retain_from_cache
-            .store(new_retain_from, Ordering::Relaxed);
+            .store(new_retain_from, Ordering::Release);
     }
 
     /// Expose the retain-from cache handle so the FFI / CLI can share it

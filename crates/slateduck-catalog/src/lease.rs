@@ -14,6 +14,8 @@ use crate::error::{CatalogError, CatalogResult};
 /// Hold a snapshot lease: prevents GC from advancing past `min_snapshot_id`.
 ///
 /// If the consumer already holds a lease, it is updated in place.
+///
+/// v0.19: Uses `checked_mul` for TTL arithmetic to prevent overflow.
 pub async fn hold_snapshot(
     db: &Db,
     consumer_id: &str,
@@ -22,9 +24,19 @@ pub async fn hold_snapshot(
 ) -> CatalogResult<SnapshotLeaseRow> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .map_err(|_| CatalogError::Internal("system clock before UNIX epoch".to_string()))?
         .as_millis() as u64;
-    let expires_at_unix_ms = now_ms + (ttl_seconds * 1000);
+
+    let ttl_ms = ttl_seconds.checked_mul(1000).ok_or_else(|| {
+        CatalogError::InvalidInput(format!(
+            "lease TTL overflow: {ttl_seconds} * 1000 exceeds u64::MAX"
+        ))
+    })?;
+    let expires_at_unix_ms = now_ms.checked_add(ttl_ms).ok_or_else(|| {
+        CatalogError::InvalidInput(format!(
+            "lease expiry overflow: {now_ms} + {ttl_ms} exceeds u64::MAX"
+        ))
+    })?;
 
     let row = SnapshotLeaseRow {
         consumer_id: consumer_id.to_string(),
@@ -48,10 +60,13 @@ pub async fn release_snapshot(db: &Db, consumer_id: &str) -> CatalogResult<bool>
 }
 
 /// Read all active (non-expired) snapshot leases.
+///
+/// v0.19: Returns a catalog error for rows with decode failures instead of
+/// silently ignoring corrupt rows.
 pub async fn list_active_leases(db: &Db) -> CatalogResult<Vec<SnapshotLeaseRow>> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .map_err(|_| CatalogError::Internal("system clock before UNIX epoch".to_string()))?
         .as_millis() as u64;
 
     let prefix = keys::prefix_snapshot_leases();
@@ -63,10 +78,14 @@ pub async fn list_active_leases(db: &Db) -> CatalogResult<Vec<SnapshotLeaseRow>>
         .await
         .map_err(|e| CatalogError::SlateDb(e.to_string()))?
     {
-        if let Ok(row) = SnapshotLeaseRow::decode(kv.value.as_ref()) {
-            if row.expires_at_unix_ms > now_ms {
-                leases.push(row);
-            }
+        let row = SnapshotLeaseRow::decode(kv.value.as_ref()).map_err(|e| {
+            CatalogError::Internal(format!(
+                "corrupt snapshot lease row (key {:?}): {e}",
+                kv.key
+            ))
+        })?;
+        if row.expires_at_unix_ms > now_ms {
+            leases.push(row);
         }
     }
 

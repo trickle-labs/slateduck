@@ -525,6 +525,7 @@ fn cdc_snapshot_to_jsonl_is_valid() {
         added_columns: vec![],
         retired_columns: vec![],
         added_data_files: vec![],
+        retired_data_files: vec![],
     };
 
     let cdc = CdcSnapshot::from_diff(&diff);
@@ -560,6 +561,7 @@ fn cdc_file_writer_writes_bytes() {
         added_columns: vec![],
         retired_columns: vec![],
         added_data_files: vec![],
+        retired_data_files: vec![],
     };
     let cdc = CdcSnapshot::from_diff(&diff);
     let mut buf: Vec<u8> = Vec::new();
@@ -644,6 +646,7 @@ fn webhook_payload_from_cdc() {
         added_columns: vec![],
         retired_columns: vec![],
         added_data_files: vec![],
+        retired_data_files: vec![],
     };
 
     let cdc = slateduck_catalog::cdc::CdcSnapshot::from_diff(&diff);

@@ -178,6 +178,14 @@ pub struct DataFileRow {
     /// v0.18: Per-file Parquet encryption key (pass-through, opaque bytes hex-encoded).
     #[prost(string, optional, tag = "9")]
     pub encryption_key: Option<String>,
+    /// v0.19: Snapshot at which this file was added (begin of MVCC window).
+    /// Defaults to `snapshot_id` for backward compatibility with pre-v0.19 data.
+    #[prost(uint64, optional, tag = "10")]
+    pub begin_snapshot: Option<u64>,
+    /// v0.19: Snapshot at which this file was logically deleted/replaced (end of MVCC window).
+    /// `None` means the file is still active.
+    #[prost(uint64, optional, tag = "11")]
+    pub end_snapshot: Option<u64>,
 }
 
 /// Delete file row value.

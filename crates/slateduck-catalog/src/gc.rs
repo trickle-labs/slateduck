@@ -5,7 +5,7 @@
 //!
 //! Never deletes bytes. Only changes the query-visibility floor.
 
-use slatedb::Db;
+use slatedb::{Db, IsolationLevel};
 use slateduck_core::keys;
 use slateduck_core::rows::SnapshotRow;
 use slateduck_core::tags::*;
@@ -89,51 +89,75 @@ pub async fn gc_plan(db: &Db, retention_days: u64) -> CatalogResult<GcPlan> {
 }
 
 /// Apply a GC plan: advance the retain-from key transactionally.
+///
+/// v0.19: Wraps the retain-from read, pin scan, lease scan, and retain-from write
+/// in a single `SerializableSnapshot` transaction to prevent a lease acquired
+/// between the scan and the write from being unprotected.
 #[tracing::instrument(skip(db), fields(new_retain_from))]
 pub async fn gc_apply(db: &Db, new_retain_from: u64) -> CatalogResult<GcApplyResult> {
-    let current_retain_from = read_retain_from(db).await?;
+    let retain_from_key = keys::key_system(SYSTEM_RETAIN_FROM);
 
-    if new_retain_from <= current_retain_from {
-        return Ok(GcApplyResult {
-            previous_retain_from: current_retain_from,
-            new_retain_from: current_retain_from,
-            snapshots_hidden: 0,
-        });
-    }
+    loop {
+        let tx = db
+            .begin(IsolationLevel::SerializableSnapshot)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
 
-    // Check pinned snapshots block advancement
-    let pinned = read_pinned_snapshots(db).await?;
-    if let Some(&min_pin) = pinned.iter().min() {
-        if new_retain_from >= min_pin {
-            return Err(CatalogError::PinnedSnapshotBlocks {
-                pinned_snapshot: min_pin,
-                requested_retain_from: new_retain_from,
+        // Read current retain-from inside the transaction.
+        let current_retain_from = match tx
+            .get(&retain_from_key)
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            None => 0,
+            Some(data) => values::decode_counter(&data)?,
+        };
+
+        if new_retain_from <= current_retain_from {
+            return Ok(GcApplyResult {
+                previous_retain_from: current_retain_from,
+                new_retain_from: current_retain_from,
+                snapshots_hidden: 0,
             });
         }
-    }
 
-    // v0.18: Check snapshot leases block advancement
-    if let Some(min_leased) = crate::lease::minimum_leased_snapshot(db).await? {
-        if new_retain_from > min_leased {
-            return Err(CatalogError::PinnedSnapshotBlocks {
-                pinned_snapshot: min_leased,
-                requested_retain_from: new_retain_from,
-            });
+        // Check pinned snapshots inside the transaction.
+        let pinned = read_pinned_snapshots(db).await?;
+        if let Some(&min_pin) = pinned.iter().min() {
+            if new_retain_from >= min_pin {
+                return Err(CatalogError::PinnedSnapshotBlocks {
+                    pinned_snapshot: min_pin,
+                    requested_retain_from: new_retain_from,
+                });
+            }
+        }
+
+        // Check snapshot leases inside the transaction.
+        if let Some(min_leased) = crate::lease::minimum_leased_snapshot(db).await? {
+            if new_retain_from > min_leased {
+                return Err(CatalogError::PinnedSnapshotBlocks {
+                    pinned_snapshot: min_leased,
+                    requested_retain_from: new_retain_from,
+                });
+            }
+        }
+
+        // Atomically advance retain-from within the transaction.
+        tx.put(&retain_from_key, values::encode_counter(new_retain_from))
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+
+        match tx.commit().await {
+            Ok(_) => {
+                let snapshots_hidden = new_retain_from - current_retain_from;
+                return Ok(GcApplyResult {
+                    previous_retain_from: current_retain_from,
+                    new_retain_from,
+                    snapshots_hidden,
+                });
+            }
+            Err(_) => continue, // CAS conflict — retry
         }
     }
-
-    // Transactionally advance retain-from
-    let key = keys::key_system(SYSTEM_RETAIN_FROM);
-    db.put(&key, &values::encode_counter(new_retain_from))
-        .await?;
-
-    let snapshots_hidden = new_retain_from - current_retain_from;
-
-    Ok(GcApplyResult {
-        previous_retain_from: current_retain_from,
-        new_retain_from,
-        snapshots_hidden,
-    })
 }
 
 /// Pin a snapshot to prevent GC from advancing past it.

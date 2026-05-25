@@ -68,7 +68,7 @@ binding on every roadmap release below.
 | **v0.16 — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Done |
 | **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Done |
 | **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Done |
-| **v0.19 — CDC Correctness & Catalog Transaction Hardening** | Real row-level `table_changes()` with Parquet scan, versioned `DataFileRow` / `SnapshotDiff` windows, CAS writer epoch, transactional extension row-ID allocation, atomic GC lease + retain-from, staged write discipline, overflow-safe counters | Planning |
+| **v0.19 — CDC Correctness & Catalog Transaction Hardening** | Real row-level `table_changes()` with Parquet scan, versioned `DataFileRow` / `SnapshotDiff` windows, CAS writer epoch, transactional extension row-ID allocation, atomic GC lease + retain-from, staged write discipline, overflow-safe counters | Done |
 | **v0.20 — FFI Safety, Live Notifications & Operational Wire-Up** | FFI `&'static mut` removal + SAFETY docs + Miri/ASAN CI, LISTEN/NOTIFY end-to-end, configurable extension schema registration, extension JSON fix, collision-safe key encoding, TLS panic fix, auth/TLS defaults | Planning |
 | **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, IVM output batching, O(1) aggregate deletions, binary IVM key encoding, EWMA worker cost estimate, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
@@ -3118,14 +3118,14 @@ The v0.18 implementation of `table_changes()` emits one synthetic row per added 
 
 ### Test and Documentation Deliverables
 
-- [ ] Property test: `table_changes()` change stream reconstructs end-snapshot state from start-snapshot
-- [ ] Property test: `next_rowid_range()` overflow coverage near `u64::MAX`
-- [ ] Integration test: concurrent writer-epoch acquisition, exactly one winner
-- [ ] Integration test: extension schema concurrent inserts, all row IDs unique
-- [ ] Integration test: GC advance vs. concurrent lease acquisition, lease always wins
-- [ ] Integration test: process crash between direct `db.put()` and `create_snapshot()`, catalog consistent after restart
-- [ ] `docs/architecture/cdc-design.md`: describe the full `table_changes()` execution pipeline including Parquet scan, rowid extraction, and change correlation
-- [ ] `docs/architecture/writer-fencing.md`: document the CAS epoch acquisition protocol and failure modes
+- [x] Property test: `table_changes()` change stream reconstructs end-snapshot state from start-snapshot
+- [x] Property test: `next_rowid_range()` overflow coverage near `u64::MAX`
+- [x] Integration test: concurrent writer-epoch acquisition, exactly one winner
+- [x] Integration test: extension schema concurrent inserts, all row IDs unique
+- [x] Integration test: GC advance vs. concurrent lease acquisition, lease always wins
+- [x] Integration test: process crash between direct `db.put()` and `create_snapshot()`, catalog consistent after restart
+- [x] `docs/architecture/cdc-design.md`: describe the full `table_changes()` execution pipeline including Parquet scan, rowid extraction, and change correlation
+- [x] `docs/architecture/writer-fencing.md`: document the CAS epoch acquisition protocol and failure modes
 
 ---
 

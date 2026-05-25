@@ -602,6 +602,32 @@ async fn test_error_sqlstate_mapping() {
         SlateDuckError::Internal("bug".to_string()).sqlstate(),
         "XX000"
     );
+
+    // v0.19: SqlState variant returns stored code, not hardcoded "55000"
+    assert_eq!(
+        SlateDuckError::SqlState {
+            code: "42P01".to_string(),
+            message: "table not found".to_string()
+        }
+        .sqlstate(),
+        "42P01"
+    );
+    assert_eq!(
+        SlateDuckError::SqlState {
+            code: "23505".to_string(),
+            message: "duplicate".to_string()
+        }
+        .sqlstate(),
+        "23505"
+    );
+    assert_eq!(
+        SlateDuckError::SqlState {
+            code: "55000".to_string(),
+            message: "object not in prerequisite state".to_string()
+        }
+        .sqlstate(),
+        "55000"
+    );
 }
 
 // ─── v0.6: pg-tide-relay corpus replay tests ──────────────────────────────

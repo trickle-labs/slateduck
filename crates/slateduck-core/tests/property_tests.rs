@@ -116,6 +116,8 @@ proptest! {
             snapshot_id,
             footer_size: None,
             encryption_key: None,
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
         };
         let encoded = encode_value(&row);
         let decoded: DataFileRow = decode_value(&encoded).unwrap();
