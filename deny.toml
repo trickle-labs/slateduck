@@ -24,6 +24,9 @@ ignore = [
     "RUSTSEC-2024-0436",
     # rustls-pemfile: older API usage (transitive from tokio-rustls 0.26)
     "RUSTSEC-2025-0134",
+    # proc-macro-error: unmaintained — transitive dep via dbsp → utoipa → utoipa-gen.
+    # No upstream fix available in dbsp 0.299.0; tracked for next dbsp bump.
+    "RUSTSEC-2024-0370",
 ]
 
 # ─── Licenses ─────────────────────────────────────────────────────────────────
