@@ -67,7 +67,7 @@ binding on every roadmap release below.
 | **v0.15 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Planning |
 | **v0.16 — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Planning |
 | **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Planning |
-| **v0.18 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers | Planning |
+| **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2130,11 +2130,35 @@ Build these alongside the first test suites that need them in v0.14; do not defe
 
 ### Gate 4 — Reconcile the Implementation Plan
 
-`plans/incremental-view-maintenance-implementation.md` explicitly marks correlated subqueries and window functions as **"post-v1.0"**. The roadmap has both in v0.16. Update the implementation plan to match the agreed scope before v0.14 sprints begin.
+The original sections in `plans/incremental-view-maintenance-implementation.md` explicitly mark correlated subqueries and window functions as **"post-v1.0"**. The roadmap has both in v0.16. The implementation plan now includes a current-alignment addendum that supersedes those historical labels; keep that addendum updated whenever roadmap scope changes.
 
 ### Gate 5 — SQL Planner Migration Decision
 
 `plan.rs` uses `sqlparser` and produces an `IvmPlan` struct. The roadmap's v0.16 correlated subqueries require DataFusion's `PullUpCorrelatedPredicates` / `DecorrelatePredicateSubquery` rewrites, which need a DataFusion `LogicalPlan` as input — not the current ad-hoc struct. Decide before v0.14 whether to start the planner migration in v0.14/v0.15 incrementally, or do it all in v0.16. A mid-sprint migration in v0.16 is a high-risk rework.
+
+### Realism & Difficulty Assessment
+
+The v0.14–v0.18 roadmap is realistic **only if treated as a high-risk architecture track**, not as a sequence of ordinary feature tickets. The current codebase proves the product shape is viable — v0.11–v0.13 shipped enough IVM machinery to validate the direction — but the remaining work crosses from a focused hand-rolled engine into a general streaming SQL maintenance system. The hard part is not any single checklist item; it is making every item share one coherent execution model, planner model, state-store model, and test oracle.
+
+| Phase | Difficulty | Realism | Primary risk |
+|---|---|---|---|
+| v0.14 — Join Correctness | High | Realistic once `IvmOracle` exists | EC-01, aggregate tiering, and volatility checks are tractable, but unverified without the oracle |
+| v0.15 — Operational Hardening | Very high | Realistic after Gate 1 | Multi-view DAG + durable frontiers + native state persistence depend on the chosen computation backend |
+| v0.16 — Operator Completeness | Extreme | Conditional | Window functions, correlated subqueries, and recursive CTEs require either real DBSP/DataFusion integration or a much larger hand-rolled engine |
+| v0.17 — Feature Hardening | Very high | Conditional | WASM is self-contained; adaptive mode and 24 h soak depend on v0.14–v0.16 correctness being stable |
+| v0.18 — DuckLake Standard Interface | High | Realistic and mostly decoupled | Contract surface is clear, but `table_changes()` is a real row-level scan operator, not simple catalog plumbing |
+
+Estimated effort for a small team is **80–120 person-weeks** after v0.13, with the largest uncertainty in v0.16. A clean DBSP/DataFusion path keeps the roadmap closer to the low end. Continuing the hand-rolled shim without de-scoping advanced operators pushes the roadmap toward the high end and raises the chance that v0.16 slips or must be split again.
+
+The most important decision is Gate 1. If DBSP's native circuit and trace APIs are usable externally, the roadmap should move toward a real DBSP-backed engine before v0.15 hardening. If they are not, the project must explicitly choose between (a) investing in a larger SlateDuck-owned differential engine, (b) switching to `differential-dataflow`, or (c) narrowing v0.16 by moving recursive CTEs / total-order windows later. Do not let this remain implicit.
+
+### Additional Considerations Before Implementation
+
+- **Implementation plan alignment:** `plans/incremental-view-maintenance-implementation.md` now has a current-alignment addendum that maps the historical v0.11–v0.14 plan onto the current v0.14–v0.18 roadmap. Treat that addendum as binding for new work and keep it current as decisions land.
+- **Contract boundary:** v0.18 is a DuckLake catalog interface contract, not a pg-trickle dependency. pg-trickle is the first validator; SlateDuck should keep the interface test suite independent enough that another client can validate the same contract.
+- **CI and runner budget:** Tier 7–8 tests require Docker, MinIO, toxiproxy, and dedicated EC2 runners. Provision the runners and failure-artifact retention before writing the tests, or the test plan will look complete but be operationally unusable.
+- **Dogfood workload:** Pick one realistic workload before v0.15 and run shortened soak tests continuously. Waiting until v0.17 for the first serious soak creates too much late-cycle risk.
+- **Docs as design locks:** Every spike outcome should land as a design decision before implementation proceeds. The risky parts here are architectural, and unresolved architecture should not be hidden inside PR review.
 
 ---
 
@@ -2496,7 +2520,7 @@ SlateDuck's goal is to be the only lakehouse that materializes *any* SQL view wi
 
 ### Why two phases
 
-The features now spanning v0.18 and v0.17 were originally bundled in a single milestone. The structural risk: if DBSP `iterate` (recursive CTEs) hits a multi-week blocker, WASM UDF work that shares no code dependency also slips. The split follows a natural seam: **v0.16** delivers the operator surface (what SQL can be written in a view), **v0.17** delivers the runtime extensions (WASM execution engine, adaptive cost calibration, DISTINCT ref-counting) and the Tier 8 24-hour soak gate. No features are deferred — the full operator surface remains the same across both phases.
+The features now spanning v0.16 and v0.17 were originally bundled in a single milestone. The structural risk: if DBSP `iterate` (recursive CTEs) hits a multi-week blocker, WASM UDF work that shares no code dependency also slips. The split follows a natural seam: **v0.16** delivers the operator surface (what SQL can be written in a view), **v0.17** delivers the runtime extensions (WASM execution engine, adaptive cost calibration, DISTINCT ref-counting) and the Tier 8 24-hour soak gate. No features are deferred — the full operator surface remains the same across both phases.
 
 ### Window Functions
 

@@ -1,15 +1,40 @@
 # Incremental View Maintenance — Implementation Plan
 
-> **Scope.** Engineering plan for delivering incremental view maintenance (IVM) as a v0.11–v0.14 track culminating in v1.0 GA. Companion to the architectural design in [plans/slateduck-differential-dataflow.md](slateduck-differential-dataflow.md) and the substrate analysis in [plans/slatedb-differential-dataflow.md](slatedb-differential-dataflow.md). Anchored in the roadmap entries for [v0.11](../ROADMAP.md#v011--incremental-view-maintenance-foundations), [v0.12](../ROADMAP.md#v012--ivm-scale-out-sharding--lease-management), [v0.13](../ROADMAP.md#v013--ivm-joins), and [v0.14](../ROADMAP.md#v014--ivm-operational-hardening).
+> **Scope.** Engineering plan for delivering incremental view maintenance (IVM) from v0.11 foundations through the current v0.18 DuckLake Catalog Standard Interface and v1.0 GA gate. This document was originally written as a v0.11–v0.14 track; the current alignment addendum below maps that historical plan onto the expanded roadmap. Companion to the architectural design in [plans/slateduck-differential-dataflow.md](slateduck-differential-dataflow.md) and the substrate analysis in [plans/slatedb-differential-dataflow.md](slatedb-differential-dataflow.md). Anchored in the roadmap entries for [v0.11](../ROADMAP.md#v011--incremental-view-maintenance-foundations), [v0.12](../ROADMAP.md#v012--ivm-scale-out-sharding--lease-management), [v0.13](../ROADMAP.md#v013--ivm-joins), and the current v0.14–v0.18 sections in [ROADMAP.md](../ROADMAP.md).
 >
-> **Status.** v0.11 phase **Shipped** (v0.11.0). Subsequent phases (v0.12–v0.14) are in planning.
+> **Status.** v0.11–v0.13 are shipped. v0.14–v0.18 are planning-stage and gated by the architecture decisions documented below.
 >
 > **Audience.** Contributors and reviewers implementing each phase. This document is intentionally concrete: tag bytes, function signatures, key layouts, file boundaries, test names, failure modes.
+
+> **Current alignment note (May 2026):** This document was originally written for the v0.11–v0.14 IVM track. The roadmap has since expanded and renumbered the post-v0.13 work: v0.14 is now IVM Join Correctness, v0.15 is Operational Hardening, v0.16 is Operator Completeness, v0.17 is Feature Hardening / the IVM GA gate, and v0.18 is the DuckLake Catalog Standard Interface. Historical section text is preserved below, but the **Current Roadmap Alignment** and **Current Architecture Gates** notes in this document are binding for new implementation work.
+
+## Current Roadmap Alignment & Risk Assessment
+
+The implementation plan remains directionally sound, but several original assumptions are no longer true in the current codebase:
+
+- `dbsp = "0.299.0"` is declared in the workspace, but the IVM crate does not call DBSP APIs today. `circuit.rs` is a hand-rolled Z-difference engine that follows DBSP concepts without using DBSP's circuit builder.
+- `plan.rs` uses `sqlparser` and emits an ad-hoc `IvmPlan`; the IVM planner does not use DataFusion `LogicalPlan`. The `slateduck-datafusion` crate is read-side integration only.
+- `IvmOracle` is planned but not implemented. It must be the first v0.14 deliverable because v0.14–v0.17 correctness gates depend on it.
+- The original plan marks window functions, correlated subqueries, and recursive CTEs as post-v1.0. The current roadmap moves them into v0.16, which makes the planner and computation-backend decisions urgent.
+- Testkit has `DuckDbHarness`, `IvmWorkerHarness`, and `DeterministicClock`; `MinioHarness`, `CatalogHarness`, and `PgWireHarness` still need explicit implementation before the higher test tiers can be credible.
+
+Current realism: the v0.14–v0.18 roadmap is achievable, but only if the architecture gates are resolved before feature implementation. The likely remaining effort is 80–120 person-weeks, with v0.16 carrying the highest uncertainty. If the project chooses a clean DBSP/DataFusion integration path, the plan stays coherent. If the project keeps the hand-rolled shim, v0.16 must either absorb a much larger custom engine effort or move the hardest operators later.
+
+Current phase mapping:
+
+| Roadmap phase | Current role | Implementation-plan impact |
+|---|---|---|
+| v0.14 — IVM Join Correctness | Build `IvmOracle`; fix EC-01; classify aggregates; add volatility gate | First implementation phase after this alignment note |
+| v0.15 — IVM Operational Hardening | Multi-view DAG, native state persistence, cost/observability/fault injection | Former v0.14 hardening content maps here |
+| v0.16 — IVM Operator Completeness | Windows, ORDER BY, LIMIT/OFFSET, correlated subqueries, recursive CTEs, non-det capture | Former v0.15 feature-completeness content is split; planner migration required |
+| v0.17 — IVM Feature Hardening | WASM UDFs, adaptive mode, DISTINCT ref-counting, 24 h soak | Former v0.15 runtime extensions and GA gate map here |
+| v0.18 — DuckLake Catalog Standard Interface | `table_changes()`, rowid, leases, NOTIFY, extension schema, opaque frontiers | Contract validation phase; pg-trickle is validator, not dependency |
 
 ---
 
 ## Table of Contents
 
+0. [Current Roadmap Alignment & Risk Assessment](#current-roadmap-alignment--risk-assessment)
 1. [Guiding Principles](#1-guiding-principles)
 2. [System Architecture](#2-system-architecture)
 3. [Catalog Schema (Tags, Rows, Keys)](#3-catalog-schema-tags-rows-keys)
@@ -338,7 +363,7 @@ option_list     ::= option (',' option)*
 | `shard_count` | `u32` | 1 (v0.11), auto (v0.12+) | Set at create or `ALTER` |
 | `shard_key` | `string` | auto-detected from `GROUP BY` | Required for joins not co-partitioned by GROUP BY key |
 | `freshness` | duration literal (`'5s'`, `'1m'`) | `'5s'` | Target publish lag |
-| `output_mode` | `'consistent'` \| `'per_shard'` | `'consistent'` | v0.14 |
+| `output_mode` | `'consistent'` \| `'per_shard'` | `'consistent'` | historical v0.14 / current v0.15 |
 | `join_strategy` | `'broadcast'` \| `'co_partition'` \| `'reshuffle'` \| `'auto'` | `'auto'` | v0.13 |
 | `broadcast_threshold` | `u64` rows | `1_000_000` | v0.13 |
 | `output_compaction` | duration literal \| `'never'` | `'1h'` | v0.12 |
@@ -544,9 +569,19 @@ For each owned shard, per freshness tick:
 
 ## 9. DBSP Integration
 
+> **Current architecture gate:** Treat this section as the Option B target architecture, not a description of the implementation that exists today. The current codebase has a hand-rolled `IvmCircuit` and no `use dbsp` imports. Before v0.14 implementation begins, run the spike described in ROADMAP.md Pre-v0.14 Gate 1 and choose one path:
+>
+> - **Option A:** keep extending the hand-rolled shim and update this section to say "IVM circuit shim" rather than "DBSP".
+> - **Option B:** migrate to DBSP's native circuit API and keep this section as the target design.
+> - **Option C:** switch to `differential-dataflow` and rewrite DBSP-specific lowering / trace language.
+>
+> Until that decision is recorded in `docs/design-decisions/ivm-architecture.md`, no v0.15 `SlateDbTrace`, v0.16 recursive CTE, or v0.16 window-function work should start.
+
 DBSP (Feldera) is consumed as a Rust dependency, pinned to a tested version. A thin adaptation layer in `circuit.rs` insulates the rest of `slateduck-ivm` from DBSP API churn.
 
 ### 9.1 SQL → DBSP plan
+
+> **Current planner correction:** The current implementation does not parse with `datafusion-sql` and does not produce a DataFusion `LogicalPlan`. It uses `sqlparser` directly and emits `IvmPlan`. The following steps are therefore either (a) the target design if Option B is chosen, or (b) a migration plan that must be inserted before v0.16 correlated subqueries. DataFusion decorrelation requires `LogicalPlan`; it cannot operate on the current ad-hoc `IvmPlan`.
 
 ```rust
 pub fn compile_view(
@@ -568,6 +603,17 @@ Steps:
 
 ### 9.2 Operator support matrix
 
+> **Current roadmap supplement:** The original table below stopped at the old v0.14 and marked several operators post-v1.0. The current roadmap extends the IVM track through v0.17 and moves those operators earlier. Preserve the historical table for context; use this supplement for implementation planning:
+>
+> | Operator family | Current roadmap target | Prerequisite |
+> |---|---|---|
+> | EC-01 join correctness, aggregate tiering, volatility reject gate | v0.14 | `IvmOracle` first |
+> | Multi-view DAG, frontier durability, native state persistence | v0.15 | DBSP/shim architecture choice |
+> | ORDER BY, LIMIT/OFFSET, windows | v0.16 | Ordered trace over whichever persistence path v0.15 ships |
+> | Correlated subqueries | v0.16 | DataFusion `LogicalPlan` migration + decorrelation pass |
+> | Recursive CTEs | v0.16 | DBSP `iterate` spike or fixed-point fallback |
+> | WASM UDFs, adaptive mode, ref-counted DISTINCT | v0.17 | Full v0.16 operator matrix |
+
 | Operator | v0.11 | v0.12 | v0.13 | v0.14 |
 |---|---|---|---|---|
 | `SELECT` projection | ✓ | ✓ | ✓ | ✓ |
@@ -586,6 +632,8 @@ Steps:
 | Recursive CTEs | — | — | — | post-v1.0 |
 
 ### 9.3 Persistent trace
+
+> **Current persistence correction:** v0.11 did not ship DBSP-bundled persistence in the actual codebase. It shipped `IvmTrace` checkpoint metadata around the hand-rolled `IvmCircuit`. If Option B is chosen, `SlateDbTrace` implements DBSP traits here. If Option A is chosen, the persistent trace work means durable serialization, compaction, and frontier management for `IvmTrace` without DBSP traits.
 
 `SlateDbTrace` implements DBSP's `Trace`/`Batch`/`Cursor`. v0.11 uses DBSP's bundled object-store-backed trace as a stopgap; v0.14 replaces it with a native implementation that maps DBSP batches one-to-one to SlateDB SSTs and uses SlateDB compaction for frontier advancement.
 
@@ -805,6 +853,20 @@ Recommendations:
 
 Five layers:
 
+> **Current testing supplement:** ROADMAP.md now defines a 10-tier test plan and makes `IvmOracle` the first v0.14 deliverable. The five layers below remain useful categories, but implementation work should use the tiered mapping below:
+>
+> | Tier | Current requirement |
+> |---|---|
+> | Tier 1–3 | Unit/property/catalog/PG-wire tests on every PR |
+> | Tier 4–5 | MinIO object-store and live client compatibility; requires `MinioHarness`, `CatalogHarness`, `PgWireHarness` |
+> | Tier 6b–6f | IVM correctness suites: joins, hardening, operators, WASM/DISTINCT |
+> | Tier 7 | Fault injection for catalog, IVM worker, and toxiproxy network failures |
+> | Tier 8 | 24 h soak and 16-shard scale-out on dedicated EC2 runner |
+> | Tier 9 | Credential isolation, TLS/auth, SQL injection guards, rate limiting |
+> | Tier 10 | Benchmark regression gates against checked-in baselines |
+>
+> Before v0.14 EC-01 implementation, add `IvmOracle::assert_equivalent(view_sql, deltas)` to `slateduck-testkit` and run it against v0.11–v0.13 GROUP BY + JOIN cases.
+
 ### 15.1 Unit tests
 
 - Each catalog method: happy path, conflict, idempotence
@@ -919,18 +981,27 @@ Cost-control knobs (all in v0.14):
 |---|---|---|
 | `docs/concepts/incremental-views.md` | v0.11 | Users |
 | `docs/architecture/ivm-plane.md` | v0.11 | Architects, contributors |
-| `docs/operations/incremental-materialized-views.md` | v0.11 → v0.14 | Operators |
+| `docs/operations/incremental-materialized-views.md` | v0.11 → current v0.15 | Operators |
 | `docs/reference/sql-ivm.md` | v0.11 → v0.13 | Users |
 | `docs/design-decisions/ivm-on-immutable-substrate.md` | v0.11 | Reviewers |
 | `docs/deployment/ivm-iam-policies.md` | v0.11 | Operators |
-| `docs/performance/ivm-cost-model.md` | v0.14 | Operators |
-| `docs/design-decisions/ivm-retrospective.md` | v0.14 | Future contributors |
+| `docs/performance/ivm-cost-model.md` | current v0.15 | Operators |
+| `docs/design-decisions/ivm-retrospective.md` | current v0.17 | Future contributors |
 
 All pages must pass `mkdocs build --strict` and have non-trivial content (no stubs).
 
 ---
 
 ## 20. Phased Milestones
+
+> **Current phased-plan supplement:** The original milestone labels below are retained for historical context. The implementation sequence now follows ROADMAP.md:
+>
+> 1. **Pre-v0.14 gates:** DBSP/shim/DD architecture decision; planner migration strategy; `IvmOracle`; testkit harness scope; implementation-plan reconciliation.
+> 2. **v0.14:** Join correctness release — EC-01, aggregate tiers, volatility gate, oracle/property tests.
+> 3. **v0.15:** Operational hardening — DAG/frontiers, native state persistence, cost model, backup/restore, schema evolution, fault injection, observability.
+> 4. **v0.16:** Operator completeness — windows, ORDER BY, LIMIT/OFFSET, correlated subqueries, recursive CTEs, non-deterministic capture.
+> 5. **v0.17:** Feature hardening / IVM GA gate — WASM UDFs, adaptive mode, ref-counted DISTINCT, 24 h soak, 16-shard scale benchmark.
+> 6. **v0.18:** DuckLake Catalog Standard Interface — `table_changes()`, stable rowid, snapshot leases, NOTIFY, extension schema tables, encryption pass-through, opaque mixed frontiers.
 
 ### v0.11 — Foundations (matches ROADMAP §v0.11)
 - Catalog schema, SQL surface, single-shard runtime, end-to-end demo
@@ -941,10 +1012,10 @@ All pages must pass `mkdocs build --strict` and have non-trivial content (no stu
 ### v0.13 — Joins (matches ROADMAP §v0.13)
 - Broadcast, co-partition, reshuffle; TPC-H Q3 / Q5
 
-### v0.14 — Operational Hardening (matches ROADMAP §v0.14)
+### Historical v0.14 — Operational Hardening (now ROADMAP v0.15)
 - Native `SlateDbTrace`, cost optimization, observability, `REFRESH ... FULL`, fault injection
 
-### v0.15 — Feature Completeness (matches ROADMAP §v0.15)
+### Historical v0.15 — Feature Completeness (now split across ROADMAP v0.16 and v0.17)
 
 Goal: any SQL view that can be written against a static DuckDB table can be maintained incrementally. Adds the advanced operators deferred from v0.11–v0.14.
 
@@ -984,7 +1055,7 @@ Goal: any SQL view that can be written against a static DuckDB table can be main
 | `crates/slateduck-ivm/src/output.rs` | `merge_sorted_parquet_writer` |
 
 ### v1.0 GA gate
-- v0.11–v0.15 acceptance tests all green; the IVM GA gate item in `## v1.0` of the roadmap.
+- v0.11–v0.17 acceptance tests all green; the IVM GA gate item in `## v1.0` of the roadmap.
 
 ### Post-1.0 (out of scope for this plan)
 - Continuous integrity-constraint checking as a special case of IVM
@@ -1004,13 +1075,20 @@ Goal: any SQL view that can be written against a static DuckDB table can be main
 | 5 | How to expose freshness in SQL (`MATVIEW_LAG()` function vs system view) | Both | — | Before v0.11 GA |
 | 6 | DBSP integration: direct crate dep vs vendored fork | Recommended: direct dep, version-pin | — | Before v0.11 alpha |
 | 7 | Lease eviction policy details (TTL value, heartbeat interval) | Open: defaults 30 s / 10 s | — | Before v0.12 |
-| 8 | Cost model defaults: S3 PUT throttling, compaction cadence | Open; empirical | — | v0.14 |
-| 9 | Schema-evolution UX: auto-stale vs auto-rebuild | Recommended: auto-stale, explicit refresh | — | v0.14 |
+| 8 | Cost model defaults: S3 PUT throttling, compaction cadence | Open; empirical | — | current v0.15 |
+| 9 | Schema-evolution UX: auto-stale vs auto-rebuild | Recommended: auto-stale, explicit refresh | — | current v0.15 |
 | 10 | Multi-warehouse views: in scope for v1.x or v2.x? | Out of scope for v0.11–v1.0 | — | Post-1.0 |
-| 11 | WASM runtime: `wasmtime` vs `wasmi` (interpreter, no JIT) | Open; `wasmtime` preferred for throughput | — | Before v0.15 alpha |
-| 12 | Window functions in sharded mode: error or auto-downgrade to `shard_count = 1`? | Recommended: error with a clear message | — | Before v0.15 alpha |
-| 13 | Recursive CTE `max_iterations` default: 100 or unbounded with cost-based cap? | Open | — | Before v0.15 alpha |
-| 14 | Non-deterministic function allow-list: user-extensible or hardcoded? | Recommended: hardcoded; UDFs cover extension | — | Before v0.15 alpha |
+| 11 | WASM runtime: `wasmtime` vs `wasmi` (interpreter, no JIT) | Open; `wasmtime` preferred for throughput | — | Before v0.17 alpha |
+| 12 | Window functions in sharded mode: error or auto-downgrade to `shard_count = 1`? | Recommended: error with a clear message | — | Before v0.16 alpha |
+| 13 | Recursive CTE `max_iterations` default: 100 or unbounded with cost-based cap? | Open | — | Before v0.16 alpha |
+| 14 | Non-deterministic function allow-list: user-extensible or hardcoded? | Recommended: hardcoded; UDFs cover extension | — | Before v0.16 alpha |
+| 15 | Computation backend: extend shim, migrate to DBSP, or switch to `differential-dataflow`? | Open; must choose explicitly | — | Before v0.14 implementation |
+| 16 | SQL planner: stay on ad-hoc `IvmPlan` through v0.15, or migrate incrementally to DataFusion `LogicalPlan`? | Open; v0.16 depends on it | — | Before v0.14 sprint planning |
+| 17 | `IvmOracle` API shape and ownership: `slateduck-testkit` helper vs `slateduck-ivm` test module? | Recommended: `slateduck-testkit` helper | — | First v0.14 PR |
+| 18 | Testkit harness gap closure: implement `MinioHarness`, `CatalogHarness`, `PgWireHarness` now or per-tier? | Recommended: scope in v0.14 | — | Before Tier 4–7 test work |
+| 19 | If DBSP traits are not externally implementable, does v0.15 ship `IvmTrace` persistence or `SlateDbBatch` spill adapter? | Open; depends on Gate 1 | — | Before v0.15 |
+| 20 | v0.16 recursive CTE fallback: hand-rolled fixed-point loop acceptable for GA, or de-scope if DBSP `iterate` is unavailable? | Open | — | Before v0.16 |
+| 21 | v0.18 contract naming/versioning: how is the DuckLake Standard Interface versioned independently of pg-trickle? | Open | — | Before v0.18 |
 
 This tracker is maintained alongside the implementation; resolved questions become design decisions documented in `docs/design-decisions/`.
 
