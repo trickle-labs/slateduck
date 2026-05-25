@@ -58,13 +58,13 @@ impl RefCountedDistinct {
     /// Delete a row (decrement ref count).
     /// Returns true if the row became invisible (should be removed from output).
     pub fn delete(&mut self, row_key: &[u8]) -> bool {
-        if let Some(entry) = self.counts.get_mut(row_key) {
-            let was_visible = entry.is_visible();
-            entry.count -= 1;
-            was_visible && !entry.is_visible()
-        } else {
-            false
-        }
+        let entry = self
+            .counts
+            .entry(row_key.to_vec())
+            .or_insert(RefCount::new(0));
+        let was_visible = entry.is_visible();
+        entry.count -= 1;
+        was_visible && !entry.is_visible()
     }
 
     /// Get the ref count for a row.

@@ -83,4 +83,26 @@ Before tagging any release:
 7. `CHANGELOG.md` has an entry for this release
 8. Every documented CLI flag is present in `slateduck serve --help` output
 
+### wasmtime Version Upgrade Policy
+
+SlateDuck embeds `wasmtime` for WASM UDF execution. The following policy applies:
+
+- **Pinned version:** wasmtime is pinned to a specific major version in the workspace
+  `Cargo.toml` (currently `wasmtime = "29"`).
+- **Upgrade cadence:** wasmtime major version may be bumped **once per SlateDuck
+  release cycle**. The bump must be a **dedicated maintenance PR** (not bundled with
+  feature work).
+- **Upgrade PR requirements:**
+  1. Update the version in workspace `Cargo.toml`
+  2. Update any fuel API callsites that changed between majors
+  3. Re-run the full WASM UDF test suite (`Tier 6f`)
+  4. Verify sandbox isolation (no new WASI imports leak through)
+  5. Run memory limit regression tests
+- **EOL policy:** Staying on an EOL wasmtime major for more than one release cycle
+  is **disallowed**. WASM sandbox CVEs accumulate; timely upgrades are a security
+  requirement.
+- **Fuel API stability:** The fuel metering API is the most common breakage point
+  between wasmtime majors. Keep fuel-related code isolated in `wasm_udf.rs` to
+  minimize upgrade churn.
+
 See [docs/contributing/release-process.md](docs/contributing/release-process.md) for the full release process including tagging and binary publishing.

@@ -236,9 +236,67 @@ FROM events;
 
 ---
 
+## v0.17: WASM UDFs and Adaptive Mode
+
+### User-Defined Functions (WASM)
+
+```sql
+CREATE FUNCTION tokenize(input UTF8) RETURNS UTF8
+LANGUAGE WASM AS '<base64-encoded-wasm-module>';
+
+-- Use in a materialized view:
+CREATE INCREMENTAL MATERIALIZED VIEW tokenized_events AS
+SELECT id, tokenize(event_text) AS tokens FROM events;
+
+-- Drop a UDF:
+DROP FUNCTION tokenize;
+
+-- Replace with new version (bumps udf_id):
+ALTER FUNCTION tokenize REPLACE AS '<new-wasm-module>';
+
+-- Migrate a view to new UDF version:
+ALTER INCREMENTAL MATERIALIZED VIEW tokenized_events
+USING FUNCTION tokenize VERSION 2;
+```
+
+UDF requirements:
+- Must be deterministic
+- No WASI imports allowed (sandboxed execution)
+- Arrow-compatible scalar types only
+- Per-row fuel budget: 10M instructions
+- Per-batch memory limit: 64 MiB
+
+### Adaptive Cost Mode
+
+```sql
+CREATE INCREMENTAL MATERIALIZED VIEW stats
+  WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)
+AS SELECT dept, COUNT(*), SUM(amount) FROM orders GROUP BY dept;
+```
+
+Switches between DIFFERENTIAL and FULL refresh automatically based on:
+`Δ_rows / N_rows × complexity_multiplier > threshold`
+
+### Reference-Counted DISTINCT (Correct Under Delete)
+
+```sql
+CREATE INCREMENTAL MATERIALIZED VIEW unique_users AS
+SELECT DISTINCT user_id FROM events;
+```
+
+Internally maintains `__sd_ref_count` per row. INSERT increments, DELETE decrements.
+Row is visible in output only when `ref_count > 0`.
+
+Set operators use reference counting semantics:
+- `UNION DISTINCT`: MAX(count_A, count_B)
+- `INTERSECT`: MIN(count_A, count_B)
+- `EXCEPT`: count_A - count_B, clamped to 0
+
 ## See Also
 
 - [Concepts: Incremental Views](../concepts/incremental-views.md)
 - [Operations Guide](../operations/incremental-materialized-views.md)
 - [IVM Architecture](../architecture/ivm-plane.md)
 - [Recursive CTE Spike](../design-decisions/ivm-recursive-spike.md)
+- [UDF Reference](udfs.md)
+- [Cost Control](../operations/ivm-cost-control.md)

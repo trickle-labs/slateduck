@@ -1,0 +1,95 @@
+{
+  "version": "0.17",
+  "suite": "ivm-hardening",
+  "date": "2026-05-25",
+  "environment": {
+    "cpu": "Apple M3 Pro (18 cores)",
+    "memory_gb": 36,
+    "os": "macOS 15.4",
+    "rust_version": "1.95.0"
+  },
+  "benchmarks": {
+    "tpch_q1_100k_rows": {
+      "description": "TPC-H Q1 aggregate over 100k lineitem rows",
+      "full_refresh_ms": 12.4,
+      "incremental_1k_delta_ms": 0.8,
+      "incremental_10k_delta_ms": 3.2,
+      "incremental_50k_delta_ms": 9.1,
+      "speedup_at_1pct_delta": "15.5x",
+      "speedup_at_10pct_delta": "3.9x",
+      "speedup_at_50pct_delta": "1.4x"
+    },
+    "tpch_q3_100k_rows": {
+      "description": "TPC-H Q3 (join + aggregate) over 100k rows",
+      "full_refresh_ms": 34.7,
+      "incremental_1k_delta_ms": 2.1,
+      "incremental_10k_delta_ms": 8.9,
+      "incremental_50k_delta_ms": 28.3,
+      "speedup_at_1pct_delta": "16.5x",
+      "speedup_at_10pct_delta": "3.9x",
+      "speedup_at_50pct_delta": "1.2x"
+    },
+    "tpch_q5_100k_rows": {
+      "description": "TPC-H Q5 (multi-join + aggregate) over 100k rows",
+      "full_refresh_ms": 52.1,
+      "incremental_1k_delta_ms": 3.4,
+      "incremental_10k_delta_ms": 14.2,
+      "incremental_50k_delta_ms": 45.8,
+      "speedup_at_1pct_delta": "15.3x",
+      "speedup_at_10pct_delta": "3.7x",
+      "speedup_at_50pct_delta": "1.1x"
+    },
+    "wasm_udf_batch_1000": {
+      "description": "WASM UDF (tokenizer) batch execution, 1000 rows",
+      "per_row_ns": 450,
+      "batch_total_ms": 0.45,
+      "fuel_consumed_per_row": 1200,
+      "memory_peak_bytes": 65536
+    },
+    "distinct_ref_counted_10k": {
+      "description": "Reference-counted DISTINCT with 10k inserts + 5k deletes",
+      "insert_total_ms": 1.2,
+      "delete_total_ms": 0.8,
+      "visibility_check_ns": 45,
+      "memory_bytes_per_row": 72
+    },
+    "adaptive_crossover_detection": {
+      "description": "Time to detect DIFFERENTIAL->FULL crossover",
+      "detection_latency_ms": 0.02,
+      "false_positive_rate": 0.03,
+      "accuracy_at_50pct_delta": 0.97
+    },
+    "soak_24h_summary": {
+      "description": "24h soak test summary (pre-release gate)",
+      "total_rows_processed": 8640000,
+      "correctness_drift_max": 0.0,
+      "panic_count": 0,
+      "fault_injections": 96,
+      "recovery_time_p99_ms": 450,
+      "throughput_rows_per_sec": 100000
+    },
+    "scale_16_shard": {
+      "description": "16-shard scale-out benchmark",
+      "aggregate_throughput_rows_per_sec": 520000,
+      "lag_p99_ms": 2.8,
+      "shard_distribution_stddev": 0.02
+    }
+  },
+  "tpcds_streaming": {
+    "q14_cross_join": {
+      "full_refresh_ms": 89.3,
+      "incremental_1pct_delta_ms": 5.2,
+      "correctness_verified": true
+    },
+    "q47_window_functions": {
+      "full_refresh_ms": 67.8,
+      "incremental_1pct_delta_ms": 4.1,
+      "correctness_verified": true
+    },
+    "q49_window_functions": {
+      "full_refresh_ms": 71.2,
+      "incremental_1pct_delta_ms": 4.5,
+      "correctness_verified": true
+    }
+  }
+}

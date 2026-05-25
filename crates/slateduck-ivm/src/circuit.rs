@@ -171,6 +171,11 @@ impl IvmCircuit {
         }
     }
 
+    /// Clear all state (for FULL refresh mode).
+    pub fn clear_state(&mut self) {
+        self.state.clear();
+    }
+
     /// Process a batch of ZDeltas and update internal aggregate state.
     pub fn push_batch(&mut self, batch: &[ZDelta]) {
         for delta in batch {

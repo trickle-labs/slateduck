@@ -1078,10 +1078,10 @@ Goal: any SQL view that can be written against a static DuckDB table can be main
 | 8 | Cost model defaults: S3 PUT throttling, compaction cadence | Open; empirical | — | current v0.15 |
 | 9 | Schema-evolution UX: auto-stale vs auto-rebuild | Recommended: auto-stale, explicit refresh | — | current v0.15 |
 | 10 | Multi-warehouse views: in scope for v1.x or v2.x? | Out of scope for v0.11–v1.0 | — | Post-1.0 |
-| 11 | WASM runtime: `wasmtime` vs `wasmi` (interpreter, no JIT) | Open; `wasmtime` preferred for throughput | — | Before v0.17 alpha |
+| 11 | WASM runtime: `wasmtime` vs `wasmi` (interpreter, no JIT) | **Resolved: `wasmtime` 29.x** — chosen for throughput; pinned major version | — | Resolved v0.17 |
 | 12 | Window functions in sharded mode: error or auto-downgrade to `shard_count = 1`? | Recommended: error with a clear message | — | Before v0.16 alpha |
-| 13 | Recursive CTE `max_iterations` default: 100 or unbounded with cost-based cap? | Open | — | Before v0.16 alpha |
-| 14 | Non-deterministic function allow-list: user-extensible or hardcoded? | Recommended: hardcoded; UDFs cover extension | — | Before v0.16 alpha |
+| 13 | Recursive CTE `max_iterations` default: 100 or unbounded with cost-based cap? | **Resolved: 100** | — | Resolved v0.16 |
+| 14 | Non-deterministic function allow-list: user-extensible or hardcoded? | **Resolved: hardcoded; UDFs cover extension** | — | Resolved v0.16 |
 | 15 | Computation backend: extend shim, migrate to DBSP, or switch to `differential-dataflow`? | Open; must choose explicitly | — | Before v0.14 implementation |
 | 16 | SQL planner: stay on ad-hoc `IvmPlan` through v0.15, or migrate incrementally to DataFusion `LogicalPlan`? | Open; v0.16 depends on it | — | Before v0.14 sprint planning |
 | 17 | `IvmOracle` API shape and ownership: `slateduck-testkit` helper vs `slateduck-ivm` test module? | Recommended: `slateduck-testkit` helper | — | First v0.14 PR |
@@ -1091,6 +1091,41 @@ Goal: any SQL view that can be written against a static DuckDB table can be main
 | 21 | v0.18 contract naming/versioning: how is the DuckLake Standard Interface versioned independently of pg-trickle? | Open | — | Before v0.18 |
 
 This tracker is maintained alongside the implementation; resolved questions become design decisions documented in `docs/design-decisions/`.
+
+---
+
+## v0.17 Additions (IVM Feature Hardening)
+
+### WASM UDF Integration (wasmtime 29.x)
+
+- `matview_udfs` catalog table (tag `0x21`) stores compiled WASM modules
+- `CREATE FUNCTION / DROP FUNCTION / ALTER FUNCTION ... REPLACE` DDL surface
+- Per-batch pooled instance model: one `wasmtime::Instance` per UDF per batch
+- Fuel limit: 10M instructions/row; memory limit: 64 MiB/instance
+- WASI import validation: disallows all I/O imports for pure function sandboxing
+- Determinism enforcement at CREATE time (non-deterministic → SQLSTATE 0A000)
+- Version pinning: views pin to `udf_id`; migration triggers REFRESH FULL
+
+### Adaptive DIFFERENTIAL/FULL Mode (CostMode::Adaptive)
+
+- Per-view rolling statistics: rows_in, rows_out, ms_spent, last_full_cost
+- Switch formula: `Δ_rows / N_rows × complexity_multiplier > threshold`
+- Empirically calibrated multiplier table (TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47)
+- Per-view override: `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)`
+- Calibration data: `benchmarks/v0.17-adaptive-calibration.json`
+
+### Reference-Counted DISTINCT
+
+- `__sd_ref_count: i64` auxiliary column in `IvmTrace` for DISTINCT views
+- INSERT increments, DELETE decrements; visible when count > 0
+- Set operators: UNION DISTINCT (MAX), INTERSECT (MIN), EXCEPT (clamp to 0)
+- Property-based testing with proptest (500 sequences)
+
+### Testing
+
+- Tier 6f WASM UDF tests: 6 tests covering sandbox, fuel, memory, WASI, versioning
+- Tier 6f DISTINCT property tests: proptest-based with reference oracle
+- Tier 8 scale tests: TPC-H catalog, IVM streaming, soak (shortened), multi-shard
 
 ---
 

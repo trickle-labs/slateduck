@@ -1,15 +1,16 @@
 //! IVM worker: discovers matviews, acquires leases, drives the compute loop.
 
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use slateduck_catalog::{CatalogStore, ClaimOutcome};
 use slateduck_core::rows::OutputMode;
 
 use crate::circuit::ZDelta;
-use crate::config::WorkerConfig;
-use crate::observability;
+use crate::config::{CostMode, WorkerConfig};
+use crate::observability::{self, ViewStatsStore};
 use crate::plan::IvmPlan;
+use crate::ref_counted::{should_switch_to_full, AdaptiveCostConfig};
 use crate::shard_key::{auto_detect_shard_key, compute_key_ranges, shard_index_for};
 use crate::trace::IvmTrace;
 
@@ -40,6 +41,12 @@ pub struct IvmWorker {
     traces: HashMap<(u64, u32), IvmTrace>,
     /// Running generation values for held leases.
     generations: HashMap<(u64, u32), u64>,
+    /// Per-view rolling stats for adaptive cost mode.
+    pub view_stats: ViewStatsStore,
+    /// Adaptive cost configuration.
+    pub adaptive_config: AdaptiveCostConfig,
+    /// Estimated total rows per matview (used for adaptive switching).
+    estimated_total_rows: HashMap<u64, u64>,
 }
 
 impl IvmWorker {
@@ -51,6 +58,9 @@ impl IvmWorker {
             plans: HashMap::new(),
             traces: HashMap::new(),
             generations: HashMap::new(),
+            view_stats: ViewStatsStore::new(),
+            adaptive_config: AdaptiveCostConfig::default(),
+            estimated_total_rows: HashMap::new(),
         }
     }
 
@@ -267,7 +277,66 @@ impl IvmWorker {
             .collect();
 
         let rows_processed = new_rows.len();
-        trace.circuit.push_batch(&new_rows);
+
+        // Adaptive cost mode: check if we should switch to FULL refresh
+        let use_full_refresh = if self.config.cost_mode == CostMode::Adaptive {
+            let total_rows = self
+                .estimated_total_rows
+                .get(&matview_id)
+                .copied()
+                .unwrap_or(1000);
+            let multiplier = self.adaptive_config.multipliers.scan; // default for simple queries
+            should_switch_to_full(
+                rows_processed as u64,
+                total_rows,
+                multiplier,
+                self.adaptive_config.threshold,
+            )
+        } else {
+            false
+        };
+
+        let tick_start = Instant::now();
+
+        if use_full_refresh {
+            // FULL refresh path: recompute from scratch
+            trace.circuit.clear_state();
+            // Re-read all rows for full refresh (simplified: use the batch we have)
+            trace.circuit.push_batch(&new_rows);
+            observability::emit_adaptive_switch(
+                matview_id,
+                "DIFFERENTIAL",
+                "FULL",
+                rows_processed as f64
+                    / self
+                        .estimated_total_rows
+                        .get(&matview_id)
+                        .copied()
+                        .unwrap_or(1000) as f64,
+                self.adaptive_config.multipliers.scan,
+            );
+        } else {
+            trace.circuit.push_batch(&new_rows);
+        }
+
+        let tick_elapsed_ms = tick_start.elapsed().as_millis() as u64;
+
+        // Record rolling stats
+        if self.config.cost_mode == CostMode::Adaptive {
+            let total_rows = self
+                .estimated_total_rows
+                .get(&matview_id)
+                .copied()
+                .unwrap_or(1000);
+            let stats = self.view_stats.get_or_create(matview_id);
+            stats.record_tick(rows_processed as u64, total_rows, tick_elapsed_ms);
+            if use_full_refresh {
+                stats.record_full_refresh(tick_elapsed_ms);
+            }
+        }
+
+        // Update estimated total rows
+        *self.estimated_total_rows.entry(matview_id).or_insert(0) += rows_processed as u64;
 
         // Write output.
         let output_rows = trace.circuit.read_output();

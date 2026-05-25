@@ -63,6 +63,16 @@
 //! - WASM UDFs (sandboxed, deterministic, per-batch pooled)
 //! - Adaptive DIFFERENTIAL/FULL cost mode switching
 //! - Reference-counted DISTINCT (correct under partial delete)
+//!
+//! ## v0.17: IVM Feature Hardening (IVM GA Gate)
+//! - WASM UDFs via wasmtime (per-batch pooled instances, fuel + memory sandbox)
+//! - matview_udfs catalog table (tag 0x21) with CREATE/DROP/ALTER FUNCTION DDL
+//! - Adaptive DIFFERENTIAL/FULL mode with empirical calibration
+//! - Per-view rolling statistics (rows_in, rows_out, ms_spent, last_full_cost)
+//! - __sd_ref_count auxiliary column for DISTINCT correctness
+//! - Reference-counted UNION DISTINCT / INTERSECT / EXCEPT (MAX/MIN/clamp)
+//! - Tier 6f WASM UDF + DISTINCT property tests
+//! - Tier 8 24-hour soak test (IVM GA gate)
 
 pub mod backpressure;
 pub mod backup;
@@ -116,6 +126,7 @@ pub use join::{
     DEFAULT_BROADCAST_THRESHOLD,
 };
 pub use nondet_capture::{BatchCapture, CaptureVolatility, CapturedValue};
+pub use observability::{ViewRollingStats, ViewStatsStore};
 pub use ordered_trace::{
     MergeSortedWriterConfig, OrderedTraceConfig, SlateDbOrderedTrace, SortKey,
 };
@@ -136,6 +147,9 @@ pub use state_store::ShardStateStore;
 pub use top_n::{TopNConfig, TopNOperator, TopNResult};
 pub use trace::IvmTrace;
 pub use volatility::Volatility;
-pub use wasm_udf::{UdfEntry, UdfRegistry, UdfSignature, UdfType, WasmConfig};
+pub use wasm_udf::{
+    MatviewUdfCatalogEntry, UdfDdl, UdfEntry, UdfRegistry, UdfSignature, UdfType,
+    WasmBatchExecutor, WasmConfig, MATVIEW_UDFS_TAG,
+};
 pub use window::{WindowEvaluator, WindowFunction, WindowMode, WindowSpec};
 pub use worker::IvmWorker;

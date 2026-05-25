@@ -96,3 +96,32 @@ The following are NOT allowed:
 
 - [SQL Reference: IVM DDL](sql-ivm.md)
 - [Concepts: Incremental Views](../concepts/incremental-views.md)
+
+## wasmtime Version Policy (v0.17)
+
+SlateDuck pins `wasmtime` to a specific major version (currently **29.x**).
+
+- The fuel API and instance lifecycle model are stable within a major version.
+- **Upgrade cadence:** wasmtime major version may be bumped once per SlateDuck
+  release cycle. Each bump is a dedicated maintenance PR.
+- **Upgrade procedure:**
+  1. Update `wasmtime = "N"` in workspace `Cargo.toml`
+  2. Update fuel API callsites (if the fuel interface changed)
+  3. Re-run the full WASM UDF test suite (Tier 6f)
+  4. Verify no sandbox escape or memory limit regressions
+- **EOL policy:** Staying on an EOL wasmtime major for more than one release cycle
+  is disallowed. WASM sandbox CVEs accumulate and must be addressed promptly.
+
+## Catalog Storage
+
+UDFs are stored in the `matview_udfs` catalog table (tag `0x21`):
+
+| Column | Type | Description |
+|---|---|---|
+| `udf_id` | u64 | Unique UDF identifier (bumped on ALTER REPLACE) |
+| `name` | string | Function name |
+| `schema_name` | string | Schema (default: `public`) |
+| `wasm_blob` | bytes | Compiled WASM module binary |
+| `signature` | json | `{arg_types: [...], return_type: ...}` |
+| `deterministic` | bool | Must be `true` for IVM views |
+| `created_at_snapshot` | u64 | Catalog snapshot when created |

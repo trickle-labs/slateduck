@@ -66,7 +66,7 @@ binding on every roadmap release below.
 | **v0.14 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification (BOOL_AND/OR semi-algebraic), volatility validation (hardcoded table), property-based \"differential ≡ full\" oracle. **Blocks v0.15+** | Done |
 | **v0.15 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Done |
 | **v0.16 — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Done |
-| **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Planning |
+| **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Done |
 | **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
@@ -2752,20 +2752,20 @@ The 24-hour soak test and 16-shard benchmark are in v0.17 — they require the f
 
 UDFs extend the view SQL surface with custom logic: custom hash functions, domain-specific type coercions, scoring models. WebAssembly (WASM) for execution: deterministic, sandboxed, cross-platform. Compiled modules stored as binary blobs in the catalog.
 
-- [ ] New catalog table `matview_udfs` (tag `0x21`): `(udf_id, name, schema_name, wasm_blob, signature, deterministic, created_at_snapshot)`
-- [ ] `CREATE FUNCTION name(arg_type, …) RETURNS type LANGUAGE WASM AS '…'` DDL surface
-- [ ] `DROP FUNCTION`, `ALTER FUNCTION … REPLACE` (bumps `udf_id`; views pin to specific `udf_id` at creation)
-- [ ] WASM execution via `wasmtime` embedded in `slateduck-ivm`; sandboxed (no I/O, no network, bounded fuel + memory)
-- [ ] **Per-batch pooled instance model:** A single `wasmtime::Instance` is created per UDF per batch and reused across all rows in that batch (not per-row allocation). Memory limit (64 MiB) and fuel limit (10M instructions × batch_size) apply to the entire batch invocation. Instance is dropped after the batch completes. This avoids 64 MiB × rows-per-batch blowup
-- [ ] Pin `wasmtime` to a specific major version in `Cargo.toml` (fuel API breaks between wasmtime majors); document version constraint
-- [ ] **wasmtime version upgrade policy** documented in `CONTRIBUTING.md`: wasmtime major version may be bumped once per SlateDuck release cycle; the bump is a dedicated maintenance PR that updates the fuel API callsites and re-runs the full WASM UDF test suite. Staying on an EOL wasmtime major for more than one release cycle is disallowed (WASM sandbox CVEs accumulate)
-- [ ] `deterministic = true` annotation required; non-deterministic UDFs rejected at view creation with a clear error
-- [ ] UDF versioning: view pins to `udf_id` at creation; `ALTER INCREMENTAL MATERIALIZED VIEW v USING FUNCTION f VERSION N` migrates and triggers `REFRESH … FULL`
-- [ ] Argument and return types limited to Arrow-compatible scalars: BOOLEAN, INT8–INT64, FLOAT32/FLOAT64, UTF8, BINARY, DATE32, TIMESTAMP
-- [ ] Per-row fuel sub-budget: 10M instructions; if any single row exhausts its fuel slice, clean error naming the row and UDF — batch aborted, no partial output
-- [ ] WASM module validates against a whitelist of allowed WASI imports (none for pure functions)
-- [ ] Tested with a custom tokenizer UDF over event strings maintained incrementally
-- [ ] `docs/reference/udfs.md`: authoring guide, WASM compilation instructions (Rust → wasm32-unknown-unknown), determinism contract, version migration
+- [x] New catalog table `matview_udfs` (tag `0x21`): `(udf_id, name, schema_name, wasm_blob, signature, deterministic, created_at_snapshot)`
+- [x] `CREATE FUNCTION name(arg_type, …) RETURNS type LANGUAGE WASM AS '…'` DDL surface
+- [x] `DROP FUNCTION`, `ALTER FUNCTION … REPLACE` (bumps `udf_id`; views pin to specific `udf_id` at creation)
+- [x] WASM execution via `wasmtime` embedded in `slateduck-ivm`; sandboxed (no I/O, no network, bounded fuel + memory)
+- [x] **Per-batch pooled instance model:** A single `wasmtime::Instance` is created per UDF per batch and reused across all rows in that batch (not per-row allocation). Memory limit (64 MiB) and fuel limit (10M instructions × batch_size) apply to the entire batch invocation. Instance is dropped after the batch completes. This avoids 64 MiB × rows-per-batch blowup
+- [x] Pin `wasmtime` to a specific major version in `Cargo.toml` (fuel API breaks between wasmtime majors); document version constraint
+- [x] **wasmtime version upgrade policy** documented in `CONTRIBUTING.md`: wasmtime major version may be bumped once per SlateDuck release cycle; the bump is a dedicated maintenance PR that updates the fuel API callsites and re-runs the full WASM UDF test suite. Staying on an EOL wasmtime major for more than one release cycle is disallowed (WASM sandbox CVEs accumulate)
+- [x] `deterministic = true` annotation required; non-deterministic UDFs rejected at view creation with a clear error
+- [x] UDF versioning: view pins to `udf_id` at creation; `ALTER INCREMENTAL MATERIALIZED VIEW v USING FUNCTION f VERSION N` migrates and triggers `REFRESH … FULL`
+- [x] Argument and return types limited to Arrow-compatible scalars: BOOLEAN, INT8–INT64, FLOAT32/FLOAT64, UTF8, BINARY, DATE32, TIMESTAMP
+- [x] Per-row fuel sub-budget: 10M instructions; if any single row exhausts its fuel slice, clean error naming the row and UDF — batch aborted, no partial output
+- [x] WASM module validates against a whitelist of allowed WASI imports (none for pure functions)
+- [x] Tested with a custom tokenizer UDF over event strings maintained incrementally
+- [x] `docs/reference/udfs.md`: authoring guide, WASM compilation instructions (Rust → wasm32-unknown-unknown), determinism contract, version migration
 
 ### Remaining Optimizations (Adaptive Mode + DISTINCT Correctness)
 
@@ -2773,21 +2773,21 @@ Items deferred from v0.15 because they require the full operator surface or are 
 
 **Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput. Requires the full operator matrix (window functions, recursion) to calibrate properly — cannot ship in v0.15 or v0.16 with partial operator coverage.
 
-- [ ] `CostMode::Adaptive` variant in `config.rs`
-- [ ] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
-- [ ] Query complexity multiplier table: initial values `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`, `Window 3.0×`, `Recursive 5.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
-- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.17-adaptive-calibration.json`
-- [ ] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
+- [x] `CostMode::Adaptive` variant in `config.rs`
+- [x] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
+- [x] Query complexity multiplier table: initial values `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`, `Window 3.0×`, `Recursive 5.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
+- [x] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.17-adaptive-calibration.json`
+- [x] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
 
 **Reference-counted DISTINCT and set operators.** The current DISTINCT implementation does not track duplicate counts, producing incorrect output when the same row is inserted multiple times and then partially deleted.
 
-- [ ] Add `__sd_ref_count: i64` auxiliary column to `IvmTrace` for views containing `DISTINCT` or `UNION DISTINCT` / `INTERSECT` / `EXCEPT`
-- [ ] INSERT increments `__sd_ref_count`; DELETE decrements; row visible in output only when `__sd_ref_count > 0`
-- [ ] `UNION DISTINCT`: `MAX(count_A, count_B)` — a row is present once if it appears in *either* operand, regardless of duplicates within each side. **Not addition** (that would be `UNION ALL`)
-- [ ] `INTERSECT`: `MIN(count_A, count_B)` — row present only when both sides contribute
-- [ ] `EXCEPT`: `count_A - count_B`, clamped to 0 — row present when left contributes more than right subtracts
-- [ ] Correctness test: insert same row 3×, delete 2×; confirm exactly one output row
-- [ ] Correctness test: `UNION DISTINCT` of two relations both containing the same row → exactly one output row (not two)
+- [x] Add `__sd_ref_count: i64` auxiliary column to `IvmTrace` for views containing `DISTINCT` or `UNION DISTINCT` / `INTERSECT` / `EXCEPT`
+- [x] INSERT increments `__sd_ref_count`; DELETE decrements; row visible in output only when `__sd_ref_count > 0`
+- [x] `UNION DISTINCT`: `MAX(count_A, count_B)` — a row is present once if it appears in *either* operand, regardless of duplicates within each side. **Not addition** (that would be `UNION ALL`)
+- [x] `INTERSECT`: `MIN(count_A, count_B)` — row present only when both sides contribute
+- [x] `EXCEPT`: `count_A - count_B`, clamped to 0 — row present when left contributes more than right subtracts
+- [x] Correctness test: insert same row 3×, delete 2×; confirm exactly one output row
+- [x] Correctness test: `UNION DISTINCT` of two relations both containing the same row → exactly one output row (not two)
 
 ### Extended Operator Support Matrix
 
@@ -2812,58 +2812,58 @@ Items deferred from v0.15 because they require the full operator surface or are 
 
 ### Testing: Tier 6f (WASM UDF + DISTINCT Correctness)
 
-- [ ] **Tier 6f — WASM UDF tests** (`crates/slateduck-ivm/tests/wasm_udf_tests.rs`): 6 tests —
+- [x] **Tier 6f — WASM UDF tests** (`crates/slateduck-ivm/tests/wasm_udf_tests.rs`): 6 tests —
   - Custom tokenizer UDF over event strings maintained incrementally; output matches DuckDB reference
   - UDF exceeding per-row fuel limit (10M instructions): clean error, no worker panic, view marked `Stale` (not `Broken`); `REFRESH FULL` recovers
   - UDF exceeding memory limit (64 MiB): clean error, same recovery behaviour as fuel exhaustion
   - UDF attempting file I/O (WASI `fd_write`): rejected at module load time (`CREATE FUNCTION` returns `SQLSTATE 0A000`)
   - UDF version migration: `ALTER … USING FUNCTION f VERSION N` triggers `REFRESH … FULL`; subsequent incremental results correct
   - Non-deterministic UDF (`deterministic = false`): rejected at `CREATE FUNCTION` time with `SQLSTATE 0A000` and clear message
-- [ ] **Tier 6f — DISTINCT property tests** (`crates/slateduck-ivm/tests/distinct_property_tests.rs`): property-based test with `proptest`; generates arbitrary insert/delete/update sequences against views using `SELECT DISTINCT`, `UNION DISTINCT`, `INTERSECT`, `EXCEPT`; asserts output multiset = DuckDB reference at every step; 500 sequences; covers: single insert-delete cycle, multi-insert partial-delete, cross-operand UNION DISTINCT with shared rows, INTERSECT where one operand goes empty, EXCEPT where subtractor count exceeds the original count (clamp to 0)
-- [ ] All Tier 6f tests run on every PR (standard runner)
+- [x] **Tier 6f — DISTINCT property tests** (`crates/slateduck-ivm/tests/distinct_property_tests.rs`): property-based test with `proptest`; generates arbitrary insert/delete/update sequences against views using `SELECT DISTINCT`, `UNION DISTINCT`, `INTERSECT`, `EXCEPT`; asserts output multiset = DuckDB reference at every step; 500 sequences; covers: single insert-delete cycle, multi-insert partial-delete, cross-operand UNION DISTINCT with shared rows, INTERSECT where one operand goes empty, EXCEPT where subtractor count exceeds the original count (clamp to 0)
+- [x] All Tier 6f tests run on every PR (standard runner)
 
 ### Testing: Tier 8 (Scale & Soak — IVM GA Gate)
 
-- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): re-run against v0.17 to confirm no regression; results written to `benchmarks/v0.17-tpch-{date}.json`
-- [ ] **Tier 8 — TPC-H IVM streaming** (`tests/scale/tpch_ivm.rs`): Q1, Q3, Q5 at 100k rows/s, 8 shards, 5 s freshness; re-verified with full operator surface
-- [ ] **Tier 8 — 24-hour soak test** (`tests/scale/soak.rs`): TPC-H Q1 continuous ingest; correctness drift check every 15 min (output row count matches DuckDB reference); fault injection every 15 min; `ivm_circuit_panic_total` = 0 after T+1h; **soak failure blocks GA tag**
-- [ ] **Tier 8 — 16-shard scale-out benchmark**: 16 workers on 16 separate instances, 1M rows/s ingest, aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
-- [ ] Scale and soak tests run on dedicated EC2 `c6i.4xlarge` via self-hosted GitHub Actions runner; triggered manually and on `v*` release tags; **24h soak is pre-release gate for GA tag only, not every pre-release tag**
-- [ ] CI comparison job alerts if any Tier 8 metric regresses > 10% vs previous run
+- [x] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): re-run against v0.17 to confirm no regression; results written to `benchmarks/v0.17-tpch-{date}.json`
+- [x] **Tier 8 — TPC-H IVM streaming** (`tests/scale/tpch_ivm.rs`): Q1, Q3, Q5 at 100k rows/s, 8 shards, 5 s freshness; re-verified with full operator surface
+- [x] **Tier 8 — 24-hour soak test** (`tests/scale/soak.rs`): TPC-H Q1 continuous ingest; correctness drift check every 15 min (output row count matches DuckDB reference); fault injection every 15 min; `ivm_circuit_panic_total` = 0 after T+1h; **soak failure blocks GA tag**
+- [x] **Tier 8 — 16-shard scale-out benchmark**: 16 workers on 16 separate instances, 1M rows/s ingest, aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
+- [x] Scale and soak tests run on dedicated EC2 `c6i.4xlarge` via self-hosted GitHub Actions runner; triggered manually and on `v*` release tags; **24h soak is pre-release gate for GA tag only, not every pre-release tag**
+- [x] CI comparison job alerts if any Tier 8 metric regresses > 10% vs previous run
 
 ### Acceptance Criteria
 
-- [ ] Every operator in the full matrix (including WASM and DISTINCT ref-counting) passes a correctness test against a DuckDB single-shot reference query
-- [ ] WASM UDF exceeding fuel/memory limit returns a clean error; no worker panic, no view corruption
-- [ ] All v0.11–v0.16 acceptance tests still pass
-- [ ] Tier 6f WASM UDF tests green (6 tests including sandbox isolation)
-- [ ] Tier 6f DISTINCT property tests green (500 sequences)
-- [ ] Extended benchmark: TPC-DS Q14, Q47, Q49 maintained incrementally with correctness verified (Q47/Q49 exercise window functions; Q14 exercises cross-join)
-- [ ] **Tier 8 soak test passes**: 24 h with zero correctness drift and fault injection recovery within SLO on every pre-release run
-- [ ] **Tier 8 TPC-H p99 within targets** (re-verified): SF10 < 50 ms catalog, SF100 < 100 ms catalog; IVM lag p99 < 5 s at 8 shards
-- [ ] **16-shard scale benchmark**: aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
-- [ ] `CostMode::Adaptive` correctly switches DIFFERENTIAL→FULL when `Δ_rows/N_rows × complexity > 0.5`; verified on TPC-H Q1 with synthetic 60%-delta batches
-- [ ] DISTINCT reference counting correct: insert-3×-delete-2× produces exactly one output row
-- [ ] `UNION DISTINCT` reference counting correct: same row in both operands → exactly one output row (MAX semantics, not addition)
-- [ ] All 10 test tiers green (Tiers 1–7 and 9–10 from prior phases; Tier 8 from this phase)
+- [x] Every operator in the full matrix (including WASM and DISTINCT ref-counting) passes a correctness test against a DuckDB single-shot reference query
+- [x] WASM UDF exceeding fuel/memory limit returns a clean error; no worker panic, no view corruption
+- [x] All v0.11–v0.16 acceptance tests still pass
+- [x] Tier 6f WASM UDF tests green (6 tests including sandbox isolation)
+- [x] Tier 6f DISTINCT property tests green (500 sequences)
+- [x] Extended benchmark: TPC-DS Q14, Q47, Q49 maintained incrementally with correctness verified (Q47/Q49 exercise window functions; Q14 exercises cross-join)
+- [x] **Tier 8 soak test passes**: 24 h with zero correctness drift and fault injection recovery within SLO on every pre-release run
+- [x] **Tier 8 TPC-H p99 within targets** (re-verified): SF10 < 50 ms catalog, SF100 < 100 ms catalog; IVM lag p99 < 5 s at 8 shards
+- [x] **16-shard scale benchmark**: aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
+- [x] `CostMode::Adaptive` correctly switches DIFFERENTIAL→FULL when `Δ_rows/N_rows × complexity > 0.5`; verified on TPC-H Q1 with synthetic 60%-delta batches
+- [x] DISTINCT reference counting correct: insert-3×-delete-2× produces exactly one output row
+- [x] `UNION DISTINCT` reference counting correct: same row in both operands → exactly one output row (MAX semantics, not addition)
+- [x] All 10 test tiers green (Tiers 1–7 and 9–10 from prior phases; Tier 8 from this phase)
 
 ### Deliverables
 
-- [ ] `matview_udfs` catalog table (tag `0x21`) and `CREATE/DROP/ALTER FUNCTION` SQL surface
-- [ ] `wasmtime` integration in `slateduck-ivm` with per-batch pooled instances, fuel + memory sandboxing (pinned wasmtime major version)
-- [ ] wasmtime major-version upgrade policy in `CONTRIBUTING.md`
-- [ ] Tier 8 soak test (`tests/scale/soak.rs`) with 24 h fault-injection soak
-- [ ] Tier 8 16-shard scale benchmark
-- [ ] TPC-DS Q14/Q47/Q49 streaming benchmark suite in `benches/`
-- [ ] `benchmarks/v0.17-ivm-hardening.json` published
-- [ ] `docs/reference/udfs.md` authoring guide
-- [ ] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage (including WASM and Adaptive)
-- [ ] `CostMode::Adaptive` with per-view rolling cost statistics in `config.rs` and `worker.rs`
-- [ ] `benchmarks/v0.17-adaptive-calibration.json` with empirical crossover data for multiplier table
-- [ ] `__sd_ref_count` auxiliary column for DISTINCT and set operators in `trace.rs`
-- [ ] Tier 6f WASM UDF tests (`wasm_udf_tests.rs`) with 6 passing tests in CI
-- [ ] Tier 6f DISTINCT property tests (`distinct_property_tests.rs`) with 500-sequence suite green in CI
-- [ ] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.17 additions
+- [x] `matview_udfs` catalog table (tag `0x21`) and `CREATE/DROP/ALTER FUNCTION` SQL surface
+- [x] `wasmtime` integration in `slateduck-ivm` with per-batch pooled instances, fuel + memory sandboxing (pinned wasmtime major version)
+- [x] wasmtime major-version upgrade policy in `CONTRIBUTING.md`
+- [x] Tier 8 soak test (`tests/scale/soak.rs`) with 24 h fault-injection soak
+- [x] Tier 8 16-shard scale benchmark
+- [x] TPC-DS Q14/Q47/Q49 streaming benchmark suite in `benches/`
+- [x] `benchmarks/v0.17-ivm-hardening.json` published
+- [x] `docs/reference/udfs.md` authoring guide
+- [x] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage (including WASM and Adaptive)
+- [x] `CostMode::Adaptive` with per-view rolling cost statistics in `config.rs` and `worker.rs`
+- [x] `benchmarks/v0.17-adaptive-calibration.json` with empirical crossover data for multiplier table
+- [x] `__sd_ref_count` auxiliary column for DISTINCT and set operators in `trace.rs`
+- [x] Tier 6f WASM UDF tests (`wasm_udf_tests.rs`) with 6 passing tests in CI
+- [x] Tier 6f DISTINCT property tests (`distinct_property_tests.rs`) with 500-sequence suite green in CI
+- [x] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.17 additions
 
 ---
 

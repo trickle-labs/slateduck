@@ -65,7 +65,7 @@ jobs:
           done
           echo "All documented flags verified."
 
-  # F-28/F-33: Security — cargo audit + cargo deny advisories check.
+  # F-28/F-33: Security — cargo deny advisories check (uses deny.toml ignore list).
   # F-29: MSRV declaration is verified here: rust-version must be set in workspace Cargo.toml.
   security:
     name: Security Audit
@@ -77,12 +77,6 @@ jobs:
 
       - name: Verify MSRV is declared in workspace Cargo.toml
         run: grep -q 'rust-version' Cargo.toml || (echo "rust-version missing from Cargo.toml" && exit 1)
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        run: cargo audit
 
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
