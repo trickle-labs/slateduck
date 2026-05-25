@@ -63,11 +63,11 @@ binding on every roadmap release below.
 | **v0.11 — IVM Foundations** | Catalog schema additions (tags 0x1D–0x20), `slateduck-ivm` crate, single-shard GROUP BY views, end-to-end demo | Done |
 | **v0.12 — IVM Scale-Out** | Shard lease management, per-shard SlateDB state stores, multi-shard scale-out, re-sharding | Done |
 | **v0.13 — IVM Joins** | Broadcast, co-partitioned, and re-shuffle join strategies; TPC-H Q3/Q4/Q5 | Done |
-| **v0.13.1 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification (BOOL_AND/OR semi-algebraic), volatility validation (hardcoded table), property-based \"differential ≡ full\" oracle. **Blocks v0.14+** | Planning |
-| **v0.14 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Planning |
-| **v0.15a — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Planning |
-| **v0.15b — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Planning |
-| **v0.16 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers | Planning |
+| **v0.14 — IVM Join Correctness** | EC-01 phantom-row fix, aggregate tier classification (BOOL_AND/OR semi-algebraic), volatility validation (hardcoded table), property-based \"differential ≡ full\" oracle. **Blocks v0.15+** | Planning |
+| **v0.15 — IVM Operational Hardening** | Multi-view DAG (first), native `SlateDbTrace`, cost optimization, cost guardrails (opt-in freshness degradation), observability, fault injection, rate limiting, 24 h soak | Planning |
+| **v0.16 — IVM Operator Completeness** | Window functions, ORDER BY, LIMIT/top-N, correlated subqueries (DataFusion dep), recursive CTEs (single-shard coordinator + spike gate), non-det capture | Planning |
+| **v0.17 — IVM Feature Hardening** | WASM UDFs (wasmtime pooled), adaptive cost-mode (empirically calibrated against full matrix), ref-counted DISTINCT (MAX semantics), Tier 8 24h soak (IVM GA gate) | Planning |
+| **v0.18 — pg-trickle Compatibility** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, IVM feature-complete GA sign-off, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -1689,7 +1689,7 @@ Convert roadmap Done status from self-reported to criteria-driven:
 
 DuckLake snapshots, SlateDB SSTs, SlateDuck catalog facts, and differential-dataflow (DD/DBSP) batches are all immutable. Stacking them yields an IVM system whose compute workers are stateless, whose state is content-addressable in object storage, whose sharding is trivial because nothing ever moves between shards, and whose read fan-out is the same as for base tables. This is a capability Iceberg and Delta achieve only with external streaming systems; SlateDuck delivers it as a single binary against an S3 bucket.
 
-v0.11 lands the *foundations* end-to-end at single-shard scope. v0.12 generalizes to sharded scale-out. v0.13 covers joins. v0.14 is operational hardening. After v0.14 the system is ready to be included in the v1.0 GA story.
+v0.11 lands the *foundations* end-to-end at single-shard scope. v0.12 generalizes to sharded scale-out. v0.13 covers joins. v0.15 is operational hardening. After v0.15 the system is ready to be included in the v1.0 GA story.
 
 ### Why pre-1.0
 
@@ -1749,7 +1749,7 @@ A materialized view's output is a **normal DuckLake table** — the same Parquet
 
 - During initial backfill (matview status `backfilling`), `SELECT * FROM v` returns whatever rows the output table currently contains — **partial results from completed batches, never an error**. The matview's `status` and `last_output_snapshot` are exposed via `SHOW MATERIALIZED VIEWS` and the helper function `matview_status('v') -> ('backfilling'|'fresh'|'stale'|'dropped_dependency', last_output_snapshot, lag_ms)` so applications can gate on readiness without polling
 - `SELECT * FROM v AT SNAPSHOT <id>` resolves to a snapshotted read of the output table at the *catalog* snapshot `<id>`. If `<id>` predates the matview's first output snapshot, the query returns an empty result (the matview did not exist yet) — never an error. Operators are warned in docs that time-travel against a matview reflects when the *materialization* observed the data, not when the underlying input was first written
-- Schema-change-induced staleness (column added/renamed in the view's output projection) makes the matview `stale`; the output table remains readable at its prior schema until a successful `REFRESH ... FULL`. A schema change that *reorders or retypes* output columns rewrites the output table under a new `(output_table_id, schema_version)` pair so existing Parquet readers are not misaligned mid-flight (see v0.14: Schema Evolution)
+- Schema-change-induced staleness (column added/renamed in the view's output projection) makes the matview `stale`; the output table remains readable at its prior schema until a successful `REFRESH ... FULL`. A schema change that *reorders or retypes* output columns rewrites the output table under a new `(output_table_id, schema_version)` pair so existing Parquet readers are not misaligned mid-flight (see v0.15: Schema Evolution)
 - [x] `matview_status()` helper available from v0.11; documented in `docs/reference/sql-ivm.md`
 - [x] Time-travel against a matview before its first output snapshot returns empty (regression test)
 - [x] During-backfill query returns monotonically growing partial result (regression test)
@@ -1822,7 +1822,7 @@ crates/slateduck-ivm/
 
 - [x] `dbsp` (Feldera) crate added as workspace dependency, version-pinned with a vendored compatibility shim in `circuit.rs`
 - [x] `MatviewInputSource` reads append-only base tables filtered to a key range, emitting `(row, snapshot_id, +1)` deltas
-- [x] `SlateDbTrace` (Phase A: DBSP-bundled persistence; native impl deferred to v0.14)
+- [x] `SlateDbTrace` (Phase A: DBSP-bundled persistence; native impl deferred to v0.15)
 - [x] Worker event loop: poll catalog → acquire lease → drive circuit → durable batch → append checkpoint
 - [x] Output writer emits one Parquet file per cycle, commits via existing `CatalogWriter` snapshot path
 - [x] `slateduck-ivm serve --catalog-path … --state-prefix … --worker-id … --shard-limit 1` CLI matches `slateduck-pgwire` ergonomics
@@ -1839,7 +1839,7 @@ At boot, the worker has no in-memory state. It must transparently rejoin a runni
 
 - [x] Two-worker race test: both boot within 100 ms, claim the same matview; CAS resolves deterministically and no shard is double-owned
 - [x] Discovery is idempotent — restarting a worker with the same `--worker-id` re-acquires its prior shards without recompute
-- [x] `slateduck-ivm doctor` (v0.14) reports any shard that has been `unowned` for more than `2 × lease_ttl`
+- [x] `slateduck-ivm doctor` (v0.15) reports any shard that has been `unowned` for more than `2 × lease_ttl`
 
 ### Catalog API Additions
 
@@ -2079,9 +2079,9 @@ When neither broadcast nor co-partitioning applies, one side is re-partitioned a
 
 ---
 
-## v0.13.1 — IVM Join Correctness
+## v0.14 — IVM Join Correctness
 
-> **Dependency:** v0.14+ depend on the `IvmOracle` shipped here. Merge to `main` before v0.14 work begins.
+> **Dependency:** v0.15+ depend on the `IvmOracle` shipped here. Merge to `main` before v0.15 work begins.
 
 > Correctness release: fixes the EC-01 phantom-row bug in join deltas, formalises aggregate tier classification with auxiliary columns (BOOL_AND/OR reclassified as semi-algebraic), adds function-volatility validation at view-creation time via hardcoded lookup table, and ships the property-based "differential ≡ full" test oracle that all future IVM correctness tests depend on. See [plans/pg-trickle.md](plans/pg-trickle.md) §4, §6, §9, §11.
 
@@ -2128,12 +2128,12 @@ DuckDB functions fall into `IMMUTABLE`, `STABLE`, and `VOLATILE` categories. Wit
 
 **Implementation:** Hardcoded volatility lookup table in `crates/slateduck-ivm/src/volatility.rs` (SlateDuck has no embedded DuckDB in the production path). Covers all ~300 DuckDB scalar functions. Unknown functions default to VOLATILE (safe-by-default). Generated from `duckdb_functions()` output, version-pinned.
 
-> **Forward-compatibility note:** v0.15 introduces capture semantics that *allow-lists* specific volatile functions (`random()`, `gen_random_uuid()`, `now()`) with deterministic per-batch sampling. At that point, `volatility.rs` gains a `CaptureEligible` category. Views created in v0.13.1 that are rejected for using `random()` will become valid after upgrading to v0.15. This is an intentional backwards-compatible expansion (reject→accept), not a breaking change.
+> **Forward-compatibility note:** v0.16 introduces capture semantics that *allow-lists* specific volatile functions (`random()`, `gen_random_uuid()`, `now()`) with deterministic per-batch sampling. At that point, `volatility.rs` gains a `CaptureEligible` category. Views created in v0.14 that are rejected for using `random()` will become valid after upgrading to v0.16. This is an intentional backwards-compatible expansion (reject→accept), not a breaking change.
 
 - [ ] `crates/slateduck-ivm/src/volatility.rs`: hardcoded `fn volatility_of(name: &str) -> Volatility` lookup; generated from DuckDB `duckdb_functions()` at build time or committed as a static table
 - [ ] Walk the view SQL expression tree at `IvmPlan::compile`; look up each function via the static table
 - [ ] VOLATILE functions: return `SQLSTATE 0A000` at view creation with a message naming the offending function
-- [ ] STABLE functions (`now()`, `current_timestamp`): emit `WARN`-level log; accept but recommend capture-semantics path (v0.15)
+- [ ] STABLE functions (`now()`, `current_timestamp`): emit `WARN`-level log; accept but recommend capture-semantics path (v0.16)
 - [ ] IMMUTABLE: always accepted silently
 - [ ] Unknown functions (not in static table): treated as VOLATILE with message suggesting `WITH (allow_unknown_functions = true)` override
 
@@ -2172,15 +2172,15 @@ The foundational correctness harness that all future IVM tests depend on: after 
 
 ---
 
-## v0.14 — IVM Operational Hardening
+## v0.15 — IVM Operational Hardening
 
-> **Dependency:** Requires v0.13.1 (IvmOracle correctness harness) merged to `main` before this work begins. All correctness acceptance criteria in v0.14 use the `IvmOracle` to verify differential ≡ full.
+> **Dependency:** Requires v0.14 (IvmOracle correctness harness) merged to `main` before this work begins. All correctness acceptance criteria in v0.15 use the `IvmOracle` to verify differential ≡ full.
 
-> Production-ready IVM. Multi-view DAG coordination (first), cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.14 the IVM track is folded into the v1.0 GA story.
+> Production-ready IVM. Multi-view DAG coordination (first), cost optimization, fault injection, native persistence backend, observability, and operator tooling. After v0.15 the IVM track is folded into the v1.0 GA story.
 
 ### Multi-View DAG and Frontier Coordination
 
-> **Must be implemented first.** The DAG and frontier coordination layer is foundational to correctness for all multi-view workloads — including the 24-hour soak test and the cost-mode regression suite later in this release. All subsequent v0.14 sections may assume DAG ordering is in place.
+> **Must be implemented first.** The DAG and frontier coordination layer is foundational to correctness for all multi-view workloads — including the 24-hour soak test and the cost-mode regression suite later in this release. All subsequent v0.15 sections may assume DAG ordering is in place.
 
 Foundation for views that read from other materialized views (`CREATE INCREMENTAL MATERIALIZED VIEW b AS SELECT … FROM a` where `a` is itself a materialized view). Without topological ordering and diamond detection, convergent views compute deltas against inconsistent intermediate state. See [plans/pg-trickle.md](plans/pg-trickle.md) §5.
 
@@ -2232,7 +2232,7 @@ Per-view `WITH (...)` options always override mode defaults. Documented in `docs
 - [ ] `slateduck-ivm serve --cost-mode=...` accepted and honoured
 - [ ] Mode defaults documented per knob; per-view overrides take precedence
 - [ ] Cost-mode interaction matrix tested in cost-model regression suite
-- [ ] **S3 API call count gate**: after TPC-H Q1 SF1 at balanced mode for 1000 input batches, assert `ivm_s3_puts_total + ivm_s3_gets_total` per million input rows ≤ documented cost model upper bound from `benchmarks/v0.14-ivm-hardening.json`; a regression > 20% vs baseline fails CI
+- [ ] **S3 API call count gate**: after TPC-H Q1 SF1 at balanced mode for 1000 input batches, assert `ivm_s3_puts_total + ivm_s3_gets_total` per million input rows ≤ documented cost model upper bound from `benchmarks/v0.15-ivm-hardening.json`; a regression > 20% vs baseline fails CI
 
 ### State Store Backup & Restore
 
@@ -2252,7 +2252,7 @@ The v0.4 checkpoint API backs up the catalog. Per-shard IVM state stores under `
 
 IVM can generate real S3 API costs at scale. Users need visibility and protection *before* they get an unexpected bill.
 
-- [ ] **Cost estimator at view creation.** `EXPLAIN MATERIALIZED VIEW v` includes estimated monthly S3 API cost based on: input rate (from recent snapshot commit frequency), shard count, freshness target, and empirical cost-per-million-rows from the v0.14 cost model
+- [ ] **Cost estimator at view creation.** `EXPLAIN MATERIALIZED VIEW v` includes estimated monthly S3 API cost based on: input rate (from recent snapshot commit frequency), shard count, freshness target, and empirical cost-per-million-rows from the v0.15 cost model
 - [ ] **Per-view cost budget.** `WITH (monthly_cost_limit = '$50')` option; when projected cost exceeds budget, surface warning in `SHOW MATERIALIZED VIEWS` and emit Prometheus alert
 - [ ] **Opt-in freshness degradation.** `WITH (degrade_freshness_on_budget = true)` (default **false**); when enabled AND cost exceeds budget, freshness widens gracefully (from 5 s toward 60 s) rather than stopping the view. Workers reduce flush frequency proportionally. View remains correct, just staler. **Default behaviour without this flag: view continues at declared freshness and operator is alerted; no silent SLA change**
 - [ ] **Per-worker cost tracking.** `slateduck_ivm_estimated_monthly_cost{matview, shard}` metric; `slateduck-ivm doctor` reports per-view projected monthly cost
@@ -2377,7 +2377,7 @@ The toxiproxy Testcontainers network fault injection tests require Docker. This 
 - [ ] Steady-state S3 PUT cost ≤ 2× SlateDB's bare-substrate cost for the same write volume
 - [ ] All fault-injection scenarios pass deterministically
 - [ ] `slateduck-ivm doctor` correctly identifies every fault class in the test suite
-- [ ] Continuous-soak test: TPC-H Q1 maintained for 24 h with zero correctness drift; **no fault injection in v0.14 soak** (fault-injection soak is Tier 8 in v0.15); correctness checked via `IvmOracle` every 15 min; runs on scale-test infrastructure
+- [ ] Continuous-soak test: TPC-H Q1 maintained for 24 h with zero correctness drift; **no fault injection in v0.15 soak** (fault-injection soak is Tier 8 in v0.17); correctness checked via `IvmOracle` every 15 min; runs on scale-test infrastructure
 - [ ] All v0.11–v0.13 acceptance tests still pass
 - [ ] IVM worker K8s deployment pattern tested with 4-worker pool and rolling updates
 - [ ] **Tier 6d hardening tests green** (5 tests including repair, exactly-once output, and backup/restore)
@@ -2411,7 +2411,7 @@ The toxiproxy Testcontainers network fault injection tests require Docker. This 
 - [ ] Tier 9 security test suite (`security_tests.rs`) with 14 passing tests
 - [ ] Tier 10 benchmark regression job in `.github/workflows/ci.yml` (weekly cron)
 - [ ] `scripts/check_benchmark_regression.py` with 10% threshold gate
-- [ ] `benchmarks/v0.14-ivm-hardening.json` published
+- [ ] `benchmarks/v0.15-ivm-hardening.json` published
 - [ ] Change-buffer compaction in `source.rs`
 - [ ] Predicate pushdown and semi-join key pre-filter in `plan.rs` and `join.rs`
 - [ ] Append-only fast path detection in `IvmTrace`
@@ -2421,19 +2421,19 @@ The toxiproxy Testcontainers network fault injection tests require Docker. This 
 
 ---
 
-## v0.15a — IVM Operator Completeness
+## v0.16 — IVM Operator Completeness
 
-> **Dependency:** Requires v0.14 merged to `main`. `SlateDbOrderedTrace` extends `SlateDbTrace` (or the fallback adapter) from v0.14.
+> **Dependency:** Requires v0.15 merged to `main`. `SlateDbOrderedTrace` extends `SlateDbTrace` (or the fallback adapter) from v0.15.
 
-> Ships the core operator surface: window functions, total-order output, top-N, correlated subqueries, recursive CTEs, and non-deterministic function capture. After v0.15a every commonly requested streaming SQL pattern works. v0.15b completes the runtime with WASM UDFs, adaptive cost mode, and correctness-hardened DISTINCT.
+> Ships the core operator surface: window functions, total-order output, top-N, correlated subqueries, recursive CTEs, and non-deterministic function capture. After v0.16 every commonly requested streaming SQL pattern works. v0.17 completes the runtime with WASM UDFs, adaptive cost mode, and correctness-hardened DISTINCT.
 
 ### Why feature completeness before v1.0
 
-SlateDuck's goal is to be the only lakehouse that materializes *any* SQL view without leaving S3. A restricted SQL surface invites the question "what can't it do?" v0.15a/v0.15b close that gap. The architectural seams — ordered traces, UDF registry, deterministic timestamp capture — are far cheaper to design before GA than to retrofit afterward. v1.0 should mean something complete.
+SlateDuck's goal is to be the only lakehouse that materializes *any* SQL view without leaving S3. A restricted SQL surface invites the question "what can't it do?" v0.16/v0.17 close that gap. The architectural seams — ordered traces, UDF registry, deterministic timestamp capture — are far cheaper to design before GA than to retrofit afterward. v1.0 should mean something complete.
 
 ### Why two phases
 
-The original v0.15 bundled eight major features. The structural risk: if DBSP `iterate` (recursive CTEs) hits a multi-week blocker, WASM UDF work that shares no code dependency also slips. The split follows a natural seam: **v0.15a** delivers the operator surface (what SQL can be written in a view), **v0.15b** delivers the runtime extensions (WASM execution engine, adaptive cost calibration, DISTINCT ref-counting) and the Tier 8 24-hour soak gate. No features are deferred — the full operator surface remains the same across both phases.
+The features now spanning v0.18 and v0.17 were originally bundled in a single milestone. The structural risk: if DBSP `iterate` (recursive CTEs) hits a multi-week blocker, WASM UDF work that shares no code dependency also slips. The split follows a natural seam: **v0.16** delivers the operator surface (what SQL can be written in a view), **v0.17** delivers the runtime extensions (WASM execution engine, adaptive cost calibration, DISTINCT ref-counting) and the Tier 8 24-hour soak gate. No features are deferred — the full operator surface remains the same across both phases.
 
 ### Window Functions
 
@@ -2444,7 +2444,7 @@ The original v0.15 bundled eight major features. The structural risk: if DBSP `i
 - [ ] `PARTITION BY` windows where partition key = shard key: fully parallel, same throughput as aggregation
 - [ ] `PARTITION BY` windows where partition key ≠ shard key: route to single-shard merge stage
 - [ ] Full-table windows (no PARTITION BY): `shard_count = 1` enforced at create time with a clear error message if user attempts sharded
-- [ ] `SlateDbOrderedTrace` extending `SlateDbTrace` (or the fallback adapter from v0.14 — the ordered extension must work with whichever persistence layer v0.14 shipped) with per-partition sort order. **Contingency:** if v0.14 ships the `SlateDbBatch` adapter rather than native trait implementation, the ordered trace maintains per-partition sort keys in a separate SlateDB key prefix (`{state_prefix}/ordered/{partition_key}/{sequence}`) layered on top of the adapter, keeping the adapter unmodified
+- [ ] `SlateDbOrderedTrace` extending `SlateDbTrace` (or the fallback adapter from v0.15 — the ordered extension must work with whichever persistence layer v0.15 shipped) with per-partition sort order. **Contingency:** if v0.15 ships the `SlateDbBatch` adapter rather than native trait implementation, the ordered trace maintains per-partition sort keys in a separate SlateDB key prefix (`{state_prefix}/ordered/{partition_key}/{sequence}`) layered on top of the adapter, keeping the adapter unmodified
 - [ ] Output plane `merge_sorted_parquet_writer` for total-ordered output tables
 - [ ] Supported window frames: `ROWS BETWEEN`, `RANGE BETWEEN`, `GROUPS BETWEEN`
 - [ ] Navigation functions: `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, `NTH_VALUE`
@@ -2513,7 +2513,7 @@ A top-level `ORDER BY` implies a total order on the output; Parquet is physicall
 
 `now()`, `current_timestamp`, `random()`, `gen_random_uuid()` are non-deterministic but users legitimately need views like `SELECT *, now() AS captured_at FROM events`. Fix: sample once per batch, substitute a literal, store the value alongside the checkpoint for deterministic repair/replay.
 
-> **Upgrade path from v0.13.1 volatility gate:** v0.13.1 rejects all VOLATILE functions (including `random()`, `gen_random_uuid()`). v0.15 introduces a `CaptureEligible` category in `volatility.rs` for functions that are safe under per-batch sampling. The volatility gate is updated: `CaptureEligible` functions are accepted (no longer rejected) when used in views. This is a backwards-compatible expansion (views that were previously rejected now succeed). Views created before the upgrade remain unchanged.
+> **Upgrade path from v0.14 volatility gate:** v0.14 rejects all VOLATILE functions (including `random()`, `gen_random_uuid()`). v0.16 introduces a `CaptureEligible` category in `volatility.rs` for functions that are safe under per-batch sampling. The volatility gate is updated: `CaptureEligible` functions are accepted (no longer rejected) when used in views. This is a backwards-compatible expansion (views that were previously rejected now succeed). Views created before the upgrade remain unchanged.
 
 - [ ] `volatility.rs` gains `CaptureEligible` variant; `random()`, `gen_random_uuid()`, `now()`, `current_timestamp`, etc. reclassified from VOLATILE to CaptureEligible
 - [ ] Allow-listed functions: `now()`, `current_timestamp`, `current_date`, `current_time`, `localtime`, `localtimestamp`, `random()`, `gen_random_uuid()`
@@ -2544,14 +2544,14 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 
 ### Remaining Optimizations (Adaptive Mode + DISTINCT Correctness)
 
-Items not moved to v0.14 because they require the full operator surface or are correctness fixes tied to new v0.15 features.
+Items not moved to v0.15 because they require the full operator surface or are correctness fixes tied to new v0.16 features.
 
-**Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput. Requires the full operator matrix (window functions, recursion) to calibrate properly — cannot ship in v0.14 with partial operator coverage.
+**Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput. Requires the full operator matrix (window functions, recursion) to calibrate properly — cannot ship in v0.15 with partial operator coverage.
 
 - [ ] `CostMode::Adaptive` variant in `config.rs`
 - [ ] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
 - [ ] Query complexity multiplier table: initial values `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`, `Window 3.0×`, `Recursive 5.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
-- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.15-adaptive-calibration.json`
+- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.17-adaptive-calibration.json`
 - [ ] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
 
 **Reference-counted DISTINCT and set operators.** The current DISTINCT implementation does not track duplicate counts, producing incorrect output when the same row is inserted multiple times and then partially deleted.
@@ -2566,7 +2566,7 @@ Items not moved to v0.14 because they require the full operator surface or are c
 
 ### Extended Operator Support Matrix
 
-| Operator | v0.11 | v0.12 | v0.13 | v0.14 | v0.15 |
+| Operator | v0.11 | v0.12 | v0.13 | v0.15 | v0.16 |
 |---|---|---|---|---|---|
 | `SELECT` / `WHERE` / `GROUP BY` / `HAVING` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Aggregates (count, sum, min, max, avg) | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -2585,7 +2585,7 @@ Items not moved to v0.14 because they require the full operator surface or are c
 
 ### Testing: Tier 6e (IVM Operator Correctness)
 
-A named test suite for every operator category added in v0.15a. Each test uses `IvmOracle` to compare incremental output against a DuckDB single-shot reference after every DML mutation. This is the v0.15a equivalent of the v0.13.1 Tier 6b-correctness suite.
+A named test suite for every operator category added in v0.16. Each test uses `IvmOracle` to compare incremental output against a DuckDB single-shot reference after every DML mutation. This is the v0.16 equivalent of the v0.14 Tier 6b-correctness suite.
 
 - [ ] **Tier 6e — IVM operator correctness tests** (`crates/slateduck-ivm/tests/operator_tests.rs`): 12 tests —
   - Window: `ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` maintained correctly for 1000 snapshots; partition-local and cross-partition (single-shard merge) modes
@@ -2604,28 +2604,28 @@ A named test suite for every operator category added in v0.15a. Each test uses `
 
 ### Testing: Tier 8 (Scale Benchmarks)
 
-The 24-hour soak test and 16-shard benchmark are in v0.15b — they require the full operator matrix (including WASM and Adaptive mode) for a meaningful GA-gate soak.
+The 24-hour soak test and 16-shard benchmark are in v0.17 — they require the full operator matrix (including WASM and Adaptive mode) for a meaningful GA-gate soak.
 
-- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): `tpch_sf10_catalog_latency` and `tpch_sf100_catalog_latency` against real S3 Standard; p99 `get_current_snapshot` < 50 ms at SF10, < 100 ms at SF100; results written to `benchmarks/v0.15a-tpch-{date}.json`
+- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): `tpch_sf10_catalog_latency` and `tpch_sf100_catalog_latency` against real S3 Standard; p99 `get_current_snapshot` < 50 ms at SF10, < 100 ms at SF100; results written to `benchmarks/v0.16-tpch-{date}.json`
 - [ ] **Tier 8 — TPC-H IVM streaming** (`tests/scale/tpch_ivm.rs`): Q1, Q3, Q5 at 100k rows/s, 8 shards, 5 s freshness; lag p99 < 5 s; verified on MinIO (same-host) and S3 Standard
 - [ ] Scale tests run on dedicated EC2 `c6i.4xlarge` via self-hosted GitHub Actions runner; triggered manually and on `v*` release tags
 - [ ] Scale test setup documented in `docs/contributing/testing.md` under "Scale Testing Infrastructure"
 
 ### Acceptance Criteria
 
-- [ ] Every operator in the v0.15a matrix passes a correctness test against a DuckDB single-shot reference query over the same input data
+- [ ] Every operator in the v0.16 matrix passes a correctness test against a DuckDB single-shot reference query over the same input data
 - [ ] Partition-local `ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` maintained correctly for 1000 input snapshots; throughput within 15% of equivalent aggregation
 - [ ] Transitive closure over 1M edges processes 10k-edge incremental batches in ≤ 10 s (single-shard coordinator; global shuffle)
 - [ ] `LIMIT 100 ORDER BY value DESC` view correctly maintains the global top-100 across 1000 input snapshots
 - [ ] `now()` capture: repaired shard re-uses stored captured value, not re-sampled; output is bit-identical to original
 - [ ] Unbounded recursive CTE rejects `shard_count > 1` at view creation with clear error
-- [ ] All v0.11–v0.14 acceptance tests still pass
+- [ ] All v0.11–v0.15 acceptance tests still pass
 - [ ] Tier 6e operator correctness suite green (12 tests; recursive CTE on large runner)
 - [ ] **Tier 8 TPC-H p99 within targets**: SF10 < 50 ms catalog, SF100 < 100 ms catalog; IVM lag p99 < 5 s at 8 shards
 
 ### Deliverables
 
-- [ ] `SlateDbOrderedTrace` implementation (extending v0.14's persistence layer; contingency noted in Window Functions section)
+- [ ] `SlateDbOrderedTrace` implementation (extending v0.15's persistence layer; contingency noted in Window Functions section)
 - [ ] Merge-sort output writer in the output plane
 - [ ] Decorrelation pass in `plan.rs` (using `datafusion-optimizer` pinned in workspace deps)
 - [ ] DBSP `iterate` integration for recursive CTEs (or fixed-point loop fallback per spike findings)
@@ -2633,16 +2633,16 @@ The 24-hour soak test and 16-shard benchmark are in v0.15b — they require the 
 - [ ] Non-deterministic function capture with per-batch seed storage
 - [ ] Tier 8 TPC-H catalog and IVM streaming benchmark suite (`tests/scale/`)
 - [ ] Self-hosted EC2 runner configuration documented in `docs/contributing/testing.md`
-- [ ] `benchmarks/v0.15a-operator-complete.json` published
-- [ ] `docs/reference/sql-ivm.md` updated to reflect v0.15a operator coverage
+- [ ] `benchmarks/v0.16-operator-complete.json` published
+- [ ] `docs/reference/sql-ivm.md` updated to reflect v0.16 operator coverage
 
 ---
 
-## v0.15b — IVM Feature Hardening
+## v0.17 — IVM Feature Hardening
 
-> **Dependency:** Requires v0.15a merged to `main`. `CostMode::Adaptive` requires the full v0.15a operator matrix to calibrate multipliers correctly (Window 3.0× and Recursive 5.0× cannot be empirically validated without those operators shipped). The 24-hour soak test is the IVM GA gate and belongs here — it tests the complete system.
+> **Dependency:** Requires v0.16 merged to `main`. `CostMode::Adaptive` requires the full v0.16 operator matrix to calibrate multipliers correctly (Window 3.0× and Recursive 5.0× cannot be empirically validated without those operators shipped). The 24-hour soak test is the IVM GA gate and belongs here — it tests the complete system.
 
-> Completes the IVM story: WASM UDFs (wasmtime pooled), adaptive DIFFERENTIAL/FULL mode switching (empirically calibrated against the full operator matrix), reference-counted DISTINCT correctness, and the 24-hour fault-injection soak test. **This release is the IVM GA gate.** After v0.15b the answer to "what SQL can a materialized view use?" is: anything you can write against a static DuckDB table.
+> Completes the IVM story: WASM UDFs (wasmtime pooled), adaptive DIFFERENTIAL/FULL mode switching (empirically calibrated against the full operator matrix), reference-counted DISTINCT correctness, and the 24-hour fault-injection soak test. **This release is the IVM GA gate.** After v0.17 the answer to "what SQL can a materialized view use?" is: anything you can write against a static DuckDB table.
 
 ### User-Defined Functions (WASM)
 
@@ -2665,14 +2665,14 @@ UDFs extend the view SQL surface with custom logic: custom hash functions, domai
 
 ### Remaining Optimizations (Adaptive Mode + DISTINCT Correctness)
 
-Items deferred from v0.14 because they require the full operator surface or are correctness fixes tied to new v0.15a features.
+Items deferred from v0.15 because they require the full operator surface or are correctness fixes tied to new v0.16 features.
 
-**Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput. Requires the full operator matrix (window functions, recursion) to calibrate properly — cannot ship in v0.14 or v0.15a with partial operator coverage.
+**Adaptive DIFFERENTIAL/FULL mode switching (`CostMode::Adaptive`).** At low delta rates, DIFFERENTIAL is 5–90× cheaper than FULL. At high delta rates the crossover reverses. Without this switch, a large delta batch silently tanks throughput. Requires the full operator matrix (window functions, recursion) to calibrate properly — cannot ship in v0.15 or v0.16 with partial operator coverage.
 
 - [ ] `CostMode::Adaptive` variant in `config.rs`
 - [ ] Per-view rolling statistics tracked in the state store and surfaced via `observability.rs`: `rows_in`, `rows_out`, `ms_spent`, `last_full_cost`
 - [ ] Query complexity multiplier table: initial values `Scan 1.0×`, `Filter 1.1×`, `Aggregate 1.5×`, `Join 2.5×`, `JoinAggregate 4.0×`, `Window 3.0×`, `Recursive 5.0×`; switch DIFFERENTIAL→FULL when `Δ_rows / N_rows × multiplier > threshold` (default 0.5)
-- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.15b-adaptive-calibration.json`
+- [ ] **Empirical calibration step (required before shipping):** Run TPC-H Q1/Q3/Q5 + TPC-DS Q4/Q47 at delta ratios 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.0; record actual DIFFERENTIAL vs FULL latency crossover point for each query class; adjust multiplier table to match observed crossover within ±20%. Publish calibration data in `benchmarks/v0.17-adaptive-calibration.json`
 - [ ] `WITH (cost_mode = 'adaptive', adaptive_threshold = 0.3)` per-view override; documented in `docs/operations/ivm-cost-control.md`
 
 **Reference-counted DISTINCT and set operators.** The current DISTINCT implementation does not track duplicate counts, producing incorrect output when the same row is inserted multiple times and then partially deleted.
@@ -2687,7 +2687,7 @@ Items deferred from v0.14 because they require the full operator surface or are 
 
 ### Extended Operator Support Matrix
 
-| Operator | v0.11 | v0.12 | v0.13 | v0.14 | v0.15a | v0.15b |
+| Operator | v0.11 | v0.12 | v0.13 | v0.15 | v0.16 | v0.17 |
 |---|---|---|---|---|---|---|
 | `SELECT` / `WHERE` / `GROUP BY` / `HAVING` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Aggregates (count, sum, min, max, avg) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -2720,7 +2720,7 @@ Items deferred from v0.14 because they require the full operator surface or are 
 
 ### Testing: Tier 8 (Scale & Soak — IVM GA Gate)
 
-- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): re-run against v0.15b to confirm no regression; results written to `benchmarks/v0.15b-tpch-{date}.json`
+- [ ] **Tier 8 — TPC-H catalog benchmarks** (`tests/scale/tpch_catalog.rs`): re-run against v0.17 to confirm no regression; results written to `benchmarks/v0.17-tpch-{date}.json`
 - [ ] **Tier 8 — TPC-H IVM streaming** (`tests/scale/tpch_ivm.rs`): Q1, Q3, Q5 at 100k rows/s, 8 shards, 5 s freshness; re-verified with full operator surface
 - [ ] **Tier 8 — 24-hour soak test** (`tests/scale/soak.rs`): TPC-H Q1 continuous ingest; correctness drift check every 15 min (output row count matches DuckDB reference); fault injection every 15 min; `ivm_circuit_panic_total` = 0 after T+1h; **soak failure blocks GA tag**
 - [ ] **Tier 8 — 16-shard scale-out benchmark**: 16 workers on 16 separate instances, 1M rows/s ingest, aggregate throughput ≥ 500k rows/s, lag p99 ≤ 3 s
@@ -2731,7 +2731,7 @@ Items deferred from v0.14 because they require the full operator surface or are 
 
 - [ ] Every operator in the full matrix (including WASM and DISTINCT ref-counting) passes a correctness test against a DuckDB single-shot reference query
 - [ ] WASM UDF exceeding fuel/memory limit returns a clean error; no worker panic, no view corruption
-- [ ] All v0.11–v0.15a acceptance tests still pass
+- [ ] All v0.11–v0.16 acceptance tests still pass
 - [ ] Tier 6f WASM UDF tests green (6 tests including sandbox isolation)
 - [ ] Tier 6f DISTINCT property tests green (500 sequences)
 - [ ] Extended benchmark: TPC-DS Q14, Q47, Q49 maintained incrementally with correctness verified (Q47/Q49 exercise window functions; Q14 exercises cross-join)
@@ -2751,21 +2751,21 @@ Items deferred from v0.14 because they require the full operator surface or are 
 - [ ] Tier 8 soak test (`tests/scale/soak.rs`) with 24 h fault-injection soak
 - [ ] Tier 8 16-shard scale benchmark
 - [ ] TPC-DS Q14/Q47/Q49 streaming benchmark suite in `benches/`
-- [ ] `benchmarks/v0.15b-ivm-hardening.json` published
+- [ ] `benchmarks/v0.17-ivm-hardening.json` published
 - [ ] `docs/reference/udfs.md` authoring guide
 - [ ] All SQL reference docs in `docs/reference/sql-ivm.md` updated to reflect full operator coverage (including WASM and Adaptive)
 - [ ] `CostMode::Adaptive` with per-view rolling cost statistics in `config.rs` and `worker.rs`
-- [ ] `benchmarks/v0.15b-adaptive-calibration.json` with empirical crossover data for multiplier table
+- [ ] `benchmarks/v0.17-adaptive-calibration.json` with empirical crossover data for multiplier table
 - [ ] `__sd_ref_count` auxiliary column for DISTINCT and set operators in `trace.rs`
 - [ ] Tier 6f WASM UDF tests (`wasm_udf_tests.rs`) with 6 passing tests in CI
 - [ ] Tier 6f DISTINCT property tests (`distinct_property_tests.rs`) with 500-sequence suite green in CI
-- [ ] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.15b additions
+- [ ] Implementation plan [plans/incremental-view-maintenance-implementation.md](plans/incremental-view-maintenance-implementation.md) updated to reflect v0.17 additions
 
 ---
 
-## v0.16 — pg-trickle Compatibility
+## v0.18 — pg-trickle Compatibility
 
-> **Dependency:** Requires v0.15b merged to `main` (the IVM GA gate). pg-trickle integration testing exercises the full operator surface.
+> **Dependency:** Requires v0.17 merged to `main` (the IVM GA gate). pg-trickle integration testing exercises the full operator surface.
 
 > Make SlateDuck a 100% drop-in replacement for PostgreSQL as the DuckLake catalog backend that pg-trickle targets. pg-trickle is a production-grade PostgreSQL IVM extension that can both *read from* DuckLake tables (O(Δ) via `table_changes()`) and *write IVM results back to* DuckLake (Parquet sink + snapshot commit). All of that traffic goes through the DuckLake catalog SQL API — exactly the PG-wire surface SlateDuck exposes. See [plans/pg-trickle-ducklake-support.md](plans/pg-trickle-ducklake-support.md) for the full gap analysis.
 
@@ -2907,7 +2907,7 @@ A dedicated test crate (or test module in `slateduck-testkit`) that validates th
 
 ### Acceptance Criteria
 
-All of the following must be green before v0.16 is tagged:
+All of the following must be green before v0.18 is tagged:
 
 - [ ] pg-trickle connects to SlateDuck PG-wire sidecar with zero configuration changes vs. a standard PostgreSQL catalog
 - [ ] `CdcMode::DUCKLAKE_CHANGE_FEED` activates automatically when source table is SlateDuck-backed DuckLake
@@ -2969,9 +2969,9 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 6. All 28 DuckLake v1.0 catalog tables implemented, tag-allocated, fixture-covered, and explicitly status-tracked in `tags.rs`.
 7. Phase 0 validation gates pass on LocalFS, MinIO, S3 Standard, and S3 Express; results documented.
 8. `mkdocs build --strict` green; documentation site live with no stub pages.
-9. **IVM GA gate.** v0.11–v0.15 acceptance tests all green: single-shard demo, 8-shard scale-out, TPC-H Q1/Q3/Q5 maintained incrementally, window functions correct (partition-local and total-order), recursive CTEs stable under fixed-point iteration, correlated subqueries decorrelated, non-deterministic function capture reproducible on repair, WASM UDFs sandboxed under fuel + memory limits, 24 h soak with zero correctness drift, fault-injection suite passing, native `SlateDbTrace` benchmarked, operator playbook complete. IVM is feature-complete at v1.0: any SQL view that can be written against a static DuckDB table can be maintained incrementally by SlateDuck.
+9. **IVM GA gate.** v0.11–v0.17 acceptance tests all green: single-shard demo, 8-shard scale-out, TPC-H Q1/Q3/Q5 maintained incrementally, window functions correct (partition-local and total-order), recursive CTEs stable under fixed-point iteration, correlated subqueries decorrelated, non-deterministic function capture reproducible on repair, WASM UDFs sandboxed under fuel + memory limits, 24 h soak with zero correctness drift, fault-injection suite passing, native `SlateDbTrace` benchmarked, operator playbook complete. IVM is feature-complete at v1.0: any SQL view that can be written against a static DuckDB table can be maintained incrementally by SlateDuck.
 10. **Real-world validation gate.** At least 30 days of dogfood deployment on a realistic workload (see Cross-Cutting Concerns: Real-World Validation Policy). Friction log reviewed and all blocking findings resolved. One external-to-the-team developer has successfully deployed IVM using only published docs.
-11. **IVM documentation gate.** Every IVM-track docs deliverable from v0.11–v0.15 is published and non-stub: `docs/concepts/incremental-views.md`, `docs/architecture/ivm-plane.md`, `docs/operations/incremental-materialized-views.md`, `docs/operations/ivm-cost-control.md`, `docs/operations/ivm-backup-restore.md`, `docs/operations/ivm-upgrades.md`, `docs/reference/sql-ivm.md`, `docs/design-decisions/ivm-on-immutable-substrate.md`, `docs/design-decisions/dbsp-dependency.md`, `docs/design-decisions/ivm-retrospective.md`, and a first-time-user tutorial under `docs/getting-started/first-materialized-view.md` that takes a user from `slateduck serve` to a working incremental view in < 15 minutes. `mkdocs build --strict` green.
+11. **IVM documentation gate.** Every IVM-track docs deliverable from v0.11–v0.17 is published and non-stub: `docs/concepts/incremental-views.md`, `docs/architecture/ivm-plane.md`, `docs/operations/incremental-materialized-views.md`, `docs/operations/ivm-cost-control.md`, `docs/operations/ivm-backup-restore.md`, `docs/operations/ivm-upgrades.md`, `docs/reference/sql-ivm.md`, `docs/design-decisions/ivm-on-immutable-substrate.md`, `docs/design-decisions/dbsp-dependency.md`, `docs/design-decisions/ivm-retrospective.md`, and a first-time-user tutorial under `docs/getting-started/first-materialized-view.md` that takes a user from `slateduck serve` to a working incremental view in < 15 minutes. `mkdocs build --strict` green.
 12. **Migration path from existing DuckLake deployments.** A documented and tested migration tool (`slateduck migrate-from-ducklake --source postgres://... --catalog s3://...`) reads an existing PostgreSQL- or SQLite-backed DuckLake catalog, replays its current snapshot into a fresh SlateDuck catalog (data files are not copied — they remain at their original object-store paths and are referenced by the new catalog), and emits a verification report. `docs/operations/migration-from-ducklake.md` covers cutover, rollback, and known-incompatibility surfaces. End-to-end tested against both PostgreSQL- and SQLite-backed source catalogs at SF1 scale.
 13. **World-class testing foundation.** All 10 test tiers from [plans/e2e-integration-tests.md](plans/e2e-integration-tests.md) are fully implemented and green:
     - **Tiers 1–3** (unit/property, catalog, PG-Wire): green on every PR — standard GitHub Actions runner
@@ -2996,7 +2996,7 @@ Measurable acceptance criteria that must all be green before v1.0 is tagged:
 
 ## v0.10.0 — Streaming Ingest
 
-> **Note:** v0.10 is documented after v1.0 because it is an independent, parallel workstream. It can be implemented concurrently with the IVM track (v0.11–v0.15) and does not block or depend on IVM. Its CDC output primitives *feed into* IVM when both are deployed — see "Streaming Ingest + IVM Integration" below.
+> **Note:** v0.10 is documented after v1.0 because it is an independent, parallel workstream. It can be implemented concurrently with the IVM track (v0.11–v0.17) and does not block or depend on IVM. Its CDC output primitives *feed into* IVM when both are deployed — see "Streaming Ingest + IVM Integration" below.
 
 > Kafka/NATS streaming pipelines, exactly-once delivery semantics, and pg-tide-relay integration for zero-infrastructure ingest paths from transactional sources to S3-backed data lakes.
 
@@ -3253,7 +3253,7 @@ When a new DuckLake spec version is published:
 
 ### DBSP/Feldera Dependency Strategy
 
-The IVM track (v0.11–v0.15) depends on the `dbsp` crate from [Feldera](https://www.feldera.com/). Feldera is a venture-funded startup; the crate is open-source (MIT) but its maintenance trajectory is not guaranteed. This is the single most important external dependency in the entire roadmap.
+The IVM track (v0.11–v0.17) depends on the `dbsp` crate from [Feldera](https://www.feldera.com/). Feldera is a venture-funded startup; the crate is open-source (MIT) but its maintenance trajectory is not guaranteed. This is the single most important external dependency in the entire roadmap.
 
 **Risk mitigation layers:**
 
