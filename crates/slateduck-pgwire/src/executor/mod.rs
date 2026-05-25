@@ -26,8 +26,9 @@ use crate::session::{BufferedOp, SessionState};
 
 use catalog::{
     execute_commit, execute_next_rowid_range, execute_table_changes, make_columns_response,
-    make_data_files_response, make_file_ids_response, make_schemas_response,
-    make_snapshot_row_response, make_tables_response,
+    make_data_files_response, make_delete_files_response, make_file_ids_response,
+    make_schemas_response, make_snapshot_row_response, make_table_stats_response,
+    make_tables_response,
 };
 use extension::{
     execute_create_extension_table, execute_delete_extension_rows, execute_insert_extension_row,
@@ -189,13 +190,52 @@ async fn execute_classified<'a>(
                 .map_err(SlateDuckError::from)?;
             Ok(vec![make_file_ids_response(file_ids)])
         }
-        StatementKind::SelectSnapshot
-        | StatementKind::SelectTableStats
-        | StatementKind::SelectMetadata
+        StatementKind::SelectTableStats => {
+            let table_id = require_param_u64(params, 0, "table_id")?;
+            let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
+            let stats = reader
+                .get_table_stats(table_id)
+                .await
+                .map_err(SlateDuckError::from)?;
+            Ok(vec![make_table_stats_response(stats)])
+        }
+        StatementKind::SelectDeleteFiles => {
+            let table_id = require_param_u64(params, 0, "table_id")?;
+            let snap_id = params.get_u64(1).unwrap_or(u64::MAX);
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
+            let files = reader
+                .list_delete_files(table_id)
+                .await
+                .map_err(SlateDuckError::from)?;
+            Ok(vec![make_delete_files_response(files)])
+        }
+        StatementKind::SelectSnapshot => {
+            let snap_id = params.get_u64(0).unwrap_or(u64::MAX);
+            let reader = {
+                let s = store.lock().await;
+                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
+                    .map_err(SlateDuckError::from)?
+            };
+            let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
+            if let Some(snap) = snap {
+                Ok(vec![make_snapshot_row_response(snap)])
+            } else {
+                Ok(vec![make_empty_response()])
+            }
+        }
+        StatementKind::SelectMetadata
         | StatementKind::SelectInlinedData
         | StatementKind::SelectViews
         | StatementKind::SelectMacros
-        | StatementKind::SelectDeleteFiles
         | StatementKind::SelectInlinedRows => {
             // Return empty result set for these less commonly used reads
             Ok(vec![make_empty_response()])
@@ -338,7 +378,7 @@ async fn execute_classified<'a>(
             let op = BufferedOp::InsertDeleteFile {
                 data_file_id: params.get_u64(0).unwrap_or(0),
                 path: params.get_string(1).unwrap_or_default(),
-                row_count: params.get_u64(2).unwrap_or(0),
+                delete_count: params.get_u64(2).unwrap_or(0),
                 file_size_bytes: params.get_u64(3).unwrap_or(0),
             };
             if session.in_transaction {
@@ -351,9 +391,9 @@ async fn execute_classified<'a>(
         StatementKind::InsertTableStats => {
             let op = BufferedOp::InsertTableStats {
                 table_id: params.get_u64(0).unwrap_or(0),
-                row_count: params.get_u64(1).unwrap_or(0),
+                record_count: params.get_u64(1).unwrap_or(0),
                 file_count: params.get_u64(2).unwrap_or(0),
-                total_size_bytes: params.get_u64(3).unwrap_or(0),
+                file_size_bytes: params.get_u64(3).unwrap_or(0),
             };
             if session.in_transaction {
                 session.pending_txn.push(op)?;

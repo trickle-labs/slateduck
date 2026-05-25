@@ -617,9 +617,9 @@ pub extern "C" fn slateduck_list_data_files(
                     table_id: f.table_id,
                     path: CString::new(f.path).unwrap_or_default().into_raw(),
                     file_format: CString::new(f.file_format).unwrap_or_default().into_raw(),
-                    row_count: f.row_count,
+                    row_count: f.record_count,
                     file_size_bytes: f.file_size_bytes,
-                    snapshot_id: f.snapshot_id,
+                    snapshot_id: f.begin_snapshot.unwrap_or(0),
                 })
                 .collect();
             out.shrink_to_fit();

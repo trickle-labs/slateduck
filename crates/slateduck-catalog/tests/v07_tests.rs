@@ -224,9 +224,10 @@ async fn packed_metadata_write_and_read() {
         }],
         table_stats: Some(TableStatsRow {
             table_id: 42,
-            row_count: 1000,
+            record_count: 1000,
             file_count: 5,
-            total_size_bytes: 50000,
+            file_size_bytes: 50000,
+            next_row_id: None,
         }),
         schema_version: 3,
     };
@@ -240,7 +241,7 @@ async fn packed_metadata_write_and_read() {
     assert_eq!(loaded.columns[1].column_name, "name");
     assert_eq!(loaded.partition_info.len(), 1);
     assert_eq!(loaded.sort_info.len(), 1);
-    assert_eq!(loaded.table_stats.unwrap().row_count, 1000);
+    assert_eq!(loaded.table_stats.unwrap().record_count, 1000);
     assert_eq!(loaded.schema_version, 3);
 
     store.close().await.unwrap();

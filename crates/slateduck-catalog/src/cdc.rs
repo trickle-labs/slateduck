@@ -145,9 +145,9 @@ impl CdcSnapshot {
                     "table_id": row.table_id,
                     "path": row.path,
                     "file_format": row.file_format,
-                    "row_count": row.row_count,
+                    "record_count": row.record_count,
                     "file_size_bytes": row.file_size_bytes,
-                    "snapshot_id": row.snapshot_id,
+                    "begin_snapshot": row.begin_snapshot,
                 }),
             });
         }

@@ -38,7 +38,7 @@ pub enum BufferedOp {
     InsertDeleteFile {
         data_file_id: u64,
         path: String,
-        row_count: u64,
+        delete_count: u64,
         file_size_bytes: u64,
     },
     InsertSnapshot {
@@ -91,9 +91,9 @@ pub enum BufferedOp {
     },
     InsertTableStats {
         table_id: u64,
-        row_count: u64,
+        record_count: u64,
         file_count: u64,
-        total_size_bytes: u64,
+        file_size_bytes: u64,
     },
 }
 

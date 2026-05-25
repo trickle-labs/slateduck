@@ -65,7 +65,7 @@ binding on every roadmap release below.
 | **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, O(1) aggregate deletions, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | **Done** |
 | **v0.22 — IVM Removal** | Delete `slateduck-ivm` crate, remove IVM catalog tags/rows/keys, strip IVM SQL DDL variants, clean docs, benchmarks, CI, and deny.toml | **Done** |
 | **v0.23 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
-| **v0.24 — DuckLake v1.0 Conformance Harness & Interop-Critical Schema** | Conformance test harness for all 28 spec tables; fix snapshot/snapshot_changes schema; spec-complete data file fields; spec-complete delete file model; row ID tracking; table stats `next_row_id`; DROP TABLE cascade retirement | Planning |
+| **v0.24 — DuckLake v1.0 Conformance Harness & Interop-Critical Schema** | Conformance test harness for all 28 spec tables; fix snapshot/snapshot_changes schema; spec-complete data file fields; spec-complete delete file model; row ID tracking; table stats `next_row_id`; DROP TABLE cascade retirement | Complete |
 | **v0.25 — DuckLake v1.0 SQL Catalog Facade** | Full PgWire/virtual-table facade with exact spec column names and types for all 28 tables; views, macros, and inlined data tables through PgWire; scoped metadata; schema/table UUID and path fields; nested column model | Planning |
 | **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Planning |
 | **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Planning |
@@ -2292,11 +2292,11 @@ Delete IVM test fixtures:
 
 Before any schema work lands, a machine-readable manifest and golden-test suite must exist so every subsequent change is verifiable against the spec. This harness becomes the regression gate for all later DuckLake compatibility work.
 
-- [ ] Add a machine-readable DuckLake v1.0 schema manifest derived from `specification/tables/overview.md` — one TOML or JSON file that lists all 28 tables, their column names, column types, nullability, and whether a column is spec-required or extension-only.
-- [ ] Add tests that assert the SQL facade exposes all 28 tables with exact column names and compatible types; fail fast on any column-name or type mismatch.
-- [ ] Add golden tests for the SQL query examples in `specification/queries.md`; capture expected column order and representative row shapes.
-- [ ] Add tests that verify unsupported DuckLake SQL writes fail with an explicit error rather than returning success as a no-op. Any statement accepted by PgWire but not persisted must return `SQLSTATE 0A000` (feature not supported) or equivalent.
-- [ ] Wire the conformance manifest check into CI so schema regressions are caught on every PR.
+- [x] Add a machine-readable DuckLake v1.0 schema manifest derived from `specification/tables/overview.md` — one TOML or JSON file that lists all 28 tables, their column names, column types, nullability, and whether a column is spec-required or extension-only.
+- [x] Add tests that assert the SQL facade exposes all 28 tables with exact column names and compatible types; fail fast on any column-name or type mismatch.
+- [x] Add golden tests for the SQL query examples in `specification/queries.md`; capture expected column order and representative row shapes.
+- [x] Add tests that verify unsupported DuckLake SQL writes fail with an explicit error rather than returning success as a no-op. Any statement accepted by PgWire but not persisted must return `SQLSTATE 0A000` (feature not supported) or equivalent.
+- [x] Wire the conformance manifest check into CI so schema regressions are caught on every PR.
 
 ### Phase 1 — Snapshot and Snapshot Changes Schema
 
@@ -2304,70 +2304,70 @@ Spec:
 - `ducklake_snapshot(snapshot_id, snapshot_time, schema_version, next_catalog_id, next_file_id)`
 - `ducklake_snapshot_changes(snapshot_id, changes_made, author, commit_message, commit_extra_info)`
 
-- [ ] Add `next_catalog_id` and `next_file_id` to `SnapshotRow`, populated from `TAG_COUNTERS` at commit time.
-- [ ] Move `author` and `message` semantics out of `SnapshotRow` and into `SnapshotChangesRow` as `author` and `commit_message`; add `commit_extra_info` field.
-- [ ] Persist a spec-compatible `changes_made` string per snapshot using documented values: `created_schema:<schema_name>`, `inserted_into_table:<table_id>`, `dropped_table:<table_id>`, etc.
-- [ ] Update `execute_commit` to write `SnapshotChangesRow` transactionally alongside the snapshot row — not as an informational side-effect.
-- [ ] Update the PgWire `SelectSnapshot` and `SelectSnapshotChanges` response builders to expose the exact spec columns in spec column order.
-- [ ] Add conformance tests: insert a snapshot, select it back, verify `next_catalog_id` and `next_file_id` are non-zero and match the counter state at commit time.
+- [x] Add `next_catalog_id` and `next_file_id` to `SnapshotRow`, populated from `TAG_COUNTERS` at commit time.
+- [x] Move `author` and `message` semantics out of `SnapshotRow` and into `SnapshotChangesRow` as `author` and `commit_message`; add `commit_extra_info` field.
+- [x] Persist a spec-compatible `changes_made` string per snapshot using documented values: `created_schema:<schema_name>`, `inserted_into_table:<table_id>`, `dropped_table:<table_id>`, etc.
+- [x] Update `execute_commit` to write `SnapshotChangesRow` transactionally alongside the snapshot row — not as an informational side-effect.
+- [x] Update the PgWire `SelectSnapshot` and `SelectSnapshotChanges` response builders to expose the exact spec columns in spec column order.
+- [x] Add conformance tests: insert a snapshot, select it back, verify `next_catalog_id` and `next_file_id` are non-zero and match the counter state at commit time.
 
 ### Phase 2 — Spec-Complete Data File Model
 
 Spec `ducklake_data_file` columns: `data_file_id`, `table_id`, `begin_snapshot`, `end_snapshot`, `file_order`, `path`, `path_is_relative`, `file_format`, `record_count`, `file_size_bytes`, `footer_size`, `row_id_start`, `partition_id`, `encryption_key`, `mapping_id`, `partial_max`
 
-- [ ] Add `file_order` to `DataFileRow`; persist it as a monotonically increasing integer within a table, assigned at registration time.
-- [ ] Add `path_is_relative` boolean to `DataFileRow`; default `false` for absolute paths.
-- [ ] Rename `row_count` → `record_count` in `DataFileRow` and all PgWire response builders.
-- [ ] Change `footer_size` from `Option<String>` to `Option<i64>` (BIGINT semantics).
-- [ ] Add `row_id_start` to `DataFileRow`; populated from the pre-increment `next_row_id` counter at file registration time.
-- [ ] Add `partition_id`, `mapping_id`, and `partial_max` to `DataFileRow`.
-- [ ] Remove legacy `snapshot_id` field from `DataFileRow`; `begin_snapshot` is the canonical field.
-- [ ] Fix `CatalogReader::list_data_files` to filter out rows where `end_snapshot` is ≤ the requested snapshot (MVCC retirement visibility).
-- [ ] Fix `list_data_files` to order results by `file_order`.
-- [ ] Update PgWire `InsertDataFile` to read and persist all new spec fields from the incoming SQL parameters.
-- [ ] Add conformance tests: register three data files, drop the middle one, time-travel to before and after the drop, verify retired files are absent from the later snapshot and present at the earlier one.
+- [x] Add `file_order` to `DataFileRow`; persist it as a monotonically increasing integer within a table, assigned at registration time.
+- [x] Add `path_is_relative` boolean to `DataFileRow`; default `false` for absolute paths.
+- [x] Rename `row_count` → `record_count` in `DataFileRow` and all PgWire response builders.
+- [x] Change `footer_size` from `Option<String>` to `Option<i64>` (BIGINT semantics).
+- [x] Add `row_id_start` to `DataFileRow`; populated from the pre-increment `next_row_id` counter at file registration time.
+- [x] Add `partition_id`, `mapping_id`, and `partial_max` to `DataFileRow`.
+- [x] Remove legacy `snapshot_id` field from `DataFileRow`; `begin_snapshot` is the canonical field.
+- [x] Fix `CatalogReader::list_data_files` to filter out rows where `end_snapshot` is ≤ the requested snapshot (MVCC retirement visibility).
+- [x] Fix `list_data_files` to order results by `file_order`.
+- [x] Update PgWire `InsertDataFile` to read and persist all new spec fields from the incoming SQL parameters.
+- [x] Add conformance tests: register three data files, drop the middle one, time-travel to before and after the drop, verify retired files are absent from the later snapshot and present at the earlier one.
 
 ### Phase 3 — Spec-Complete Delete File Model
 
 Spec `ducklake_delete_file` columns: `delete_file_id`, `table_id`, `begin_snapshot`, `end_snapshot`, `data_file_id`, `path`, `path_is_relative`, `format`, `delete_count`, `file_size_bytes`, `footer_size`, `encryption_key`, `partial_max`
 
-- [ ] Add `table_id`, `begin_snapshot`, `end_snapshot`, `path_is_relative`, `format`, `footer_size`, and `partial_max` to `DeleteFileRow`.
-- [ ] Rename `row_count` → `delete_count` in `DeleteFileRow`.
-- [ ] Implement `CatalogReader::list_delete_files(table_id, snapshot_id)` with spec MVCC visibility (`begin_snapshot ≤ snapshot_id` and (`end_snapshot IS NULL` or `end_snapshot > snapshot_id`)).
-- [ ] Fix `PgWire SelectDeleteFiles` to call `list_delete_files` and return a spec-shaped result set; currently returns empty.
-- [ ] Update `InsertDeleteFile` to persist all spec fields.
-- [ ] Add key/index support for delete-file lookup by `table_id` and snapshot range.
-- [ ] Add conformance tests: register a delete file, select it, verify `table_id`, `begin_snapshot`, `format`, and `delete_count` are correct; retire it and verify it disappears from the visible set at the retire snapshot.
+- [x] Add `table_id`, `begin_snapshot`, `end_snapshot`, `path_is_relative`, `format`, `footer_size`, and `partial_max` to `DeleteFileRow`.
+- [x] Rename `row_count` → `delete_count` in `DeleteFileRow`.
+- [x] Implement `CatalogReader::list_delete_files(table_id, snapshot_id)` with spec MVCC visibility (`begin_snapshot ≤ snapshot_id` and (`end_snapshot IS NULL` or `end_snapshot > snapshot_id`)).
+- [x] Fix `PgWire SelectDeleteFiles` to call `list_delete_files` and return a spec-shaped result set; currently returns empty.
+- [x] Update `InsertDeleteFile` to persist all spec fields.
+- [x] Add key/index support for delete-file lookup by `table_id` and snapshot range.
+- [x] Add conformance tests: register a delete file, select it, verify `table_id`, `begin_snapshot`, `format`, and `delete_count` are correct; retire it and verify it disappears from the visible set at the retire snapshot.
 
 ### Phase 4 — Row ID Tracking and Table Stats
 
 Spec `ducklake_table_stats` columns: `table_id`, `record_count`, `next_row_id`, `file_size_bytes`
 
-- [ ] Add `next_row_id` to `TableStatsRow`; update it atomically with each data-file registration using the pre-increment value for `row_id_start`.
-- [ ] Rename `row_count` → `record_count` and `total_size_bytes` → `file_size_bytes` in `TableStatsRow` and all PgWire response builders.
-- [ ] Keep `file_count` as an internal/extension statistic only; do not expose it in the spec-shaped facade.
-- [ ] Fix `PgWire UpdateTableStats` to apply the incoming row-count and size deltas rather than calling `update_table_stats(table_id, 0, 0, 0)`.
-- [ ] Fix `PgWire SelectTableStats` to call the reader and return spec-shaped rows; currently returns empty.
-- [ ] Add conformance tests: insert two data files with 100 rows each, verify `record_count = 200`, `next_row_id ≥ 200`, and `file_size_bytes` matches the sum.
+- [x] Add `next_row_id` to `TableStatsRow`; update it atomically with each data-file registration using the pre-increment value for `row_id_start`.
+- [x] Rename `row_count` → `record_count` and `total_size_bytes` → `file_size_bytes` in `TableStatsRow` and all PgWire response builders.
+- [x] Keep `file_count` as an internal/extension statistic only; do not expose it in the spec-shaped facade.
+- [x] Fix `PgWire UpdateTableStats` to apply the incoming row-count and size deltas rather than calling `update_table_stats(table_id, 0, 0, 0)`.
+- [x] Fix `PgWire SelectTableStats` to call the reader and return spec-shaped rows; currently returns empty.
+- [x] Add conformance tests: insert two data files with 100 rows each, verify `record_count = 200`, `next_row_id ≥ 200`, and `file_size_bytes` matches the sum.
 
 ### Phase 5 — DROP TABLE Cascade Retirement
 
 Spec: DROP TABLE must set `end_snapshot` on all of: `ducklake_table`, `ducklake_partition_info`, `ducklake_column`, `ducklake_column_tag`, `ducklake_data_file`, `ducklake_delete_file`, `ducklake_tag`
 
-- [ ] Extend `CatalogWriter::drop_table` to retire all dependent rows (columns, column tags, data files, delete files, tags, partition info) in the same snapshot transaction.
-- [ ] Extend `PgWire UpdateEndSnapshot` handling to cover all spec tables, not just `ducklake_table` and `ducklake_column`.
-- [ ] Add conformance tests: create a table with columns, tags, and data files; drop it; verify every related row across all spec tables has `end_snapshot` set at the drop snapshot; verify the table is invisible to readers at the drop snapshot and visible to readers at the snapshot before the drop.
+- [x] Extend `CatalogWriter::drop_table` to retire all dependent rows (columns, column tags, data files, delete files, tags, partition info) in the same snapshot transaction.
+- [x] Extend `PgWire UpdateEndSnapshot` handling to cover all spec tables, not just `ducklake_table` and `ducklake_column`.
+- [x] Add conformance tests: create a table with columns, tags, and data files; drop it; verify every related row across all spec tables has `end_snapshot` set at the drop snapshot; verify the table is invisible to readers at the drop snapshot and visible to readers at the snapshot before the drop.
 
 ### Deliverables
 
-- [ ] Conformance manifest checked into `tests/fixtures/ducklake-v1.0-schema.toml`
-- [ ] Conformance test suite green on every PR
-- [ ] `ducklake_snapshot` and `ducklake_snapshot_changes` spec-compatible in protobuf and PgWire facade
-- [ ] `ducklake_data_file` all spec fields present; MVCC visibility and `file_order` ordering correct
-- [ ] `ducklake_delete_file` all spec fields present; `list_delete_files` returns spec-shaped rows
-- [ ] `ducklake_table_stats` spec-compatible; `next_row_id` tracks row ID allocation; `SelectTableStats` non-empty
-- [ ] DROP TABLE retires all dependent spec tables; cascade conformance tests green
-- [ ] All new fields covered by unit tests in `slateduck-core` and integration tests in `slateduck-catalog`
+- [x] Conformance manifest checked into `tests/fixtures/ducklake-v1.0-schema.toml`
+- [x] Conformance test suite green on every PR
+- [x] `ducklake_snapshot` and `ducklake_snapshot_changes` spec-compatible in protobuf and PgWire facade
+- [x] `ducklake_data_file` all spec fields present; MVCC visibility and `file_order` ordering correct
+- [x] `ducklake_delete_file` all spec fields present; `list_delete_files` returns spec-shaped rows
+- [x] `ducklake_table_stats` spec-compatible; `next_row_id` tracks row ID allocation; `SelectTableStats` non-empty
+- [x] DROP TABLE retires all dependent spec tables; cascade conformance tests green
+- [x] All new fields covered by unit tests in `slateduck-core` and integration tests in `slateduck-catalog`
 
 ---
 

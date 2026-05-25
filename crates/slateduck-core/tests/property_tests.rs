@@ -23,6 +23,8 @@ proptest! {
             snapshot_time: "2024-01-01T00:00:00Z".to_string(),
             author,
             message,
+            next_catalog_id: None,
+            next_file_id: None,
         };
         let encoded = encode_value(&row);
         let decoded: SnapshotRow = decode_value(&encoded).unwrap();
@@ -102,22 +104,27 @@ proptest! {
     fn round_trip_data_file_row(
         data_file_id in 1u64..u64::MAX,
         table_id in 1u64..u64::MAX,
-        row_count in 0u64..1_000_000,
+        record_count in 0u64..1_000_000,
         file_size_bytes in 0u64..10_000_000_000,
-        snapshot_id in 1u64..u64::MAX,
+        begin_snapshot_val in 1u64..u64::MAX,
     ) {
         let row = DataFileRow {
             data_file_id,
             table_id,
             path: "data/table1/file.parquet".to_string(),
             file_format: "parquet".to_string(),
-            row_count,
+            record_count,
             file_size_bytes,
-            snapshot_id,
             footer_size: None,
             encryption_key: None,
-            begin_snapshot: Some(snapshot_id),
+            begin_snapshot: Some(begin_snapshot_val),
             end_snapshot: None,
+            file_order: None,
+            path_is_relative: None,
+            row_id_start: None,
+            partition_id: None,
+            mapping_id: None,
+            partial_max: None,
         };
         let encoded = encode_value(&row);
         let decoded: DataFileRow = decode_value(&encoded).unwrap();

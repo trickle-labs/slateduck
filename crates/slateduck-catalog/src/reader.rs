@@ -234,9 +234,63 @@ impl CatalogReader {
                 }
             }
             let row: DataFileRow = values::decode_value(&kv.value)?;
+            // v0.24: filter out rows retired at or before the requested snapshot.
+            if let Some(end) = row.end_snapshot {
+                if end <= self.dl_snapshot_id.as_u64() {
+                    continue;
+                }
+            }
+            files.push(row);
+        }
+        // v0.24: order results by file_order (spec requirement).
+        files.sort_by_key(|f| f.file_order.unwrap_or(f.data_file_id));
+        Ok(files)
+    }
+
+    /// List delete files visible at the current snapshot.
+    ///
+    /// v0.24: implements spec MVCC visibility: `begin_snapshot ≤ snapshot_id`
+    /// and (`end_snapshot IS NULL` or `end_snapshot > snapshot_id`).
+    pub async fn list_delete_files(&self, table_id: u64) -> CatalogResult<Vec<DeleteFileRow>> {
+        use slateduck_core::tags::TAG_DELETE_FILE;
+        let prefix = keys::prefix_for_tag(TAG_DELETE_FILE);
+        let snap = self.dl_snapshot_id.as_u64();
+        let mut files = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: DeleteFileRow = values::decode_value(&kv.value)?;
+            // Filter by table_id if populated; fall back to data_file_id key for legacy rows.
+            if let Some(tid) = row.table_id {
+                if tid != table_id {
+                    continue;
+                }
+            }
+            // MVCC visibility using begin_snapshot / end_snapshot if present,
+            // falling back to legacy snapshot_id.
+            let begin = row.begin_snapshot.unwrap_or(row.snapshot_id);
+            if begin > snap {
+                continue;
+            }
+            if let Some(end) = row.end_snapshot {
+                if end <= snap {
+                    continue;
+                }
+            }
             files.push(row);
         }
         Ok(files)
+    }
+
+    pub async fn get_table_stats(&self, table_id: u64) -> CatalogResult<Option<TableStatsRow>> {
+        let key = keys::key_table_stats(table_id);
+        match self.db.get(&key).await? {
+            Some(data) => Ok(Some(values::decode_value(&data)?)),
+            None => Ok(None),
+        }
     }
 
     pub async fn prune_files(
@@ -581,8 +635,7 @@ impl CatalogReader {
         }
 
         // ── data files ───────────────────────────────────────────────────────
-        // v0.19: Scan the full (from, to] interval. Use begin_snapshot/end_snapshot
-        // fields if present, falling back to snapshot_id for pre-v0.19 data.
+        // v0.24: use begin_snapshot/end_snapshot exclusively; snapshot_id was removed.
         {
             let prefix = keys::prefix_for_tag(TAG_DATA_FILE);
             let mut iter = self.db.scan_prefix(&prefix).await?;
@@ -592,7 +645,7 @@ impl CatalogReader {
                 .map_err(|e| CatalogError::SlateDb(e.to_string()))?
             {
                 let row: DataFileRow = values::decode_value(&kv.value)?;
-                let begin = row.begin_snapshot.unwrap_or(row.snapshot_id);
+                let begin = row.begin_snapshot.unwrap_or(0);
                 if begin > from && begin <= to {
                     added_data_files.push(row.clone());
                 }

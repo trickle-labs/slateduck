@@ -1,0 +1,1021 @@
+# DuckLake v1.0 Schema Manifest
+#
+# Machine-readable specification of all 28 DuckLake v1.0 catalog tables.
+# Each table entry lists column names, column types, nullability, and whether
+# the column is spec-required (present in the DuckLake v1.0 spec) or an
+# extension-only field (added by SlateDuck for internal tracking).
+#
+# This file is the regression gate for schema conformance: any CI-detected
+# column-name or type mismatch against this manifest is a spec violation.
+#
+# Column type tokens follow DuckDB SQL conventions:
+#   BIGINT, VARCHAR, BOOLEAN, TIMESTAMP WITH TIME ZONE
+#
+# Fields:
+#   name       - column name exactly as in the spec
+#   type       - SQL type
+#   nullable   - true if the column may be NULL
+#   spec       - true if the column is present in the DuckLake v1.0 spec
+
+spec_version = "1.0"
+generated_from = "specification/tables/overview.md"
+
+# ─── 1. ducklake_snapshot ───────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_snapshot"
+[[table.column]]
+name = "snapshot_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "snapshot_time"
+type = "TIMESTAMP WITH TIME ZONE"
+nullable = false
+spec = true
+[[table.column]]
+name = "schema_version"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "next_catalog_id"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "next_file_id"
+type = "BIGINT"
+nullable = true
+spec = true
+
+# ─── 2. ducklake_snapshot_changes ───────────────────────────────────────────
+
+[[table]]
+name = "ducklake_snapshot_changes"
+[[table.column]]
+name = "snapshot_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "changes_made"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "author"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "commit_message"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "commit_extra_info"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 3. ducklake_schema ─────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_schema"
+[[table.column]]
+name = "schema_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_uuid"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "path"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "path_is_relative"
+type = "BOOLEAN"
+nullable = true
+spec = true
+
+# ─── 4. ducklake_table ──────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_table"
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "table_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "table_uuid"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "path"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "path_is_relative"
+type = "BOOLEAN"
+nullable = true
+spec = true
+
+# ─── 5. ducklake_column ─────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_column"
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_type"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_order"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "nulls_allowed"
+type = "BOOLEAN"
+nullable = true
+spec = true
+[[table.column]]
+name = "initial_default"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "default_value_type"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "default_value_dialect"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "parent_column"
+type = "BIGINT"
+nullable = true
+spec = true
+
+# ─── 6. ducklake_data_file ──────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_data_file"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "file_order"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "path"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "path_is_relative"
+type = "BOOLEAN"
+nullable = true
+spec = true
+[[table.column]]
+name = "file_format"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "record_count"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "file_size_bytes"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "footer_size"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "row_id_start"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "partition_id"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "encryption_key"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "mapping_id"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "partial_max"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 7. ducklake_delete_file ────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_delete_file"
+[[table.column]]
+name = "delete_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "path"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "path_is_relative"
+type = "BOOLEAN"
+nullable = true
+spec = true
+[[table.column]]
+name = "format"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "delete_count"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "file_size_bytes"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "footer_size"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "encryption_key"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "partial_max"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 8. ducklake_table_stats ────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_table_stats"
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "record_count"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "next_row_id"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "file_size_bytes"
+type = "BIGINT"
+nullable = false
+spec = true
+
+# ─── 9. ducklake_metadata ───────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_metadata"
+[[table.column]]
+name = "metadata_key"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "metadata_value"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 10. ducklake_tag ───────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_tag"
+[[table.column]]
+name = "tag_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "object_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "tag_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "tag_value"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 11. ducklake_column_tag ────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_column_tag"
+[[table.column]]
+name = "tag_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "tag_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "tag_value"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 12. ducklake_file_column_stats ─────────────────────────────────────────
+
+[[table]]
+name = "ducklake_file_column_stats"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "null_count"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "lower_bound"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "upper_bound"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 13. ducklake_file_partition_value ──────────────────────────────────────
+
+[[table]]
+name = "ducklake_file_partition_value"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "partition_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "value"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 14. ducklake_partition_info ────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_partition_info"
+[[table.column]]
+name = "partition_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "partition_order"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "transform"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "transform_param"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 15. ducklake_sort_info ─────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_sort_info"
+[[table.column]]
+name = "sort_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "sort_order"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "sort_direction"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "null_order"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 16. ducklake_column_mapping ────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_column_mapping"
+[[table.column]]
+name = "mapping_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+
+# ─── 17. ducklake_column_name_mapping ───────────────────────────────────────
+
+[[table]]
+name = "ducklake_column_name_mapping"
+[[table.column]]
+name = "mapping_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 18. ducklake_view ──────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_view"
+[[table.column]]
+name = "view_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "view_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "view_uuid"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "view_definition"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "dialect"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "column_aliases"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 19. ducklake_macro ─────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_macro"
+[[table.column]]
+name = "macro_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "macro_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "macro_uuid"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 20. ducklake_macro_impl ────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_macro_impl"
+[[table.column]]
+name = "macro_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "dialect"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "type"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "sql"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 21. ducklake_schema_version ────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_schema_version"
+[[table.column]]
+name = "schema_version"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "schema_version_info"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 22. ducklake_inlined_data_table ────────────────────────────────────────
+
+[[table]]
+name = "ducklake_inlined_data_table"
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "schema_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "table_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 23. ducklake_inlined_data_rows ─────────────────────────────────────────
+
+[[table]]
+name = "ducklake_inlined_data_rows"
+[[table.column]]
+name = "row_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "begin_snapshot"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "end_snapshot"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "table_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "schema_version"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "payload"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 24. ducklake_files_scheduled_for_deletion ──────────────────────────────
+
+[[table]]
+name = "ducklake_files_scheduled_for_deletion"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "schedule_start"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "path"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "file_type"
+type = "VARCHAR"
+nullable = false
+spec = true
+
+# ─── 25. ducklake_file_variant_stats ────────────────────────────────────────
+
+[[table]]
+name = "ducklake_file_variant_stats"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "type_count"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "null_count"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "variant_type"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "extra_stats"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 26. ducklake_geo_stats ─────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_geo_stats"
+[[table.column]]
+name = "data_file_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "column_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "xmin"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "xmax"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "ymin"
+type = "BIGINT"
+nullable = true
+spec = true
+[[table.column]]
+name = "ymax"
+type = "BIGINT"
+nullable = true
+spec = true
+
+# ─── 27. ducklake_secret ────────────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_secret"
+[[table.column]]
+name = "secret_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "secret_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "secret_type"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "secret_value"
+type = "VARCHAR"
+nullable = true
+spec = true
+
+# ─── 28. ducklake_encryption_key ────────────────────────────────────────────
+
+[[table]]
+name = "ducklake_encryption_key"
+[[table.column]]
+name = "key_id"
+type = "BIGINT"
+nullable = false
+spec = true
+[[table.column]]
+name = "key_name"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "key_type"
+type = "VARCHAR"
+nullable = false
+spec = true
+[[table.column]]
+name = "wrapped_key"
+type = "VARCHAR"
+nullable = true
+spec = true
+[[table.column]]
+name = "kms_arn"
+type = "VARCHAR"
+nullable = true
+spec = true

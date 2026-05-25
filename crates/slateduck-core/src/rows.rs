@@ -24,6 +24,12 @@ pub struct SnapshotRow {
     pub author: Option<String>,
     #[prost(string, optional, tag = "5")]
     pub message: Option<String>,
+    /// v0.24: next_catalog_id at commit time (spec: ducklake_snapshot).
+    #[prost(uint64, optional, tag = "6")]
+    pub next_catalog_id: Option<u64>,
+    /// v0.24: next_file_id at commit time (spec: ducklake_snapshot).
+    #[prost(uint64, optional, tag = "7")]
+    pub next_file_id: Option<u64>,
 }
 
 /// Snapshot changes row value.
@@ -39,6 +45,18 @@ pub struct SnapshotChangesRow {
     pub schema_id: Option<u64>,
     #[prost(uint64, optional, tag = "5")]
     pub table_id: Option<u64>,
+    /// v0.24: author of the snapshot (spec: ducklake_snapshot_changes).
+    #[prost(string, optional, tag = "6")]
+    pub author: Option<String>,
+    /// v0.24: commit message (spec: ducklake_snapshot_changes).
+    #[prost(string, optional, tag = "7")]
+    pub commit_message: Option<String>,
+    /// v0.24: extra commit info JSON (spec: ducklake_snapshot_changes).
+    #[prost(string, optional, tag = "8")]
+    pub commit_extra_info: Option<String>,
+    /// v0.24: human-readable summary of changes made (spec: ducklake_snapshot_changes).
+    #[prost(string, optional, tag = "9")]
+    pub changes_made: Option<String>,
 }
 
 /// Schema row value.
@@ -167,25 +185,43 @@ pub struct DataFileRow {
     pub path: String,
     #[prost(string, tag = "4")]
     pub file_format: String,
+    /// v0.24: renamed from row_count — spec field is record_count.
     #[prost(uint64, tag = "5")]
-    pub row_count: u64,
+    pub record_count: u64,
     #[prost(uint64, tag = "6")]
     pub file_size_bytes: u64,
-    #[prost(uint64, tag = "7")]
-    pub snapshot_id: u64,
-    #[prost(string, optional, tag = "8")]
-    pub footer_size: Option<String>,
+    // tag 7 was legacy snapshot_id (removed in v0.24; begin_snapshot is canonical)
+    /// v0.24: footer_size in bytes (BIGINT semantics).
+    #[prost(int64, optional, tag = "8")]
+    pub footer_size: Option<i64>,
     /// v0.18: Per-file Parquet encryption key (pass-through, opaque bytes hex-encoded).
     #[prost(string, optional, tag = "9")]
     pub encryption_key: Option<String>,
     /// v0.19: Snapshot at which this file was added (begin of MVCC window).
-    /// Defaults to `snapshot_id` for backward compatibility with pre-v0.19 data.
     #[prost(uint64, optional, tag = "10")]
     pub begin_snapshot: Option<u64>,
     /// v0.19: Snapshot at which this file was logically deleted/replaced (end of MVCC window).
     /// `None` means the file is still active.
     #[prost(uint64, optional, tag = "11")]
     pub end_snapshot: Option<u64>,
+    /// v0.24: monotonically increasing file order within a table.
+    #[prost(uint64, optional, tag = "12")]
+    pub file_order: Option<u64>,
+    /// v0.24: true if path is relative to the table data root.
+    #[prost(bool, optional, tag = "13")]
+    pub path_is_relative: Option<bool>,
+    /// v0.24: first row ID assigned from the table's next_row_id counter.
+    #[prost(uint64, optional, tag = "14")]
+    pub row_id_start: Option<u64>,
+    /// v0.24: partition ID for this file (references ducklake_partition_info).
+    #[prost(uint64, optional, tag = "15")]
+    pub partition_id: Option<u64>,
+    /// v0.24: column mapping ID for this file.
+    #[prost(uint64, optional, tag = "16")]
+    pub mapping_id: Option<u64>,
+    /// v0.24: partial_max upper-bound for zone-map pruning.
+    #[prost(string, optional, tag = "17")]
+    pub partial_max: Option<String>,
 }
 
 /// Delete file row value.
@@ -197,12 +233,34 @@ pub struct DeleteFileRow {
     pub data_file_id: u64,
     #[prost(string, tag = "3")]
     pub path: String,
+    /// v0.24: renamed from row_count — spec field is delete_count.
     #[prost(uint64, tag = "4")]
-    pub row_count: u64,
+    pub delete_count: u64,
     #[prost(uint64, tag = "5")]
     pub file_size_bytes: u64,
     #[prost(uint64, tag = "6")]
     pub snapshot_id: u64,
+    /// v0.24: owning table ID (spec: ducklake_delete_file).
+    #[prost(uint64, optional, tag = "7")]
+    pub table_id: Option<u64>,
+    /// v0.24: snapshot at which this delete file was added.
+    #[prost(uint64, optional, tag = "8")]
+    pub begin_snapshot: Option<u64>,
+    /// v0.24: snapshot at which this delete file was retired.
+    #[prost(uint64, optional, tag = "9")]
+    pub end_snapshot: Option<u64>,
+    /// v0.24: true if path is relative to the table data root.
+    #[prost(bool, optional, tag = "10")]
+    pub path_is_relative: Option<bool>,
+    /// v0.24: delete file format (e.g. "parquet").
+    #[prost(string, optional, tag = "11")]
+    pub format: Option<String>,
+    /// v0.24: footer size in bytes.
+    #[prost(int64, optional, tag = "12")]
+    pub footer_size: Option<i64>,
+    /// v0.24: partial_max upper-bound for zone-map pruning.
+    #[prost(string, optional, tag = "13")]
+    pub partial_max: Option<String>,
 }
 
 /// Files scheduled for deletion row value.
@@ -260,12 +318,17 @@ pub struct NameMappingRow {
 pub struct TableStatsRow {
     #[prost(uint64, tag = "1")]
     pub table_id: u64,
+    /// v0.24: renamed from row_count — spec field is record_count.
     #[prost(uint64, tag = "2")]
-    pub row_count: u64,
+    pub record_count: u64,
     #[prost(uint64, tag = "3")]
     pub file_count: u64,
+    /// v0.24: renamed from total_size_bytes — spec field is file_size_bytes.
     #[prost(uint64, tag = "4")]
-    pub total_size_bytes: u64,
+    pub file_size_bytes: u64,
+    /// v0.24: next row ID to assign (tracks row ID allocation per table).
+    #[prost(uint64, optional, tag = "5")]
+    pub next_row_id: Option<u64>,
 }
 
 /// Table column stats row value.

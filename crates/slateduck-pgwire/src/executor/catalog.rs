@@ -89,11 +89,11 @@ pub(super) async fn execute_commit(
             BufferedOp::InsertDeleteFile {
                 data_file_id,
                 path,
-                row_count,
+                delete_count,
                 file_size_bytes,
             } => {
                 writer
-                    .register_delete_file(data_file_id, &path, row_count, file_size_bytes)
+                    .register_delete_file(data_file_id, &path, delete_count, file_size_bytes)
                     .await
                     .map_err(SlateDuckError::from)?;
             }
@@ -103,8 +103,17 @@ pub(super) async fn execute_commit(
                     .await
                     .map_err(SlateDuckError::from)?;
             }
-            BufferedOp::InsertSnapshotChanges { .. } => {
-                // Snapshot changes are informational; accepted but not stored separately
+            BufferedOp::InsertSnapshotChanges {
+                change_type,
+                change_info,
+                schema_id,
+                table_id,
+            } => {
+                // v0.24: persist SnapshotChangesRow transactionally (staged).
+                writer
+                    .add_snapshot_changes(change_type, change_info, schema_id, table_id)
+                    .await
+                    .map_err(SlateDuckError::from)?;
             }
             BufferedOp::UpdateEndSnapshot {
                 table_name,
@@ -146,10 +155,11 @@ pub(super) async fn execute_commit(
             }
             BufferedOp::UpdateTableStats {
                 table_id,
-                row_count_delta: _,
+                row_count_delta,
             } => {
+                // v0.24: apply the incoming row-count delta to existing stats.
                 writer
-                    .update_table_stats(table_id, 0, 0, 0)
+                    .apply_table_stats_delta(table_id, row_count_delta)
                     .await
                     .map_err(SlateDuckError::from)?;
             }
@@ -189,12 +199,12 @@ pub(super) async fn execute_commit(
             }
             BufferedOp::InsertTableStats {
                 table_id,
-                row_count,
+                record_count,
                 file_count,
-                total_size_bytes,
+                file_size_bytes,
             } => {
                 writer
-                    .update_table_stats(table_id, row_count, file_count, total_size_bytes)
+                    .update_table_stats(table_id, record_count, file_count, file_size_bytes)
                     .await
                     .map_err(SlateDuckError::from)?;
             }
@@ -257,6 +267,20 @@ pub(super) fn make_snapshot_row_response(
             Type::TEXT,
             FieldFormat::Text,
         ),
+        FieldInfo::new(
+            "next_catalog_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "next_file_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
     ]);
     let mut encoder = DataRowEncoder::new(schema.clone());
     encoder
@@ -285,6 +309,14 @@ pub(super) fn make_snapshot_row_response(
         .unwrap();
     encoder
         .encode_field_with_type_and_format(&snap.message, &Type::TEXT, FieldFormat::Text)
+        .unwrap();
+    let next_catalog_id = snap.next_catalog_id.map(|v| v.to_string());
+    encoder
+        .encode_field_with_type_and_format(&next_catalog_id, &Type::TEXT, FieldFormat::Text)
+        .unwrap();
+    let next_file_id = snap.next_file_id.map(|v| v.to_string());
+    encoder
+        .encode_field_with_type_and_format(&next_file_id, &Type::TEXT, FieldFormat::Text)
         .unwrap();
     let row = encoder.finish();
     let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![row]));
@@ -612,10 +644,38 @@ pub(super) fn make_data_files_response(
             FieldFormat::Text,
         ),
         FieldInfo::new(
+            "begin_snapshot".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "end_snapshot".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "file_order".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
             "path".to_string(),
             None,
             None,
             Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "path_is_relative".to_string(),
+            None,
+            None,
+            Type::BOOL,
             FieldFormat::Text,
         ),
         FieldInfo::new(
@@ -626,7 +686,7 @@ pub(super) fn make_data_files_response(
             FieldFormat::Text,
         ),
         FieldInfo::new(
-            "row_count".to_string(),
+            "record_count".to_string(),
             None,
             None,
             Type::INT8,
@@ -640,7 +700,7 @@ pub(super) fn make_data_files_response(
             FieldFormat::Text,
         ),
         FieldInfo::new(
-            "snapshot_id".to_string(),
+            "row_id_start".to_string(),
             None,
             None,
             Type::INT8,
@@ -664,12 +724,28 @@ pub(super) fn make_data_files_response(
                 FieldFormat::Text,
             )
             .unwrap();
+        let begin = f.begin_snapshot.map(|s| s.to_string());
+        encoder
+            .encode_field_with_type_and_format(&begin, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        let end = f.end_snapshot.map(|e| e.to_string());
+        encoder
+            .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        let file_order = f.file_order.map(|o| o.to_string());
+        encoder
+            .encode_field_with_type_and_format(&file_order, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.path.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
+            .unwrap();
+        let path_is_relative = f.path_is_relative.map(|b| b.to_string());
+        encoder
+            .encode_field_with_type_and_format(&path_is_relative, &Type::TEXT, FieldFormat::Text)
             .unwrap();
         encoder
             .encode_field_with_type_and_format(
@@ -680,7 +756,7 @@ pub(super) fn make_data_files_response(
             .unwrap();
         encoder
             .encode_field_with_type_and_format(
-                &Some(f.row_count.to_string()),
+                &Some(f.record_count.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
@@ -692,12 +768,9 @@ pub(super) fn make_data_files_response(
                 FieldFormat::Text,
             )
             .unwrap();
+        let row_id_start = f.row_id_start.map(|r| r.to_string());
         encoder
-            .encode_field_with_type_and_format(
-                &Some(f.snapshot_id.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
+            .encode_field_with_type_and_format(&row_id_start, &Type::TEXT, FieldFormat::Text)
             .unwrap();
         data_rows.push(encoder.finish());
     }
@@ -778,11 +851,11 @@ pub(super) async fn execute_table_changes<'a>(
     for file in &diff.added_data_files {
         let rows = slateduck_sql::table_changes::extract_rows_from_file(
             &file.path,
-            file.row_count,
+            file.record_count,
             base_rowid,
             "{}",
         );
-        base_rowid += file.row_count;
+        base_rowid += file.record_count;
         added_rows.extend(rows);
     }
 
@@ -791,11 +864,11 @@ pub(super) async fn execute_table_changes<'a>(
     for file in &diff.retired_data_files {
         let rows = slateduck_sql::table_changes::extract_rows_from_file(
             &file.path,
-            file.row_count,
+            file.record_count,
             base_rowid,
             "{}",
         );
-        base_rowid += file.row_count;
+        base_rowid += file.record_count;
         removed_rows.extend(rows);
     }
 
@@ -904,4 +977,195 @@ pub(super) async fn execute_next_rowid_range<'a>(
     let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![encoder.finish()]));
     resp.set_command_tag("SELECT 1");
     Ok(vec![Response::Query(resp)])
+}
+
+/// Build a PgWire response for `SELECT * FROM ducklake_table_stats WHERE table_id = $1`.
+pub(super) fn make_table_stats_response(
+    stats: Option<slateduck_core::rows::TableStatsRow>,
+) -> Response<'static> {
+    let schema = Arc::new(vec![
+        FieldInfo::new(
+            "table_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "record_count".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "file_count".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "file_size_bytes".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "next_row_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+    ]);
+    let data_rows = if let Some(s) = stats {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(s.table_id.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(s.record_count.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(s.file_count.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(s.file_size_bytes.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        let next_row_id = s.next_row_id.map(|v| v.to_string());
+        encoder
+            .encode_field_with_type_and_format(&next_row_id, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        vec![encoder.finish()]
+    } else {
+        vec![]
+    };
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
+}
+
+/// Build a PgWire response for `SELECT * FROM ducklake_delete_file WHERE table_id = $1`.
+pub(super) fn make_delete_files_response(
+    files: Vec<slateduck_core::rows::DeleteFileRow>,
+) -> Response<'static> {
+    let schema = Arc::new(vec![
+        FieldInfo::new(
+            "delete_file_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "table_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "path".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "delete_count".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "file_size_bytes".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "begin_snapshot".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "end_snapshot".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+    ]);
+    let mut data_rows = Vec::new();
+    for f in &files {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(f.delete_file_id.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        let tid = f.table_id.map(|t| t.to_string());
+        encoder
+            .encode_field_with_type_and_format(&tid, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(f.path.clone()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(f.delete_count.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        encoder
+            .encode_field_with_type_and_format(
+                &Some(f.file_size_bytes.to_string()),
+                &Type::TEXT,
+                FieldFormat::Text,
+            )
+            .unwrap();
+        let begin = f.begin_snapshot.map(|b| b.to_string());
+        encoder
+            .encode_field_with_type_and_format(&begin, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        let end = f.end_snapshot.map(|e| e.to_string());
+        encoder
+            .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
+            .unwrap();
+        data_rows.push(encoder.finish());
+    }
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
 }

@@ -186,7 +186,8 @@ pub async fn export_catalog<W: Write>(
         .map_err(|e| CatalogError::SlateDb(e.to_string()))?
     {
         let row: DataFileRow = values::decode_value(&kv.value)?;
-        if row.snapshot_id <= dl_snapshot_id.as_u64() {
+        let begin = row.begin_snapshot.unwrap_or(0);
+        if begin <= dl_snapshot_id.as_u64() {
             let exported = ExportedRow {
                 table: "ducklake_data_file".to_string(),
                 data: serde_json::json!({
@@ -194,9 +195,10 @@ pub async fn export_catalog<W: Write>(
                     "table_id": row.table_id,
                     "path": row.path,
                     "file_format": row.file_format,
-                    "row_count": row.row_count,
+                    "record_count": row.record_count,
                     "file_size_bytes": row.file_size_bytes,
-                    "snapshot_id": row.snapshot_id,
+                    "begin_snapshot": begin,
+                    "end_snapshot": row.end_snapshot,
                     "footer_size": row.footer_size,
                 }),
             };
@@ -217,16 +219,18 @@ pub async fn export_catalog<W: Write>(
         .map_err(|e| CatalogError::SlateDb(e.to_string()))?
     {
         let row: DeleteFileRow = values::decode_value(&kv.value)?;
-        if row.snapshot_id <= dl_snapshot_id.as_u64() {
+        let begin = row.begin_snapshot.unwrap_or(row.snapshot_id);
+        if begin <= dl_snapshot_id.as_u64() {
             let exported = ExportedRow {
                 table: "ducklake_delete_file".to_string(),
                 data: serde_json::json!({
                     "delete_file_id": row.delete_file_id,
                     "data_file_id": row.data_file_id,
                     "path": row.path,
-                    "row_count": row.row_count,
+                    "delete_count": row.delete_count,
                     "file_size_bytes": row.file_size_bytes,
                     "snapshot_id": row.snapshot_id,
+                    "begin_snapshot": begin,
                 }),
             };
             serde_json::to_writer(&mut *writer, &exported)
@@ -329,6 +333,8 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
                     snapshot_time: req_str!(d, "snapshot_time", tbl),
                     author: d["author"].as_str().map(|s| s.to_string()),
                     message: d["message"].as_str().map(|s| s.to_string()),
+                    next_catalog_id: d["next_catalog_id"].as_u64(),
+                    next_file_id: d["next_file_id"].as_u64(),
                 };
                 let key = keys::key_snapshot(snapshot_id);
                 db.put(&key, &values::encode_value(&row)).await?;
@@ -390,19 +396,29 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
             "ducklake_data_file" => {
                 let data_file_id = req_u64!(d, "data_file_id", tbl);
                 let table_id = req_u64!(d, "table_id", tbl);
-                let snapshot_id = req_u64!(d, "snapshot_id", tbl);
+                let begin_snapshot = d["begin_snapshot"]
+                    .as_u64()
+                    .or_else(|| d["snapshot_id"].as_u64());
                 let row = DataFileRow {
                     data_file_id,
                     table_id,
                     path: req_str!(d, "path", tbl),
                     file_format: req_str!(d, "file_format", tbl),
-                    row_count: req_u64!(d, "row_count", tbl),
+                    record_count: d["record_count"]
+                        .as_u64()
+                        .or_else(|| d["row_count"].as_u64())
+                        .unwrap_or(0),
                     file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
-                    snapshot_id,
-                    footer_size: d["footer_size"].as_str().map(|s| s.to_string()),
+                    footer_size: d["footer_size"].as_i64(),
                     encryption_key: d["encryption_key"].as_str().map(|s| s.to_string()),
-                    begin_snapshot: Some(snapshot_id),
-                    end_snapshot: None,
+                    begin_snapshot,
+                    end_snapshot: d["end_snapshot"].as_u64(),
+                    file_order: d["file_order"].as_u64(),
+                    path_is_relative: d["path_is_relative"].as_bool(),
+                    row_id_start: d["row_id_start"].as_u64(),
+                    partition_id: d["partition_id"].as_u64(),
+                    mapping_id: d["mapping_id"].as_u64(),
+                    partial_max: d["partial_max"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_data_file(table_id, data_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
@@ -411,13 +427,24 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
             "ducklake_delete_file" => {
                 let delete_file_id = req_u64!(d, "delete_file_id", tbl);
                 let data_file_id = req_u64!(d, "data_file_id", tbl);
+                let snapshot_id = d["snapshot_id"].as_u64().unwrap_or(0);
                 let row = DeleteFileRow {
                     delete_file_id,
                     data_file_id,
                     path: req_str!(d, "path", tbl),
-                    row_count: req_u64!(d, "row_count", tbl),
+                    delete_count: d["delete_count"]
+                        .as_u64()
+                        .or_else(|| d["row_count"].as_u64())
+                        .unwrap_or(0),
                     file_size_bytes: req_u64!(d, "file_size_bytes", tbl),
-                    snapshot_id: req_u64!(d, "snapshot_id", tbl),
+                    snapshot_id,
+                    table_id: d["table_id"].as_u64(),
+                    begin_snapshot: d["begin_snapshot"].as_u64(),
+                    end_snapshot: d["end_snapshot"].as_u64(),
+                    path_is_relative: d["path_is_relative"].as_bool(),
+                    format: d["format"].as_str().map(|s| s.to_string()),
+                    footer_size: d["footer_size"].as_i64(),
+                    partial_max: d["partial_max"].as_str().map(|s| s.to_string()),
                 };
                 let key = keys::key_delete_file(data_file_id, delete_file_id);
                 db.put(&key, &values::encode_value(&row)).await?;
@@ -524,13 +551,18 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
             table_id,
             path: path.clone(),
             file_format: "parquet".to_string(),
-            row_count: 0, // Unknown without reading footer
+            record_count: 0, // Unknown without reading footer
             file_size_bytes: 0,
-            snapshot_id: 1,
             footer_size: None,
             encryption_key: None,
             begin_snapshot: Some(1),
             end_snapshot: None,
+            file_order: None,
+            path_is_relative: Some(false),
+            row_id_start: None,
+            partition_id: None,
+            mapping_id: None,
+            partial_max: None,
         };
         let key = keys::key_data_file(table_id, file_id);
         db.put(&key, &values::encode_value(&row)).await?;
@@ -548,6 +580,8 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
         snapshot_time: chrono::Utc::now().to_rfc3339(),
         author: Some("rebuild".to_string()),
         message: Some("Catalog rebuilt from Parquet files".to_string()),
+        next_catalog_id: None,
+        next_file_id: None,
     };
     let key = keys::key_snapshot(1);
     db.put(&key, &values::encode_value(&snapshot_row)).await?;

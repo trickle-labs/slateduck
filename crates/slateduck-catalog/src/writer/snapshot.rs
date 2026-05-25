@@ -40,6 +40,8 @@ impl CatalogWriter {
             snapshot_time: chrono::Utc::now().to_rfc3339(),
             author: author.map(|s| s.to_string()),
             message: message.map(|s| s.to_string()),
+            next_catalog_id: Some(self.counters.peek_catalog_id()),
+            next_file_id: Some(self.counters.peek_file_id()),
         };
 
         // Drain staged mutations — these become part of the atomic commit.

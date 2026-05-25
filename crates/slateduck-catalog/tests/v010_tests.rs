@@ -732,8 +732,8 @@ async fn e2e_write_cdc_event_downstream_diff() {
     let df = &diff.added_data_files[0];
     assert_eq!(df.table_id, table_id);
     assert!(df.path.contains("part-00001.parquet"));
-    assert_eq!(df.row_count, 50_000);
-    assert_eq!(df.snapshot_id, snap_after.as_u64());
+    assert_eq!(df.record_count, 50_000);
+    assert_eq!(df.begin_snapshot.unwrap_or(0), snap_after.as_u64());
 
     // Build CDC snapshot and verify event contents.
     let cdc = CdcSnapshot::from_diff(&diff);

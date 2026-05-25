@@ -155,6 +155,10 @@ impl CatalogWriter {
     ///
     /// The `schema_id` **must** be the correct owning schema; callers that
     /// only have the `table_id` should first call `find_table_schema_id`.
+    ///
+    /// v0.24: CASCADE retirement — retires all dependent spec rows (columns,
+    /// column tags, data files, delete files, tags, partition info) in the
+    /// same snapshot transaction.
     pub async fn drop_table(
         &mut self,
         schema_id: u64,
@@ -172,8 +176,141 @@ impl CatalogWriter {
 
         let mut row: TableRow = values::decode_value(&existing)?;
         row.end_snapshot = Some(snapshot_id);
-
         self.stage(key, values::encode_value(&row));
+
+        // CASCADE: retire live columns for this table.
+        {
+            let prefix = keys::prefix_columns_for_table(table_id);
+            let mut iter = self
+                .db
+                .scan_prefix(&prefix)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let mut to_retire: Vec<(Vec<u8>, ColumnRow)> = Vec::new();
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let col_row: ColumnRow = values::decode_value(&kv.value)?;
+                if col_row.end_snapshot.is_none() {
+                    to_retire.push((kv.key.to_vec(), col_row));
+                }
+            }
+            for (col_key, mut col_row) in to_retire {
+                col_row.end_snapshot = Some(snapshot_id);
+                self.stage(col_key, values::encode_value(&col_row));
+            }
+        }
+
+        // CASCADE: retire live data files for this table.
+        {
+            let prefix = keys::prefix_for_tag(slateduck_core::tags::TAG_DATA_FILE);
+            let mut iter = self
+                .db
+                .scan_prefix(&prefix)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let mut to_retire: Vec<(Vec<u8>, DataFileRow)> = Vec::new();
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let df_row: DataFileRow = values::decode_value(&kv.value)?;
+                if df_row.table_id == table_id && df_row.end_snapshot.is_none() {
+                    to_retire.push((kv.key.to_vec(), df_row));
+                }
+            }
+            for (df_key, mut df_row) in to_retire {
+                let file_begin_snap = df_row.begin_snapshot.unwrap_or(0);
+                let file_id = df_row.data_file_id;
+                df_row.end_snapshot = Some(snapshot_id);
+                let encoded = values::encode_value(&df_row);
+                // Update canonical key.
+                self.stage(df_key, encoded.clone());
+                // Also update the secondary index (TAG_DATA_FILE_BY_SNAPSHOT) so
+                // list_data_files() sees the retirement via its secondary-index scan.
+                let idx_key = keys::key_data_file_by_snapshot(table_id, file_begin_snap, file_id);
+                self.stage(idx_key, encoded);
+            }
+        }
+
+        // CASCADE: retire live partition info for this table.
+        {
+            let prefix = keys::prefix_for_tag(slateduck_core::tags::TAG_PARTITION_INFO);
+            let mut iter = self
+                .db
+                .scan_prefix(&prefix)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let mut to_retire: Vec<(Vec<u8>, PartitionInfoRow)> = Vec::new();
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let pi_row: PartitionInfoRow = values::decode_value(&kv.value)?;
+                if pi_row.table_id == table_id && pi_row.end_snapshot.is_none() {
+                    to_retire.push((kv.key.to_vec(), pi_row));
+                }
+            }
+            for (pi_key, mut pi_row) in to_retire {
+                pi_row.end_snapshot = Some(snapshot_id);
+                self.stage(pi_key, values::encode_value(&pi_row));
+            }
+        }
+
+        // CASCADE: retire live tags for this table.
+        {
+            let prefix = keys::prefix_for_tag(slateduck_core::tags::TAG_TAG);
+            let mut iter = self
+                .db
+                .scan_prefix(&prefix)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let mut to_retire: Vec<(Vec<u8>, TagRow)> = Vec::new();
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let tag_row: TagRow = values::decode_value(&kv.value)?;
+                if tag_row.object_id == table_id && tag_row.end_snapshot.is_none() {
+                    to_retire.push((kv.key.to_vec(), tag_row));
+                }
+            }
+            for (tag_key, mut tag_row) in to_retire {
+                tag_row.end_snapshot = Some(snapshot_id);
+                self.stage(tag_key, values::encode_value(&tag_row));
+            }
+        }
+
+        // CASCADE: retire live column tags for this table.
+        {
+            let prefix = keys::prefix_for_tag(slateduck_core::tags::TAG_COLUMN_TAG);
+            let mut iter = self
+                .db
+                .scan_prefix(&prefix)
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?;
+            let mut to_retire: Vec<(Vec<u8>, ColumnTagRow)> = Vec::new();
+            while let Some(kv) = iter
+                .next()
+                .await
+                .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+            {
+                let ct_row: ColumnTagRow = values::decode_value(&kv.value)?;
+                if ct_row.table_id == table_id && ct_row.end_snapshot.is_none() {
+                    to_retire.push((kv.key.to_vec(), ct_row));
+                }
+            }
+            for (ct_key, mut ct_row) in to_retire {
+                ct_row.end_snapshot = Some(snapshot_id);
+                self.stage(ct_key, values::encode_value(&ct_row));
+            }
+        }
+
         self.mark_schema_changed();
         Ok(())
     }
@@ -298,24 +435,43 @@ impl CatalogWriter {
         table_id: u64,
         path: &str,
         file_format: &str,
-        row_count: u64,
+        record_count: u64,
         file_size_bytes: u64,
     ) -> CatalogResult<u64> {
         let data_file_id = self.counters.alloc_file_id();
         let snapshot_id = self.counters.peek_snapshot_id();
+        // v0.24: assign file_order as monotonically increasing within table.
+        let file_order = data_file_id;
+        // v0.24: row_id_start from pre-increment of table next_row_id.
+        let row_id_start = {
+            let key = keys::key_table_stats(table_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    let existing: slateduck_core::rows::TableStatsRow =
+                        slateduck_core::values::decode_value(&data).unwrap_or_default();
+                    existing.next_row_id.unwrap_or(0)
+                }
+                None => 0,
+            }
+        };
 
         let row = DataFileRow {
             data_file_id,
             table_id,
             path: path.to_string(),
             file_format: file_format.to_string(),
-            row_count,
+            record_count,
             file_size_bytes,
-            snapshot_id,
             footer_size: None,
             encryption_key: None,
             begin_snapshot: Some(snapshot_id),
             end_snapshot: None,
+            file_order: Some(file_order),
+            path_is_relative: Some(false),
+            row_id_start: Some(row_id_start),
+            partition_id: None,
+            mapping_id: None,
+            partial_max: None,
         };
 
         let key = keys::key_data_file(table_id, data_file_id);
@@ -331,7 +487,7 @@ impl CatalogWriter {
         &mut self,
         data_file_id: u64,
         path: &str,
-        row_count: u64,
+        delete_count: u64,
         file_size_bytes: u64,
     ) -> CatalogResult<u64> {
         let delete_file_id = self.counters.alloc_file_id();
@@ -341,9 +497,16 @@ impl CatalogWriter {
             delete_file_id,
             data_file_id,
             path: path.to_string(),
-            row_count,
+            delete_count,
             file_size_bytes,
             snapshot_id,
+            table_id: None,
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
+            path_is_relative: Some(false),
+            format: Some("parquet".to_string()),
+            footer_size: None,
+            partial_max: None,
         };
 
         let key = keys::key_delete_file(data_file_id, delete_file_id);
@@ -755,6 +918,82 @@ impl CatalogWriter {
                 Err(_) => continue, // Retry on contention
             }
         }
+    }
+
+    // ─── v0.24: SnapshotChanges and delta stats ────────────────────────────
+
+    /// Stage a `SnapshotChangesRow` for this transaction.
+    ///
+    /// The key is `key_snapshot_changes(pending_snapshot_id)`. The row is
+    /// committed atomically with the snapshot in `create_snapshot()`.
+    pub async fn add_snapshot_changes(
+        &mut self,
+        change_type: String,
+        change_info: Option<String>,
+        schema_id: Option<u64>,
+        table_id: Option<u64>,
+    ) -> CatalogResult<()> {
+        let snapshot_id = self.counters.peek_snapshot_id();
+        let row = SnapshotChangesRow {
+            snapshot_id,
+            change_type,
+            change_info,
+            schema_id,
+            table_id,
+            author: None,
+            commit_message: None,
+            commit_extra_info: None,
+            changes_made: None,
+        };
+        let key = keys::key_snapshot_changes(snapshot_id);
+        self.stage(key, values::encode_value(&row));
+        Ok(())
+    }
+
+    /// Apply a row-count delta to existing table stats.
+    ///
+    /// Reads the current stats, adds `row_count_delta`, and writes back.
+    /// Used by `UpdateTableStats` PgWire op (delete operations).
+    pub async fn apply_table_stats_delta(
+        &mut self,
+        table_id: u64,
+        row_count_delta: i64,
+    ) -> CatalogResult<()> {
+        let key = keys::key_table_stats(table_id);
+        let existing = match self.db.get(&key).await? {
+            Some(data) => slateduck_core::values::decode_value::<TableStatsRow>(&data).unwrap_or(
+                TableStatsRow {
+                    table_id,
+                    record_count: 0,
+                    file_count: 0,
+                    file_size_bytes: 0,
+                    next_row_id: None,
+                },
+            ),
+            None => TableStatsRow {
+                table_id,
+                record_count: 0,
+                file_count: 0,
+                file_size_bytes: 0,
+                next_row_id: None,
+            },
+        };
+        let new_count = if row_count_delta < 0 {
+            existing
+                .record_count
+                .saturating_sub((-row_count_delta) as u64)
+        } else {
+            existing.record_count.saturating_add(row_count_delta as u64)
+        };
+        let updated = TableStatsRow {
+            table_id,
+            record_count: new_count,
+            file_count: existing.file_count,
+            file_size_bytes: existing.file_size_bytes,
+            next_row_id: existing.next_row_id,
+        };
+        self.db.put(&key, values::encode_value(&updated)).await?;
+        Ok(())
     }
 }
 

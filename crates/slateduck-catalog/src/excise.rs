@@ -314,7 +314,7 @@ async fn find_excisable_data_files(db: &Db, before_snapshot: u64) -> CatalogResu
         .map_err(|e| CatalogError::SlateDb(e.to_string()))?
     {
         let row: DataFileRow = values::decode_value(&kv.value)?;
-        if row.snapshot_id < before_snapshot {
+        if row.begin_snapshot.unwrap_or(0) < before_snapshot {
             paths.push(row.path);
         }
     }

@@ -42,15 +42,35 @@ impl CatalogWriter {
     pub async fn update_table_stats(
         &mut self,
         table_id: u64,
-        row_count: u64,
+        record_count: u64,
         file_count: u64,
-        total_size_bytes: u64,
+        file_size_bytes: u64,
     ) -> CatalogResult<()> {
+        // v0.24: read existing stats to accumulate next_row_id.
+        let existing_next_row_id = {
+            let key = keys::key_table_stats(table_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    let existing: TableStatsRow = slateduck_core::values::decode_value(&data)
+                        .unwrap_or(TableStatsRow {
+                            table_id,
+                            record_count: 0,
+                            file_count: 0,
+                            file_size_bytes: 0,
+                            next_row_id: None,
+                        });
+                    existing.next_row_id.unwrap_or(0)
+                }
+                None => 0,
+            }
+        };
+        let next_row_id = existing_next_row_id.saturating_add(record_count);
         let row = TableStatsRow {
             table_id,
-            row_count,
+            record_count,
             file_count,
-            total_size_bytes,
+            file_size_bytes,
+            next_row_id: Some(next_row_id),
         };
         let key = keys::key_table_stats(table_id);
         self.db.put(&key, values::encode_value(&row)).await?;
