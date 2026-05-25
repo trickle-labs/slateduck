@@ -787,4 +787,3 @@ async fn ingest_throughput_meets_performance_target() {
         "p95 commit latency {p95_ms:.1}ms must be ≤ {max_p95_ms:.0}ms"
     );
 }
-

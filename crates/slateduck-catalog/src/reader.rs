@@ -617,5 +617,4 @@ impl CatalogReader {
             retired_data_files,
         })
     }
-
 }

@@ -9,10 +9,6 @@ use std::net::IpAddr;
 
 use std::time::Duration;
 
-fn test_ip(last_octet: u8) -> IpAddr {
-    IpAddr::from([192, 168, 1, last_octet])
-}
-
 /// Test: invalid credentials are rejected with generic error (no info leak).
 #[test]
 fn invalid_auth_rejected() {
