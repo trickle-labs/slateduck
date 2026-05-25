@@ -230,7 +230,16 @@ impl SimpleQueryHandler for SlateDuckHandler {
     {
         let params = ParamValues::default();
         let mut session = self.session.lock().await;
-        match executor::execute_sql(query, &params, &self.catalog, &mut session, &self.notify_manager, &self.extension_schemas).await {
+        match executor::execute_sql(
+            query,
+            &params,
+            &self.catalog,
+            &mut session,
+            &self.notify_manager,
+            &self.extension_schemas,
+        )
+        .await
+        {
             Ok(responses) => Ok(responses),
             Err(e) => Err(e.into()),
         }
@@ -282,7 +291,16 @@ impl ExtendedQueryHandler for SlateDuckHandler {
         let params = ParamValues::new(param_values);
 
         let mut session = self.session.lock().await;
-        match executor::execute_sql(sql, &params, &self.catalog, &mut session, &self.notify_manager, &self.extension_schemas).await {
+        match executor::execute_sql(
+            sql,
+            &params,
+            &self.catalog,
+            &mut session,
+            &self.notify_manager,
+            &self.extension_schemas,
+        )
+        .await
+        {
             Ok(mut responses) => {
                 if let Some(resp) = responses.pop() {
                     Ok(resp)

@@ -411,11 +411,14 @@ pub extern "C" fn slateduck_list_schemas(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckSchemaList {
-    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
-        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
-        // SAFETY: future is driven to completion; reader is scoped to this closure.
-        cat.runtime.block_on(reader.list_schemas())
-    });
+    let inner = with_catalog(
+        catalog,
+        |cat| -> slateduck_catalog::error::CatalogResult<_> {
+            let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+            // SAFETY: future is driven to completion; reader is scoped to this closure.
+            cat.runtime.block_on(reader.list_schemas())
+        },
+    );
     match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
@@ -460,11 +463,14 @@ pub extern "C" fn slateduck_list_tables(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckTableList {
-    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
-        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
-        // SAFETY: future is driven to completion; reader is scoped to this closure.
-        cat.runtime.block_on(reader.list_tables(schema_id))
-    });
+    let inner = with_catalog(
+        catalog,
+        |cat| -> slateduck_catalog::error::CatalogResult<_> {
+            let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+            // SAFETY: future is driven to completion; reader is scoped to this closure.
+            cat.runtime.block_on(reader.list_tables(schema_id))
+        },
+    );
     match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
@@ -510,12 +516,14 @@ pub extern "C" fn slateduck_describe_table(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckColumnList {
-    let inner =
-        with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
+    let inner = with_catalog(
+        catalog,
+        |cat| -> slateduck_catalog::error::CatalogResult<_> {
             let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
             // SAFETY: future is driven to completion; reader is scoped to this closure.
             cat.runtime.block_on(reader.describe_table(table_id))
-        });
+        },
+    );
     match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());
@@ -576,11 +584,14 @@ pub extern "C" fn slateduck_list_data_files(
     snapshot_id: u64,
     err: *mut SlateduckError,
 ) -> SlateduckFileList {
-    let inner = with_catalog(catalog, |cat| -> slateduck_catalog::error::CatalogResult<_> {
-        let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
-        // SAFETY: future is driven to completion; reader is scoped to this closure.
-        cat.runtime.block_on(reader.list_data_files(table_id))
-    });
+    let inner = with_catalog(
+        catalog,
+        |cat| -> slateduck_catalog::error::CatalogResult<_> {
+            let reader = cat.store.read_at(SnapshotId::new(snapshot_id))?;
+            // SAFETY: future is driven to completion; reader is scoped to this closure.
+            cat.runtime.block_on(reader.list_data_files(table_id))
+        },
+    );
     match inner {
         None => {
             write_error(err, SlateduckError::invalid_handle());

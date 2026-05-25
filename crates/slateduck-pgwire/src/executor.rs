@@ -23,7 +23,16 @@ pub async fn execute_sql<'a>(
     extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
     let kind = classify_statement(sql)?;
-    execute_classified(kind, sql, params, store, session, notify_manager, extension_schemas).await
+    execute_classified(
+        kind,
+        sql,
+        params,
+        store,
+        session,
+        notify_manager,
+        extension_schemas,
+    )
+    .await
 }
 
 async fn execute_classified<'a>(
@@ -508,10 +517,7 @@ async fn execute_classified<'a>(
             execute_release_snapshot(consumer_id, store).await
         }
         StatementKind::Listen { ref channel } => {
-            session
-                .subscriptions
-                .listen(channel, notify_manager)
-                .await;
+            session.subscriptions.listen(channel, notify_manager).await;
             Ok(vec![Response::Execution(Tag::new("LISTEN"))])
         }
         StatementKind::Unlisten { ref channel } => {
@@ -521,17 +527,31 @@ async fn execute_classified<'a>(
         StatementKind::CreateExtensionTable {
             ref schema_name,
             ref table_name,
-        } => execute_create_extension_table(schema_name, table_name, store, extension_schemas).await,
+        } => {
+            execute_create_extension_table(schema_name, table_name, store, extension_schemas).await
+        }
         StatementKind::InsertExtensionRow {
             ref schema_name,
             ref table_name,
             ref columns,
             ..
-        } => execute_insert_extension_row(schema_name, table_name, columns, params, store, extension_schemas).await,
+        } => {
+            execute_insert_extension_row(
+                schema_name,
+                table_name,
+                columns,
+                params,
+                store,
+                extension_schemas,
+            )
+            .await
+        }
         StatementKind::SelectExtensionTable {
             ref schema_name,
             ref table_name,
-        } => execute_select_extension_table(schema_name, table_name, store, extension_schemas).await,
+        } => {
+            execute_select_extension_table(schema_name, table_name, store, extension_schemas).await
+        }
         StatementKind::DeleteExtensionRows {
             ref schema_name,
             ref table_name,

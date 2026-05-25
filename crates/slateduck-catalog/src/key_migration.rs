@@ -17,7 +17,7 @@ use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::{ExtensionSchemaRow, SnapshotLeaseRow};
 use slateduck_core::tags::{
-    TAG_EXTENSION_SCHEMA, TAG_SNAPSHOT_LEASE, SYSTEM_KEY_ENCODING_V020_MIGRATED,
+    SYSTEM_KEY_ENCODING_V020_MIGRATED, TAG_EXTENSION_SCHEMA, TAG_SNAPSHOT_LEASE,
 };
 
 use crate::error::{CatalogError, CatalogResult};
@@ -90,11 +90,8 @@ async fn migrate_extension_keys(db: &Db) -> CatalogResult<()> {
             Ok(r) => r,
             Err(_) => continue,
         };
-        let expected_key = keys::key_extension_schema(
-            row.extension_id as u8,
-            &row.table_name,
-            row.row_id,
-        );
+        let expected_key =
+            keys::key_extension_schema(row.extension_id as u8, &row.table_name, row.row_id);
         if kv.key.as_ref() != expected_key.as_slice() {
             to_migrate.push((kv.key.to_vec(), kv.value.to_vec()));
         }
@@ -102,11 +99,8 @@ async fn migrate_extension_keys(db: &Db) -> CatalogResult<()> {
 
     for (old_key, value) in to_migrate {
         if let Ok(row) = ExtensionSchemaRow::decode(value.as_ref()) {
-            let new_key = keys::key_extension_schema(
-                row.extension_id as u8,
-                &row.table_name,
-                row.row_id,
-            );
+            let new_key =
+                keys::key_extension_schema(row.extension_id as u8, &row.table_name, row.row_id);
             db.put(&new_key, &value).await?;
             db.delete(&old_key).await?;
         }

@@ -39,9 +39,16 @@ async fn test_select_version() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let responses = executor::execute_sql("SELECT version()", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "SELECT version()",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
 }
 
@@ -52,9 +59,16 @@ async fn test_select_current_schema() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let responses = executor::execute_sql("SELECT current_schema()", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "SELECT current_schema()",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
 }
 
@@ -65,10 +79,16 @@ async fn test_select_current_database() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let responses =
-        executor::execute_sql("SELECT current_database()", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-            .await
-            .unwrap();
+    let responses = executor::execute_sql(
+        "SELECT current_database()",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
 }
 
@@ -97,14 +117,28 @@ async fn test_set_and_show() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let responses = executor::execute_sql("SET timezone = 'UTC'", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "SET timezone = 'UTC'",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
 
-    let responses = executor::execute_sql("SHOW timezone", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "SHOW timezone",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
 }
 
@@ -116,27 +150,55 @@ async fn test_begin_commit_rollback() {
     let params = ParamValues::default();
 
     // BEGIN
-    let responses = executor::execute_sql("BEGIN", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "BEGIN",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
     assert!(session.in_transaction);
 
     // COMMIT
-    let responses = executor::execute_sql("COMMIT", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "COMMIT",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
     assert!(!session.in_transaction);
 
     // ROLLBACK
-    executor::execute_sql("BEGIN", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "BEGIN",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert!(session.in_transaction);
-    let responses = executor::execute_sql("ROLLBACK", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    let responses = executor::execute_sql(
+        "ROLLBACK",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert_eq!(responses.len(), 1);
     assert!(!session.in_transaction);
 }
@@ -152,7 +214,9 @@ async fn test_select_max_snapshot_empty() {
         "SELECT max(snapshot_id) FROM ducklake_snapshot",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -166,7 +230,15 @@ async fn test_unsupported_statement() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let result = executor::execute_sql("DROP TABLE foo", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas()).await;
+    let result = executor::execute_sql(
+        "DROP TABLE foo",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await;
     assert!(result.is_err());
 }
 
@@ -178,9 +250,16 @@ async fn test_transaction_buffering() {
     let params = ParamValues::default();
 
     // Start transaction
-    executor::execute_sql("BEGIN", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "BEGIN",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
 
     // Insert schema (buffered)
     let schema_params = ParamValues::new(vec![Some("test_schema".to_string())]);
@@ -188,16 +267,25 @@ async fn test_transaction_buffering() {
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
         &schema_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
     assert_eq!(session.pending_txn.len(), 1);
 
     // Commit
-    executor::execute_sql("COMMIT", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "COMMIT",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert!(session.pending_txn.is_empty());
 }
 
@@ -213,7 +301,9 @@ async fn test_schema_crud() {
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -224,7 +314,9 @@ async fn test_schema_crud() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &snap_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -254,7 +346,9 @@ async fn test_table_crud() {
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -269,7 +363,9 @@ async fn test_table_crud() {
         "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
         &table_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -280,7 +376,9 @@ async fn test_table_crud() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &snap_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -310,7 +408,9 @@ async fn test_data_file_crud() {
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -324,7 +424,9 @@ async fn test_data_file_crud() {
         "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
         &table_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -352,7 +454,9 @@ async fn test_data_file_crud() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &snap_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -363,7 +467,9 @@ async fn test_data_file_crud() {
         "SELECT * FROM ducklake_data_file WHERE table_id = $1",
         &read_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -377,7 +483,15 @@ async fn test_sqlstate_unsupported() {
     let mut session = SessionState::new();
     let params = ParamValues::default();
 
-    let result = executor::execute_sql("DROP DATABASE foo", &params, &store, &mut session, &default_notify_manager(), &default_extension_schemas()).await;
+    let result = executor::execute_sql(
+        "DROP DATABASE foo",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await;
     assert!(result.is_err());
     let err = match result {
         Err(e) => e,
@@ -409,7 +523,9 @@ async fn test_create_inlined_table() {
         "CREATE TABLE ducklake_inlined_test (id INTEGER, name TEXT)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -655,7 +771,9 @@ async fn test_pgtide_select_max_snapshot_after() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -666,7 +784,9 @@ async fn test_pgtide_select_max_snapshot_after() {
         "SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1",
         &query_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -685,7 +805,9 @@ async fn test_pgtide_select_first_snapshot() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -695,7 +817,9 @@ async fn test_pgtide_select_first_snapshot() {
         "SELECT * FROM ducklake_snapshot ORDER BY snapshot_id ASC LIMIT 1",
         &ParamValues::default(),
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -718,7 +842,9 @@ async fn test_pgtide_select_data_files_with_limit() {
         "SELECT * FROM ducklake_data_file WHERE table_id = $1 LIMIT $2",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -735,7 +861,9 @@ async fn test_pgtide_gen_random_uuid() {
         "SELECT gen_random_uuid()",
         &ParamValues::default(),
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -757,7 +885,9 @@ async fn test_pgtide_metadata_offset_tracking() {
         "INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -768,7 +898,9 @@ async fn test_pgtide_metadata_offset_tracking() {
         "SELECT value FROM ducklake_metadata WHERE metadata_key = $1",
         &read_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -787,7 +919,9 @@ async fn test_pgtide_full_ingest_workflow() {
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
         &schema_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -801,15 +935,24 @@ async fn test_pgtide_full_ingest_workflow() {
         "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
         &table_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
 
     // pg-tide workflow: BEGIN, write metadata + data file + snapshot, COMMIT
-    executor::execute_sql("BEGIN", &ParamValues::default(), &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "BEGIN",
+        &ParamValues::default(),
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert!(session.in_transaction);
 
     let meta_params = ParamValues::new(vec![
@@ -820,7 +963,9 @@ async fn test_pgtide_full_ingest_workflow() {
         "INSERT INTO ducklake_metadata (metadata_key, metadata_value) VALUES ($1, $2)",
         &meta_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -849,14 +994,23 @@ async fn test_pgtide_full_ingest_workflow() {
         "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
         &snap_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
 
-    executor::execute_sql("COMMIT", &ParamValues::default(), &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "COMMIT",
+        &ParamValues::default(),
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     assert!(!session.in_transaction);
 }
 
@@ -1287,9 +1441,16 @@ async fn test_select_max_snapshot_consistent_after_multiple_write_sessions() {
     let empty_params = ParamValues::default();
 
     // Session 1: INSERT INTO ducklake_snapshot (simulates DuckLake DDL commit)
-    executor::execute_sql("BEGIN", &empty_params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "BEGIN",
+        &empty_params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     let params1 = ParamValues::new(vec![
         Some("user".to_string()),
         Some("session-1".to_string()),
@@ -1298,20 +1459,31 @@ async fn test_select_max_snapshot_consistent_after_multiple_write_sessions() {
         "INSERT INTO ducklake_snapshot (snapshot_id, author, message) VALUES ($1, $2, $3)",
         &params1,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
-    executor::execute_sql("COMMIT", &empty_params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "COMMIT",
+        &empty_params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
 
     // After session 1: SELECT max(snapshot) must return 1 row
     let r1 = executor::execute_sql(
         "SELECT max(snapshot_id) FROM ducklake_snapshot",
         &empty_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -1322,9 +1494,16 @@ async fn test_select_max_snapshot_consistent_after_multiple_write_sessions() {
     );
 
     // Session 2
-    executor::execute_sql("BEGIN", &empty_params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "BEGIN",
+        &empty_params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
     let params2 = ParamValues::new(vec![
         Some("user".to_string()),
         Some("session-2".to_string()),
@@ -1333,20 +1512,31 @@ async fn test_select_max_snapshot_consistent_after_multiple_write_sessions() {
         "INSERT INTO ducklake_snapshot (snapshot_id, author, message) VALUES ($1, $2, $3)",
         &params2,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
-    executor::execute_sql("COMMIT", &empty_params, &store, &mut session, &default_notify_manager(), &default_extension_schemas())
-        .await
-        .unwrap();
+    executor::execute_sql(
+        "COMMIT",
+        &empty_params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
 
     // After session 2: SELECT max(snapshot) must return 1 row
     let r2 = executor::execute_sql(
         "SELECT max(snapshot_id) FROM ducklake_snapshot",
         &empty_params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -1597,7 +1787,9 @@ async fn test_virtual_catalog_snapshot() {
         "SELECT * FROM slateduck_catalog.ducklake_snapshot",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -1616,7 +1808,9 @@ async fn test_virtual_catalog_schema() {
         "SELECT * FROM slateduck_catalog.ducklake_schema",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -1635,7 +1829,9 @@ async fn test_virtual_catalog_table() {
         "SELECT * FROM slateduck_catalog.ducklake_table",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();
@@ -1654,7 +1850,9 @@ async fn test_virtual_catalog_counters() {
         "SELECT * FROM slateduck_catalog.slateduck_counters",
         &params,
         &store,
-        &mut session, &default_notify_manager(), &default_extension_schemas()
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
     )
     .await
     .unwrap();

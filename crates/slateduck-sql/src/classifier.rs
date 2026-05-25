@@ -379,11 +379,7 @@ fn classify_ast(stmt: &Statement) -> StatementKind {
         // INSERT statements
         Statement::Insert(insert) => match &insert.table {
             TableObject::TableName(name) => {
-                let columns: Vec<String> = insert
-                    .columns
-                    .iter()
-                    .map(|c| c.to_string())
-                    .collect();
+                let columns: Vec<String> = insert.columns.iter().map(|c| c.to_string()).collect();
                 classify_insert(name, &columns)
             }
             _ => StatementKind::Unsupported("INSERT into function".to_string()),
