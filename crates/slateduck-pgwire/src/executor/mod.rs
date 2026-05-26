@@ -214,12 +214,7 @@ fn cast_inner_literal(s: &str) -> Option<&str> {
     let inner = s[offset..].trim_start();
     let trim_skip = s[offset..].len() - inner.len();
     let inner_start = offset + trim_skip;
-    if s
-        .as_bytes()
-        .get(inner_start)
-        .copied()
-        != Some(b'\'')
-    {
+    if s.as_bytes().get(inner_start).copied() != Some(b'\'') {
         return None;
     }
     // Scan for the matching closing quote in the original string
