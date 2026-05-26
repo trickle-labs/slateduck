@@ -221,8 +221,6 @@ impl SlateDuckHandler {
             return Ok(None);
         };
 
-        eprintln!("[TRACE COPY] inner query: {query}");
-
         let params = ParamValues::default();
         let mut session = self.session.lock().await;
         let mut responses = executor::execute_sql(
@@ -651,7 +649,6 @@ impl SimpleQueryHandler for SlateDuckHandler {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        eprintln!("[TRACE SimpleQuery] {query}");
         if let Some(rows) = self.try_stream_copy_to_stdout(_client, query).await? {
             return Ok(vec![Response::Execution(
                 pgwire::api::results::Tag::new("COPY").with_rows(rows),

@@ -198,7 +198,40 @@ fn normalize_literal(value: &str) -> Option<String> {
     if trimmed.len() >= 2 && trimmed.starts_with('\'') && trimmed.ends_with('\'') {
         return Some(trimmed[1..trimmed.len() - 1].replace("''", "'"));
     }
+    // Unwrap CAST('literal' AS type) or CAST(literal AS type) — recurse on inner
+    if let Some(inner) = cast_inner_literal(trimmed) {
+        return normalize_literal(inner);
+    }
     Some(trimmed.to_string())
+}
+
+/// If `s` looks like `CAST(<literal> AS <type>)`, return the inner literal slice.
+fn cast_inner_literal(s: &str) -> Option<&str> {
+    let lower = s.to_ascii_lowercase();
+    // Must start with "cast("
+    let after_cast = lower.strip_prefix("cast(")?;
+    let offset = s.len() - after_cast.len(); // byte offset of the content after "cast("
+    let inner = s[offset..].trim_start();
+    let trim_skip = s[offset..].len() - inner.len();
+    let inner_start = offset + trim_skip;
+    if !s.as_bytes().get(inner_start).copied().map_or(false, |b| b == b'\'') {
+        return None;
+    }
+    // Scan for the matching closing quote in the original string
+    let bytes = s.as_bytes();
+    let mut i = inner_start + 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            if bytes.get(i + 1).copied() == Some(b'\'') {
+                i += 2; // escaped single-quote, skip both
+            } else {
+                return Some(&s[inner_start..=i]); // return including quotes
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 fn literal_string(values: &[Option<String>], index: usize) -> Option<String> {
@@ -765,7 +798,6 @@ async fn execute_classified<'a>(
                 .list_all_schema_versions()
                 .await
                 .map_err(SlateDuckError::from)?;
-            eprintln!("[TRACE SelectSchemaVersions] returning {} rows", rows.len());
             Ok(vec![make_schema_versions_response(rows)])
         }
 
@@ -784,13 +816,9 @@ async fn execute_classified<'a>(
         }
         StatementKind::SelectInlinedRows => {
             let Some(table_name) = inlined_table_name_from_sql(_sql) else {
-                eprintln!("[TRACE SelectInlinedRows] could not extract table name from: {_sql}");
                 return Ok(vec![make_empty_response()]);
             };
             let Some((table_id, schema_version)) = parse_inlined_table_ids(&table_name) else {
-                eprintln!(
-                    "[TRACE SelectInlinedRows] could not parse ids from table_name={table_name}"
-                );
                 return Ok(vec![make_empty_response()]);
             };
             let reader = { store.lock().await.read_latest() };
@@ -799,7 +827,6 @@ async fn execute_classified<'a>(
                 .await
                 .map_err(SlateDuckError::from)?
             else {
-                eprintln!("[TRACE SelectInlinedRows] describe_table({table_id}) returned None");
                 return Ok(vec![make_empty_response()]);
             };
             let rows = reader
@@ -809,7 +836,6 @@ async fn execute_classified<'a>(
                 .into_iter()
                 .filter(|row| row.schema_version == schema_version)
                 .collect::<Vec<_>>();
-            eprintln!("[TRACE SelectInlinedRows] table_id={table_id} schema_version={schema_version} columns={} rows={}", columns.len(), rows.len());
             Ok(vec![make_inlined_rows_response(_sql, columns, rows)])
         }
 
@@ -1212,7 +1238,6 @@ async fn execute_classified<'a>(
             Ok(vec![Response::Execution(Tag::new("INSERT 0 1"))])
         }
         StatementKind::InsertSchemaVersions => {
-            eprintln!("[TRACE InsertSchemaVersions] sql={_sql}");
             let literal_rows = literal_insert_rows(_sql);
             let parameterized = params.get_u64(0).is_ok();
             let mut ops = Vec::new();

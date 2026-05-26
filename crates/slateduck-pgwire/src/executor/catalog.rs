@@ -2434,6 +2434,9 @@ fn inlined_storage_type(logical_type: &str) -> Type {
         "INTEGER" | "INT" | "INT4" | "INT32" => Type::INT4,
         "BIGINT" | "INT8" | "INT64" => Type::INT8,
         "VARCHAR" | "TEXT" | "STRING" | "BLOB" | "BYTEA" => Type::BYTEA,
+        "TIMESTAMP" | "TIMESTAMP WITHOUT TIME ZONE" => Type::TIMESTAMP,
+        "TIMESTAMP WITH TIME ZONE" | "TIMESTAMPTZ" => Type::TIMESTAMPTZ,
+        "DATE" => Type::DATE,
         _ => Type::TEXT,
     }
 }
@@ -2470,6 +2473,21 @@ fn encode_inlined_column_value(encoder: &mut DataRowEncoder, value: Option<&str>
                 .encode_field_with_type_and_format(&value, &Type::BYTEA, FieldFormat::Binary)
                 .expect("pgwire field encoding is infallible");
         }
+        datatype if datatype == &Type::TIMESTAMP || datatype == &Type::TIMESTAMPTZ => {
+            // PostgreSQL binary TIMESTAMP = i64 microseconds since 2000-01-01 00:00:00 UTC.
+            // This is the same binary layout as INT8, so we encode as INT8.
+            let value = value.and_then(timestamp_str_to_pg_micros);
+            encoder
+                .encode_field_with_type_and_format(&value, &Type::INT8, FieldFormat::Binary)
+                .expect("pgwire field encoding is infallible");
+        }
+        datatype if datatype == &Type::DATE => {
+            // PostgreSQL binary DATE = i32 days since 2000-01-01.
+            let value = value.and_then(date_str_to_pg_days);
+            encoder
+                .encode_field_with_type_and_format(&value, &Type::INT4, FieldFormat::Binary)
+                .expect("pgwire field encoding is infallible");
+        }
         _ => {
             let value = value.map(|value| value.to_string());
             encoder
@@ -2477,6 +2495,30 @@ fn encode_inlined_column_value(encoder: &mut DataRowEncoder, value: Option<&str>
                 .expect("pgwire field encoding is infallible");
         }
     }
+}
+
+/// Parse a timestamp string such as "2026-05-26 20:53:17.231752" and return
+/// the number of microseconds since the PostgreSQL epoch (2000-01-01 00:00:00 UTC).
+fn timestamp_str_to_pg_micros(s: &str) -> Option<i64> {
+    use chrono::NaiveDateTime;
+    // PostgreSQL epoch = 2000-01-01 00:00:00 UTC = Unix timestamp 946 684 800 s
+    const PG_EPOCH_MICROS: i64 = 946_684_800 * 1_000_000;
+    let s = s.trim();
+    let dt = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+        .ok()
+        .or_else(|| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok())
+        .or_else(|| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok())
+        .or_else(|| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok())?;
+    Some(dt.and_utc().timestamp_micros() - PG_EPOCH_MICROS)
+}
+
+/// Parse a date string such as "2026-05-26" and return the number of days
+/// since the PostgreSQL epoch (2000-01-01).
+fn date_str_to_pg_days(s: &str) -> Option<i32> {
+    use chrono::NaiveDate;
+    let d = NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()?;
+    let pg_epoch = NaiveDate::from_ymd_opt(2000, 1, 1)?;
+    Some(d.signed_duration_since(pg_epoch).num_days() as i32)
 }
 
 fn parse_bool(value: &str) -> Option<bool> {

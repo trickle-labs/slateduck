@@ -439,6 +439,9 @@ fn pg_type_name_for_inlined_column(logical_type: &str) -> String {
         "integer" | "int" | "int4" | "int32" => "int4".to_string(),
         "bigint" | "int64" => "int8".to_string(),
         "varchar" | "text" | "string" | "blob" | "bytea" => "bytea".to_string(),
+        "timestamp" | "timestamp without time zone" => "timestamp".to_string(),
+        "timestamp with time zone" | "timestamptz" => "timestamptz".to_string(),
+        "date" => "date".to_string(),
         _ => "text".to_string(),
     }
 }
