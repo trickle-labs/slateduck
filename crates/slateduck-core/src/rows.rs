@@ -331,8 +331,12 @@ pub struct FilesScheduledForDeletionRow {
     pub schedule_start: u64,
     #[prost(string, tag = "3")]
     pub path: String,
-    #[prost(string, tag = "4")]
-    pub file_type: String,
+    /// Extension-only field; not part of the DuckLake spec. Optional for forward compat.
+    #[prost(string, optional, tag = "4")]
+    pub file_type: Option<String>,
+    /// v0.26: whether the path is relative to the catalog root.
+    #[prost(bool, optional, tag = "5")]
+    pub path_is_relative: Option<bool>,
 }
 
 /// Inlined data tables row value.
@@ -413,12 +417,19 @@ pub struct TableColumnStatsRow {
     pub table_id: u64,
     #[prost(uint64, tag = "2")]
     pub column_id: u64,
+    /// v0.26: renamed from has_null (spec field is contains_null).
     #[prost(bool, tag = "3")]
-    pub has_null: bool,
+    pub contains_null: bool,
     #[prost(string, optional, tag = "4")]
     pub min_value: Option<String>,
     #[prost(string, optional, tag = "5")]
     pub max_value: Option<String>,
+    /// v0.26: whether any NaN values are present.
+    #[prost(bool, optional, tag = "6")]
+    pub contains_nan: Option<bool>,
+    /// v0.26: JSON blob for geometry or variant extra stats.
+    #[prost(string, optional, tag = "7")]
+    pub extra_stats: Option<String>,
 }
 
 /// File column stats row value.
@@ -430,14 +441,27 @@ pub struct FileColumnStatsRow {
     pub column_id: u64,
     #[prost(uint64, tag = "3")]
     pub data_file_id: u64,
+    /// v0.26: renamed from has_null (spec field is contains_null).
     #[prost(bool, tag = "4")]
-    pub has_null: bool,
+    pub contains_null: bool,
     #[prost(string, optional, tag = "5")]
     pub min_value: Option<String>,
     #[prost(string, optional, tag = "6")]
     pub max_value: Option<String>,
     #[prost(bool, tag = "7")]
     pub contains_nan: bool,
+    /// v0.26: total bytes for this column in the file.
+    #[prost(uint64, optional, tag = "8")]
+    pub column_size_bytes: Option<u64>,
+    /// v0.26: number of non-null values in this column.
+    #[prost(uint64, optional, tag = "9")]
+    pub value_count: Option<u64>,
+    /// v0.26: number of null values in this column.
+    #[prost(uint64, optional, tag = "10")]
+    pub null_count: Option<u64>,
+    /// v0.26: JSON blob for geometry or variant extra stats.
+    #[prost(string, optional, tag = "11")]
+    pub extra_stats: Option<String>,
 }
 
 /// File variant stats row value.
@@ -447,16 +471,37 @@ pub struct FileVariantStatsRow {
     pub table_id: u64,
     #[prost(uint64, tag = "2")]
     pub column_id: u64,
-    #[prost(uint64, tag = "3")]
-    pub variant_path_hash: u64,
+    /// v0.26: deprecated internal hash — no longer written; kept for wire compat.
+    #[prost(uint64, optional, tag = "3")]
+    #[deprecated(note = "Use variant_key instead")]
+    pub deprecated_variant_path_hash: Option<u64>,
     #[prost(uint64, tag = "4")]
     pub data_file_id: u64,
+    /// v0.26: renamed from variant_path; spec field is variant_key.
     #[prost(string, tag = "5")]
-    pub variant_path: String,
+    pub variant_key: String,
     #[prost(string, optional, tag = "6")]
     pub min_value: Option<String>,
     #[prost(string, optional, tag = "7")]
     pub max_value: Option<String>,
+    /// v0.26: the shredded type of this variant key.
+    #[prost(string, optional, tag = "8")]
+    pub shredded_type: Option<String>,
+    /// v0.26: total bytes for this variant column in the file.
+    #[prost(uint64, optional, tag = "9")]
+    pub column_size_bytes: Option<u64>,
+    /// v0.26: number of non-null values.
+    #[prost(uint64, optional, tag = "10")]
+    pub value_count: Option<u64>,
+    /// v0.26: number of null values.
+    #[prost(uint64, optional, tag = "11")]
+    pub null_count: Option<u64>,
+    /// v0.26: whether any NaN values are present.
+    #[prost(bool, optional, tag = "12")]
+    pub contains_nan: Option<bool>,
+    /// v0.26: JSON blob for extra stats.
+    #[prost(string, optional, tag = "13")]
+    pub extra_stats: Option<String>,
 }
 
 /// Partition info row value.
@@ -483,6 +528,9 @@ pub struct PartitionColumnRow {
     pub column_id: u64,
     #[prost(string, optional, tag = "4")]
     pub transform: Option<String>,
+    /// v0.26: table_id for partition column lifecycle (DROP TABLE cascade).
+    #[prost(uint64, optional, tag = "5")]
+    pub table_id: Option<u64>,
 }
 
 /// File partition value row value.
@@ -494,8 +542,9 @@ pub struct FilePartitionValueRow {
     pub partition_key_index: u64,
     #[prost(uint64, tag = "3")]
     pub data_file_id: u64,
+    /// v0.26: renamed from `value` (spec field is partition_value).
     #[prost(string, optional, tag = "4")]
-    pub value: Option<String>,
+    pub partition_value: Option<String>,
 }
 
 /// Sort info row value.
@@ -520,10 +569,21 @@ pub struct SortExpressionRow {
     pub sort_key_index: u64,
     #[prost(uint64, tag = "3")]
     pub column_id: u64,
-    #[prost(bool, tag = "4")]
-    pub ascending: bool,
-    #[prost(bool, tag = "5")]
-    pub nulls_first: bool,
+    /// v0.26: spec string field — 'ASC' or 'DESC' (replaces boolean ascending).
+    #[prost(string, optional, tag = "4")]
+    pub sort_direction: Option<String>,
+    /// v0.26: spec string field — 'NULLS FIRST' or 'NULLS LAST' (replaces nulls_first).
+    #[prost(string, optional, tag = "5")]
+    pub null_order: Option<String>,
+    /// v0.26: table_id for sort expression lifecycle.
+    #[prost(uint64, optional, tag = "6")]
+    pub table_id: Option<u64>,
+    /// v0.26: SQL expression string (for expression-based sort orders).
+    #[prost(string, optional, tag = "7")]
+    pub expression: Option<String>,
+    /// v0.26: SQL dialect of the expression.
+    #[prost(string, optional, tag = "8")]
+    pub dialect: Option<String>,
 }
 
 /// Tag row value.

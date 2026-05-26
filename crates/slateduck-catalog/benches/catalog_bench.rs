@@ -49,10 +49,14 @@ fn setup_catalog(rt: &Runtime) -> (CatalogStore, TempDir, u64, u64, u64) {
             table_id,
             column_id: col_id,
             data_file_id: file_id,
-            has_null: false,
+            contains_null: false,
             min_value: Some(&format!("{}", i * 100)),
             max_value: Some(&format!("{}", (i + 1) * 100)),
             contains_nan: false,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            extra_stats: None,
         }))
         .unwrap();
     }

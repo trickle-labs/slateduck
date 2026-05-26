@@ -175,7 +175,7 @@ pub(super) async fn execute_commit(
                 table_id,
                 column_id,
                 data_file_id,
-                has_null,
+                contains_null,
                 min_value,
                 max_value,
                 contains_nan,
@@ -185,10 +185,14 @@ pub(super) async fn execute_commit(
                         table_id,
                         column_id,
                         data_file_id,
-                        has_null,
+                        contains_null,
                         min_value: min_value.as_deref(),
                         max_value: max_value.as_deref(),
                         contains_nan,
+                        column_size_bytes: None,
+                        value_count: None,
+                        null_count: None,
+                        extra_stats: None,
                     })
                     .await
                     .map_err(SlateDuckError::from)?;

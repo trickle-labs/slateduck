@@ -522,6 +522,61 @@ impl CatalogWriter {
         Ok(data_file_id)
     }
 
+    /// v0.26: Register a data file with a `partial_max` upper-bound value.
+    ///
+    /// Used for partial files (e.g., in-flight appends) where the max value in the
+    /// column is known at write time and can be used for zone-map pruning.
+    pub async fn register_data_file_partial(
+        &mut self,
+        table_id: u64,
+        path: &str,
+        file_format: &str,
+        record_count: u64,
+        file_size_bytes: u64,
+        partial_max: Option<&str>,
+    ) -> CatalogResult<u64> {
+        let data_file_id = self.counters.alloc_file_id();
+        let snapshot_id = self.counters.peek_snapshot_id();
+        let file_order = data_file_id;
+        let row_id_start = {
+            let key = keys::key_table_stats(table_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    let existing: slateduck_core::rows::TableStatsRow =
+                        slateduck_core::values::decode_value(&data).unwrap_or_default();
+                    existing.next_row_id.unwrap_or(0)
+                }
+                None => 0,
+            }
+        };
+
+        let row = DataFileRow {
+            data_file_id,
+            table_id,
+            path: path.to_string(),
+            file_format: file_format.to_string(),
+            record_count,
+            file_size_bytes,
+            footer_size: None,
+            encryption_key: None,
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
+            file_order: Some(file_order),
+            path_is_relative: Some(false),
+            row_id_start: Some(row_id_start),
+            partition_id: None,
+            mapping_id: None,
+            partial_max: partial_max.map(|s| s.to_string()),
+        };
+
+        let key = keys::key_data_file(table_id, data_file_id);
+        let encoded = values::encode_value(&row);
+        let idx_key = keys::key_data_file_by_snapshot(table_id, snapshot_id, data_file_id);
+        self.stage(key, encoded.clone());
+        self.stage(idx_key, encoded);
+        Ok(data_file_id)
+    }
+
     pub async fn register_delete_file(
         &mut self,
         data_file_id: u64,
@@ -925,7 +980,12 @@ impl CatalogWriter {
             data_file_id,
             schedule_start,
             path: path.to_string(),
-            file_type: file_type.to_string(),
+            file_type: if file_type.is_empty() {
+                None
+            } else {
+                Some(file_type.to_string())
+            },
+            path_is_relative: None,
         };
 
         let key = keys::key_files_scheduled_for_deletion(schedule_start, data_file_id);

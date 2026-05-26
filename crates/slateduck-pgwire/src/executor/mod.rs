@@ -184,7 +184,14 @@ async fn execute_classified<'a>(
                     .map_err(SlateDuckError::from)?
             };
             let predicate = params.get(3).unwrap_or("");
-            let col_type = slateduck_core::types::DuckLakeType::Varchar;
+            // v0.26: look up the actual column type for type-aware pruning.
+            let col_type = reader
+                .get_column_type(table_id, column_id)
+                .await
+                .map_err(SlateDuckError::from)?
+                .as_deref()
+                .map(slateduck_core::types::DuckLakeType::parse)
+                .unwrap_or(slateduck_core::types::DuckLakeType::Varchar);
             let file_ids = reader
                 .prune_files(table_id, column_id, predicate, &col_type)
                 .await
@@ -447,7 +454,7 @@ async fn execute_classified<'a>(
                 table_id: params.get_u64(0).unwrap_or(0),
                 column_id: params.get_u64(1).unwrap_or(0),
                 data_file_id: params.get_u64(2).unwrap_or(0),
-                has_null: params.get_bool(3).unwrap_or(false),
+                contains_null: params.get_bool(3).unwrap_or(false),
                 min_value: params.get_optional_string(4),
                 max_value: params.get_optional_string(5),
                 contains_nan: params.get_bool(6).unwrap_or(false),

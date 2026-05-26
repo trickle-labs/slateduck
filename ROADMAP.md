@@ -67,8 +67,9 @@ binding on every roadmap release below.
 | **v0.23 — Streaming Ingest** | pg-tide-relay integration, Kafka/NATS support, exactly-once delivery, CDC output (snapshot diffs, S3/Kafka/webhook) | **Done** |
 | **v0.24 — DuckLake v1.0 Conformance Harness & Interop-Critical Schema** | Conformance test harness for all 28 spec tables; fix snapshot/snapshot_changes schema; spec-complete data file fields; spec-complete delete file model; row ID tracking; table stats `next_row_id`; DROP TABLE cascade retirement | Complete |
 | **v0.25 — DuckLake v1.0 SQL Catalog Facade** | Full PgWire/virtual-table facade with exact spec column names and types for all 28 tables; views, macros, and inlined data tables through PgWire; scoped metadata; schema/table UUID and path fields; nested column model | Complete |
-| **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Planning |
+| **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Complete |
 | **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Planning |
+| **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2472,90 +2473,90 @@ Spec: `column_id`, `begin_snapshot`, `end_snapshot`, `table_id`, `column_name`, 
 
 Spec: `data_file_id`, `column_id`, `lower_bound`, `upper_bound`, `contains_null`, `contains_nan`, `column_size_bytes`, `value_count`, `null_count`, `extra_stats`
 
-- [ ] Add `column_size_bytes`, `value_count`, `null_count`, and `extra_stats` to `FileColumnStatsRow`.
-- [ ] Rename `has_null` boolean → `contains_null` (also rename in stats writer and PgWire response builder).
-- [ ] Implement `extra_stats` as a JSON blob field; add validation that it is well-formed JSON when present.
-- [ ] Update `CatalogWriter::write_file_column_stats` (in `stats.rs`) to persist all new fields.
-- [ ] Update the PgWire stats response builder to expose all spec columns.
+- [x] Add `column_size_bytes`, `value_count`, `null_count`, and `extra_stats` to `FileColumnStatsRow`.
+- [x] Rename `has_null` boolean → `contains_null` (also rename in stats writer and PgWire response builder).
+- [x] Implement `extra_stats` as a JSON blob field; add validation that it is well-formed JSON when present.
+- [x] Update `CatalogWriter::write_file_column_stats` (in `stats.rs`) to persist all new fields.
+- [x] Update the PgWire stats response builder to expose all spec columns.
 
 ### Full Table Column Stats (`ducklake_table_column_stats`)
 
 Spec: `table_id`, `column_id`, `lower_bound`, `upper_bound`, `contains_null`, `contains_nan`, `extra_stats`
 
-- [ ] Add `contains_nan` and `extra_stats` to `TableColumnStatsRow`.
-- [ ] Rename `has_null` → `contains_null`.
-- [ ] Update writer and PgWire response builder.
+- [x] Add `contains_nan` and `extra_stats` to `TableColumnStatsRow`.
+- [x] Rename `has_null` → `contains_null`.
+- [x] Update writer and PgWire response builder.
 
 ### Variant Stats and Extra Stats (`ducklake_file_variant_stats`)
 
 Spec: `data_file_id`, `column_id`, `variant_key`, `shredded_type`, `column_size_bytes`, `value_count`, `null_count`, `contains_nan`, `extra_stats`
 
-- [ ] Add `shredded_type`, `column_size_bytes`, `value_count`, `null_count`, `contains_nan`, and `extra_stats` to `FileVariantStatsRow`.
-- [ ] Remove non-spec `variant_path_hash`; use `variant_key` as the natural identifier.
-- [ ] Add writer and PgWire support.
+- [x] Add `shredded_type`, `column_size_bytes`, `value_count`, `null_count`, `contains_nan`, and `extra_stats` to `FileVariantStatsRow`.
+- [x] Remove non-spec `variant_path_hash`; use `variant_key` as the natural identifier.
+- [x] Add writer and PgWire support.
 
 ### Geometry Stats Support
 
 The DuckLake `extra_stats` field on file column stats rows carries geometry bounding boxes and type information for spatial columns. This is the only place geometry metadata appears in the spec.
 
-- [ ] Define a `GeometryExtraStats` struct with fields for bounding box (min/max X, Y, Z, M), geometry type, and SRID.
-- [ ] Serialize `GeometryExtraStats` as JSON into the `extra_stats` field of `FileColumnStatsRow`.
-- [ ] Add a validator that rejects malformed geometry `extra_stats` JSON at write time.
-- [ ] Add a pruning helper that reads bounding box extents from `extra_stats` for spatial predicate pushdown.
+- [x] Define a `GeometryExtraStats` struct with fields for bounding box (min/max X, Y, Z, M), geometry type, and SRID.
+- [x] Serialize `GeometryExtraStats` as JSON into the `extra_stats` field of `FileColumnStatsRow`.
+- [x] Add a validator that rejects malformed geometry `extra_stats` JSON at write time.
+- [x] Add a pruning helper that reads bounding box extents from `extra_stats` for spatial predicate pushdown.
 
 ### DuckLake Type Parser
 
 The spec defines a rich set of primitive and nested type strings (`boolean`, `int32`, `decimal(P,S)`, `timestamp_s`, `list<T>`, `struct<f:T,...>`, `map<K,V>`, `variant`, `geometry`). Currently `DuckLakeType` uses broad comparison categories and `DuckLakeType::Varchar` is passed for all PgWire type-aware pruning.
 
-- [ ] Implement a `DuckLakeType` parser that accepts a DuckLake type string and produces a typed enum variant: signed/unsigned integers with explicit bit width, decimal with precision and scale, timestamp with explicit precision (`_s`, `_ms`, `_ns`, `_us`), explicit `json`, explicit `uuid`, explicit `variant`.
-- [ ] Add nested type variants: `List(Box<DuckLakeType>)`, `Struct(Vec<(String, DuckLakeType)>)`, `Map { key: Box<DuckLakeType>, value: Box<DuckLakeType> }`.
-- [ ] Use the type parser in `ducklake_column` writes to validate `column_type` strings at the PgWire boundary.
-- [ ] Use the type parser in file pruning: derive the correct comparison semantics from `ducklake_column.column_type` rather than passing `Varchar` unconditionally.
-- [ ] Add unit tests covering all spec primitive types and the three nested type forms.
+- [x] Implement a `DuckLakeType` parser that accepts a DuckLake type string and produces a typed enum variant: signed/unsigned integers with explicit bit width, decimal with precision and scale, timestamp with explicit precision (`_s`, `_ms`, `_ns`, `_us`), explicit `json`, explicit `uuid`, explicit `variant`.
+- [x] Add nested type variants: `List(Box<DuckLakeType>)`, `Struct(Vec<(String, DuckLakeType)>)`, `Map { key: Box<DuckLakeType>, value: Box<DuckLakeType> }`.
+- [x] Use the type parser in `ducklake_column` writes to validate `column_type` strings at the PgWire boundary.
+- [x] Use the type parser in file pruning: derive the correct comparison semantics from `ducklake_column.column_type` rather than passing `Varchar` unconditionally.
+- [x] Add unit tests covering all spec primitive types and the three nested type forms.
 
 ### Nested Column Rows with `parent_column`
 
-- [ ] Implement recursive column tree reads: `CatalogReader::list_columns` must return child columns alongside parent columns, ordered by `column_order` within each level.
-- [ ] Add a write path for nested columns: `CatalogWriter::add_column` accepts an optional `parent_column_id`; child columns share `table_id` and `begin_snapshot` with their parent.
-- [ ] Add conformance tests: create a `struct` column with two child fields, list columns, verify `parent_column` is set on children and null on the struct column.
+- [x] Implement recursive column tree reads: `CatalogReader::list_columns` must return child columns alongside parent columns, ordered by `column_order` within each level.
+- [x] Add a write path for nested columns: `CatalogWriter::add_column` accepts an optional `parent_column_id`; child columns share `table_id` and `begin_snapshot` with their parent.
+- [x] Add conformance tests: create a `struct` column with two child fields, list columns, verify `parent_column` is set on children and null on the struct column.
 
 ### Sort Expression Spec Parity (`ducklake_sort_expression`)
 
 Spec: `table_id`, `sort_order`, `expression`, `dialect`, `sort_direction`, `null_order`
 
-- [ ] Replace boolean `ascending`/`nulls_first` fields in `SortExpressionRow` with string fields `sort_direction` (`'ASC'`/`'DESC'`) and `null_order` (`'NULLS FIRST'`/`'NULLS LAST'`), matching spec semantics.
-- [ ] Add `table_id`, `expression`, and `dialect` to `SortExpressionRow`.
-- [ ] Update `CatalogWriter`, key encoding, and PgWire response builder for `ducklake_sort_expression`.
-- [ ] Ensure `ducklake_sort_info` is exposed via the SQL facade and its lifecycle (creation, DROP TABLE cascade) is covered.
+- [x] Replace boolean `ascending`/`nulls_first` fields in `SortExpressionRow` with string fields `sort_direction` (`'ASC'`/`'DESC'`) and `null_order` (`'NULLS FIRST'`/`'NULLS LAST'`), matching spec semantics.
+- [x] Add `table_id`, `expression`, and `dialect` to `SortExpressionRow`.
+- [x] Update `CatalogWriter`, key encoding, and PgWire response builder for `ducklake_sort_expression`.
+- [x] Ensure `ducklake_sort_info` is exposed via the SQL facade and its lifecycle (creation, DROP TABLE cascade) is covered.
 
 ### Partition Column `table_id` and Lifecycle (`ducklake_partition_column`)
 
-- [ ] Add `table_id` to `PartitionColumnRow`.
-- [ ] Ensure DROP TABLE cascade (from v0.24) retires `ducklake_partition_info` and `ducklake_partition_column` rows.
-- [ ] Confirm the PgWire SQL facade exposes `ducklake_partition_info` and `ducklake_partition_column` with correct spec columns.
+- [x] Add `table_id` to `PartitionColumnRow`.
+- [x] Ensure DROP TABLE cascade (from v0.24) retires `ducklake_partition_info` and `ducklake_partition_column` rows.
+- [x] Confirm the PgWire SQL facade exposes `ducklake_partition_info` and `ducklake_partition_column` with correct spec columns.
 
 ### File Partition Value and Scheduled Deletion (`ducklake_file_partition_value`, `ducklake_files_scheduled_for_deletion`)
 
-- [ ] Rename `value` → `partition_value` in `FilePartitionValueRow` and the SQL facade.
-- [ ] Add `path_is_relative` to `FilesScheduledForDeletionRow`.
-- [ ] Remove non-spec `file_type` from `FilesScheduledForDeletionRow` (or move to an extension-only field if still needed internally).
-- [ ] Change the deletion timestamp field to use SQL `TIMESTAMPTZ` semantics (microseconds since epoch, not integer seconds).
+- [x] Rename `value` → `partition_value` in `FilePartitionValueRow` and the SQL facade.
+- [x] Add `path_is_relative` to `FilesScheduledForDeletionRow`.
+- [x] Remove non-spec `file_type` from `FilesScheduledForDeletionRow` (or move to an extension-only field if still needed internally).
+- [x] Change the deletion timestamp field to use SQL `TIMESTAMPTZ` semantics (microseconds since epoch, not integer seconds).
 
 ### Partial File Support (`partial_max`)
 
-- [ ] `partial_max` was added to `DataFileRow` and `DeleteFileRow` in v0.24. In this phase, implement the reader-side behavior: when reading a data file with `partial_max IS NOT NULL`, treat the file as containing only rows up to and including the row with the maximum value equal to `partial_max`.
-- [ ] Add a pruning shortcut: skip a partial file entirely if the query predicate excludes all rows up to `partial_max`.
+- [x] `partial_max` was added to `DataFileRow` and `DeleteFileRow` in v0.24. In this phase, implement the reader-side behavior: when reading a data file with `partial_max IS NOT NULL`, treat the file as containing only rows up to and including the row with the maximum value equal to `partial_max`.
+- [x] Add a pruning shortcut: skip a partial file entirely if the query predicate excludes all rows up to `partial_max`.
 
 ### Deliverables
 
-- [ ] `ducklake_file_column_stats`, `ducklake_table_column_stats`, `ducklake_file_variant_stats` spec-compatible with all required fields
-- [ ] `extra_stats` JSON field written, validated, and readable for variant and geometry stats
-- [ ] DuckLake type parser implemented, tested, and used in column validation and pruning
-- [ ] Nested column reads and writes working end-to-end with `parent_column`
-- [ ] `ducklake_sort_expression` uses spec string fields; `ducklake_sort_info` exposed via SQL facade
-- [ ] `ducklake_partition_column.table_id` present; partition lifecycle covered by DROP TABLE cascade
-- [ ] `partition_value` renamed; `path_is_relative` and `TIMESTAMPTZ` semantics for `files_scheduled_for_deletion`
-- [ ] Partial-file `partial_max` read semantics implemented and tested
+- [x] `ducklake_file_column_stats`, `ducklake_table_column_stats`, `ducklake_file_variant_stats` spec-compatible with all required fields
+- [x] `extra_stats` JSON field written, validated, and readable for variant and geometry stats
+- [x] DuckLake type parser implemented, tested, and used in column validation and pruning
+- [x] Nested column reads and writes working end-to-end with `parent_column`
+- [x] `ducklake_sort_expression` uses spec string fields; `ducklake_sort_info` exposed via SQL facade
+- [x] `ducklake_partition_column.table_id` present; partition lifecycle covered by DROP TABLE cascade
+- [x] `partition_value` renamed; `path_is_relative` and `TIMESTAMPTZ` semantics for `files_scheduled_for_deletion`
+- [x] Partial-file `partial_max` read semantics implemented and tested
 
 ---
 
@@ -2634,6 +2635,88 @@ SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following a
 - [ ] `ducklake_schema_versions` SQL facade column order verified
 - [ ] DuckLake v1.0 compatibility definition-of-done checklist fully green
 - [ ] Compatibility status matrix updated in `docs/compatibility.md`
+
+---
+
+## v0.28.0 — Full Ecosystem Compatibility Certification
+
+> Turn the compatibility matrix into release-blocking evidence. No v0.28.0 tag may ship until every supported, expected, untested, or unsupported claim in `docs/compatibility.md` is backed by an automated check, an explicit negative test, or a deliberate documentation downgrade.
+
+### Current Gap Analysis
+
+The workflow named `DuckDB Compatibility Matrix` is not a full compatibility matrix today and does not fully test every variant described in `docs/compatibility.md`.
+
+- [ ] **DuckDB / DuckLake:** CI checks that `tests/fixtures/wire-corpus/duckdb-1.2.2.jsonl` exists, then runs the same package tests for every matrix entry. It does not pass the selected client fixture into the replay test, does not run a real DuckDB process, does not attach the real `ducklake` extension, and does not prove DuckDB 1.3.x or later DuckDB patch streams.
+- [ ] **Wire corpus replay:** The current corpus tests mostly validate fixture presence, JSON shape, or SQL classifier acceptance. They do not replay each selected corpus end-to-end through PG-wire, assert response messages, or compare final catalog state with golden DuckLake-backed output.
+- [ ] **PostgreSQL clients:** The compatibility workflow runs `cargo test --package slateduck-pgwire -- --include-ignored psql_compat`, but no listed test currently contains `psql_compat`; this can pass while running zero client compatibility tests. The workflow also starts PostgreSQL containers even though the compatibility target should be a SlateDuck server exercised by real clients. DBeaver, pgcli, and Metabase have no automated coverage.
+- [ ] **Spark / Trino / Presto:** Spark 3.5 and Trino 432 have small synthetic corpus fixtures and classifier checks only. There is no real Spark connector, Trino connector, or Presto job, and the documented Trino 400-431 / Presto disposition is not actively verified.
+- [ ] **DataFusion:** DataFusion 45 is pinned and has local integration tests, including Parquet scan coverage, but those tests are not wired into the compatibility matrix and there is no docs-to-test evidence mapping for the supported DataFusion row or the unsupported `< 45` row.
+- [ ] **Object storage:** Local filesystem is covered indirectly by many tests. GCS and Azure checks only validate builder construction, not real read/write/list/commit behavior. AWS S3 and MinIO are documented as supported but are not exercised by this compatibility workflow as real backends.
+- [ ] **SlateDB:** The workspace pins SlateDB 0.13, but `docs/compatibility.md` is not validated against Cargo metadata and the unsupported 0.12 row has no explicit compatibility-policy check.
+- [ ] **TLS and authentication:** Tests cover basic TLS-required/plaintext rejection, optional TLS startup, and password authentication behavior. They do not prove TLS 1.2 acceptance, TLS 1.3 acceptance, or TLS 1.1-and-older rejection as separate protocol-version gates.
+- [ ] **Rust toolchain:** The workspace and CI declare MSRV 1.93, while `docs/compatibility.md` still says 1.80. Stable and MSRV checks are Linux-only and are not tied to the compatibility matrix.
+- [ ] **Platforms and release artifacts:** CI tests Ubuntu and macOS latest only. Release artifacts are built for Linux x86-64, Linux aarch64, and macOS arm64. Windows x86-64 is documented as supported but has no CI test, no release build, and no release installation instructions. macOS x86-64 was removed from `docs/compatibility.md` but still appears in binary deployment documentation.
+- [ ] **Unsupported rows:** Rows marked unsupported or not tested are not consistently asserted. Spark 3.3, DataFusion `< 45`, SlateDB 0.12, Rust below MSRV, and TLS 1.1-or-older need either explicit negative tests or a compatibility manifest entry explaining why no runtime test is possible.
+
+### Compatibility Evidence Manifest
+
+- [ ] Add `tests/fixtures/compatibility-matrix.toml` as the source of truth for every row in `docs/compatibility.md`. Each entry must include component, version/range, platform if applicable, claimed status, required CI job, test command, fixture or artifact path, and last-reviewed date.
+- [ ] Add a CI gate that validates `docs/compatibility.md` against the manifest. A supported row without evidence, an evidence entry without a matching test, or a docs row missing from the manifest fails the build.
+- [ ] Define allowed statuses precisely: `supported` means automated release-blocking evidence; `expected` means non-blocking scheduled evidence plus documented risk; `untested` means no support promise; `unsupported` means an explicit rejection, incompatibility reason, or version-policy check.
+- [ ] Require every compatibility job to publish a compact JSON result artifact consumed by the manifest validator, so the docs cannot drift from the last green run.
+
+### DuckDB / DuckLake Certification
+
+- [ ] Replace the current fixture-exists workflow with versioned real-client jobs for every supported DuckDB/DuckLake combination in the manifest.
+- [ ] For each supported DuckDB version, start SlateDuck as a real PG-wire sidecar, install/load the DuckDB `ducklake` extension, attach via `ducklake:postgres://...`, and run the v0.27 end-to-end lifecycle on LocalFS and MinIO.
+- [ ] Replay the selected wire corpus named by the matrix entry, not a generic test filter. Assert protocol responses, SQLSTATEs, and final catalog rows against golden fixtures.
+- [ ] Capture and validate new DuckDB patch/minor corpora before a version is added to the supported matrix. Weekly scheduled jobs detect new DuckDB releases and open a tracking issue when a corpus is missing.
+- [ ] Keep `docs/integration/duckdb-compatibility.md` synchronized with the same manifest; remove or downgrade any DuckDB version claim that is not certified.
+
+### SQL Client Certification
+
+- [ ] Add real `psql` CLI smoke tests for PostgreSQL client versions 16, 17, and 18 against SlateDuck, including startup, simple query, extended/prepared query, transaction, auth failure, and TLS-required modes.
+- [ ] Rename or add tests so the CI filter cannot silently run zero tests; fail the workflow when the selected test count is zero.
+- [ ] Add pgcli 4.x smoke coverage against SlateDuck for connection setup, catalog SELECT, transaction, TLS-required connection, and auth failure.
+- [ ] Add DBeaver 24.x coverage using its bundled PostgreSQL JDBC driver or a headless DBeaver-compatible JDBC smoke harness. Record the driver version in the manifest.
+- [ ] Add Metabase 0.49+ coverage with a containerized Metabase instance or API-driven smoke harness that registers SlateDuck as a PostgreSQL database and runs a catalog query.
+
+### Spark, Trino, Presto, and DataFusion
+
+- [ ] Run a real Spark 3.5 job against SlateDuck through the documented pg-wire path. Cover schema discovery, table discovery, Parquet file listing, snapshot visibility, and a write path if the connector supports it.
+- [ ] Run a real Trino 432+ job against SlateDuck through the documented pg-wire path. Cover catalog discovery, table discovery, predicate pushdown/file pruning expectations, and snapshot visibility.
+- [ ] Decide the Trino 400-431 and Presto compatibility status in the manifest. If either remains `untested` or `unsupported`, `docs/compatibility.md` must say so plainly; if either becomes supported, add a real engine smoke job first.
+- [ ] Promote `cargo test -p slateduck-datafusion` into the compatibility workflow for DataFusion 45 and include the Parquet scan test as the supported-row evidence.
+- [ ] Add a version-policy check proving DataFusion `< 45` is outside the supported range, or remove the row from the public matrix.
+
+### Storage, TLS, Rust, and Platform Matrix
+
+- [ ] Add real backend compatibility jobs for LocalFS, MinIO, AWS S3, GCS, and Azure Blob. Each supported backend must exercise catalog open/create, snapshot commit, read-after-write, list/prefix scan, writer fencing, and recovery from a fresh process.
+- [ ] Make credentialed AWS/GCS/Azure jobs release-blocking for v0.28.0, even if they run on a protected scheduled/release workflow rather than every PR.
+- [ ] Add TLS protocol-version tests using real client handshakes: TLS 1.2 accepted, TLS 1.3 accepted, TLS 1.1 and older rejected. Include auth + TLS combined coverage.
+- [ ] Reconcile Rust compatibility by either updating `docs/compatibility.md` to MSRV 1.93 or lowering the workspace MSRV with proof. Stable and MSRV checks must be represented in the manifest.
+- [ ] Add Windows x86-64 CI and release artifacts before claiming Windows support. The release workflow must build, checksum, upload, and document the Windows binary.
+- [ ] Keep Linux x86-64, Linux aarch64, and macOS arm64 release jobs as supported platform evidence. Remove stale macOS x86-64 deployment docs unless a macOS x86-64 build/test/release job is restored.
+
+### Release Gates
+
+- [ ] `DuckDB Compatibility Matrix` renamed or expanded to `Ecosystem Compatibility Matrix`, with separate jobs for real clients, corpus replay, SQL clients, engines, object stores, TLS/auth, Rust, and platforms.
+- [ ] `docs/compatibility.md` and `docs/integration/duckdb-compatibility.md` cannot be edited to add a supported row unless the manifest and CI evidence are updated in the same PR.
+- [ ] `mkdocs build --strict`, the compatibility manifest validator, all release-blocking compatibility jobs, and all release artifact builds are green before tagging v0.28.0.
+- [ ] Publish a v0.28.0 compatibility report under `benchmarks/` or `docs/performance/` with the exact component versions, platforms, object stores, and CI run URLs used for certification.
+
+### Deliverables
+
+- [ ] Compatibility evidence manifest checked in and enforced in CI
+- [ ] Real DuckDB/DuckLake matrix green for every supported version
+- [ ] Wire corpus replay tests assert responses and final state per selected fixture
+- [ ] SQL client compatibility green for psql 16/17/18, DBeaver 24.x, pgcli 4.x, and Metabase 0.49+
+- [ ] Spark, Trino, Presto disposition, and DataFusion compatibility rows reconciled with automated evidence
+- [ ] LocalFS, MinIO, AWS S3, GCS, and Azure Blob backend compatibility certified or downgraded honestly
+- [ ] TLS 1.2, TLS 1.3, TLS rejection, auth, Rust/MSRV, and platform release evidence represented in the manifest
+- [ ] Windows x86-64 build/test/release support added before Windows remains listed as supported
+- [ ] Stale macOS x86-64 documentation removed or macOS x86-64 support restored with evidence
+- [ ] `docs/compatibility.md` fully generated from or validated against current compatibility evidence
 
 ---
 

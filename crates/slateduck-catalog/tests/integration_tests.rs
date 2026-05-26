@@ -340,10 +340,14 @@ async fn file_column_stats_and_pruning() {
             table_id,
             column_id: col_id,
             data_file_id: file1,
-            has_null: false,
+            contains_null: false,
             min_value: Some("10"),
             max_value: Some("50"),
             contains_nan: false,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            extra_stats: None,
         })
         .await
         .unwrap();
@@ -353,10 +357,14 @@ async fn file_column_stats_and_pruning() {
             table_id,
             column_id: col_id,
             data_file_id: file2,
-            has_null: false,
+            contains_null: false,
             min_value: Some("100"),
             max_value: Some("200"),
             contains_nan: false,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            extra_stats: None,
         })
         .await
         .unwrap();

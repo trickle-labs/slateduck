@@ -346,10 +346,16 @@ async fn upsert_and_list_file_variant_stats() {
         .upsert_file_variant_stats(FileVariantStatsInput {
             table_id,
             column_id: col_id,
-            variant_path: "$.name",
+            variant_key: "$.name",
             data_file_id: file_id,
             min_value: Some("alice"),
             max_value: Some("zoe"),
+            shredded_type: None,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            contains_nan: None,
+            extra_stats: None,
         })
         .await
         .unwrap();
@@ -357,10 +363,16 @@ async fn upsert_and_list_file_variant_stats() {
         .upsert_file_variant_stats(FileVariantStatsInput {
             table_id,
             column_id: col_id,
-            variant_path: "$.age",
+            variant_key: "$.age",
             data_file_id: file_id,
             min_value: Some("18"),
             max_value: Some("99"),
+            shredded_type: None,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            contains_nan: None,
+            extra_stats: None,
         })
         .await
         .unwrap();
@@ -373,7 +385,7 @@ async fn upsert_and_list_file_variant_stats() {
         .unwrap();
     assert_eq!(stats.len(), 2);
 
-    let name_stat = stats.iter().find(|s| s.variant_path == "$.name").unwrap();
+    let name_stat = stats.iter().find(|s| s.variant_key == "$.name").unwrap();
     assert_eq!(name_stat.min_value.as_deref(), Some("alice"));
     assert_eq!(name_stat.max_value.as_deref(), Some("zoe"));
 
@@ -406,7 +418,7 @@ async fn schedule_and_list_file_deletion() {
     assert_eq!(scheduled.len(), 1);
     assert_eq!(scheduled[0].data_file_id, file_id);
     assert_eq!(scheduled[0].path, "old.parquet");
-    assert_eq!(scheduled[0].file_type, "data");
+    assert_eq!(scheduled[0].file_type.as_deref(), Some("data"));
 
     // Remove from schedule
     let schedule_start = scheduled[0].schedule_start;
@@ -688,10 +700,14 @@ async fn all_28_ducklake_tables_tested() {
             table_id,
             column_id: col_id,
             data_file_id: file_id,
-            has_null: false,
+            contains_null: false,
             min_value: Some("1"),
             max_value: Some("100"),
             contains_nan: false,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            extra_stats: None,
         })
         .await
         .unwrap();
@@ -701,10 +717,16 @@ async fn all_28_ducklake_tables_tested() {
         .upsert_file_variant_stats(FileVariantStatsInput {
             table_id,
             column_id: col_id,
-            variant_path: "$.path",
+            variant_key: "$.path",
             data_file_id: file_id,
             min_value: Some("a"),
             max_value: Some("z"),
+            shredded_type: None,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            contains_nan: None,
+            extra_stats: None,
         })
         .await
         .unwrap();

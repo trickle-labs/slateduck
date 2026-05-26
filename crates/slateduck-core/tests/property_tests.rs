@@ -184,17 +184,21 @@ proptest! {
         table_id in 1u64..u64::MAX,
         column_id in 1u64..u64::MAX,
         data_file_id in 1u64..u64::MAX,
-        has_null in proptest::bool::ANY,
+        contains_null in proptest::bool::ANY,
         contains_nan in proptest::bool::ANY,
     ) {
         let row = FileColumnStatsRow {
             table_id,
             column_id,
             data_file_id,
-            has_null,
+            contains_null,
             min_value: Some("10".to_string()),
             max_value: Some("100".to_string()),
             contains_nan,
+            column_size_bytes: None,
+            value_count: None,
+            null_count: None,
+            extra_stats: None,
         };
         let encoded = encode_value(&row);
         let decoded: FileColumnStatsRow = decode_value(&encoded).unwrap();

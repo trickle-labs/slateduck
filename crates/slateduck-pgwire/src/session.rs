@@ -69,7 +69,7 @@ pub enum BufferedOp {
         table_id: u64,
         column_id: u64,
         data_file_id: u64,
-        has_null: bool,
+        contains_null: bool,
         min_value: Option<String>,
         max_value: Option<String>,
         contains_nan: bool,

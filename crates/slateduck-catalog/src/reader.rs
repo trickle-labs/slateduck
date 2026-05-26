@@ -207,7 +207,9 @@ impl CatalogReader {
                 .then(b.begin_snapshot.cmp(&a.begin_snapshot))
         });
         columns.dedup_by_key(|c| c.column_id);
-        columns.sort_by_key(|c| c.column_index);
+        // v0.26: sort into a column tree — top-level columns by column_index,
+        // then child columns (parent_column IS NOT NULL) following their parent.
+        sort_columns_tree(&mut columns);
 
         Ok(Some((table, columns)))
     }
@@ -300,7 +302,7 @@ impl CatalogReader {
         predicate_value: &str,
         col_type: &DuckLakeType,
     ) -> CatalogResult<Vec<u64>> {
-        use slateduck_core::types::prune_file;
+        use slateduck_core::types::{prune_file, type_aware_compare};
 
         let mut buf = Vec::with_capacity(17);
         buf.push(TAG_FILE_COLUMN_STATS);
@@ -326,6 +328,29 @@ impl CatalogReader {
                 kept_file_ids.push(row.data_file_id);
             }
         }
+
+        // v0.26: partial_max pruning shortcut.
+        // If a data file has partial_max IS NOT NULL and predicate > partial_max,
+        // the file cannot contain matching rows — prune it.
+        if !kept_file_ids.is_empty() {
+            let data_files = self.list_data_files(table_id).await?;
+            let partial_map: std::collections::HashMap<u64, &str> = data_files
+                .iter()
+                .filter_map(|f| f.partial_max.as_deref().map(|pm| (f.data_file_id, pm)))
+                .collect();
+            kept_file_ids.retain(|&file_id| {
+                if let Some(partial_max) = partial_map.get(&file_id) {
+                    // If predicate > partial_max, the file can be pruned.
+                    match type_aware_compare(predicate_value, partial_max, col_type) {
+                        Ok(std::cmp::Ordering::Greater) => false, // prune
+                        _ => true,                                // keep
+                    }
+                } else {
+                    true // no partial_max — keep
+                }
+            });
+        }
+
         Ok(kept_file_ids)
     }
 
@@ -721,5 +746,91 @@ impl CatalogReader {
             added_data_files,
             retired_data_files,
         })
+    }
+
+    /// v0.26: Look up the column type string for a given (table_id, column_id).
+    ///
+    /// Returns the `column_type` field from the most-recent visible `ColumnRow`,
+    /// or `None` if the column is not found at this snapshot.
+    pub async fn get_column_type(
+        &self,
+        table_id: u64,
+        column_id: u64,
+    ) -> CatalogResult<Option<String>> {
+        let col_prefix = keys::prefix_columns_for_table(table_id);
+        let mut best: Option<ColumnRow> = None;
+        let mut iter = self.db.scan_prefix(&col_prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            let row: ColumnRow = values::decode_value(&kv.value)?;
+            if row.column_id == column_id
+                && mvcc::is_visible(row.begin_snapshot, row.end_snapshot, self.dl_snapshot_id)
+            {
+                match &best {
+                    None => best = Some(row),
+                    Some(existing) if row.begin_snapshot > existing.begin_snapshot => {
+                        best = Some(row);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(best.map(|r| r.data_type))
+    }
+}
+
+// ─── Column Tree Sort ─────────────────────────────────────────────────────
+
+/// Sort a flat list of column rows into column-tree order.
+///
+/// Top-level columns (parent_column IS NULL) are ordered by `column_index`.
+/// Child columns follow their parent, ordered by `column_index` within the
+/// same parent.  This handles arbitrarily nested struct columns.
+fn sort_columns_tree(columns: &mut Vec<ColumnRow>) {
+    // Separate top-level from nested columns.
+    let mut top_level: Vec<ColumnRow> = std::mem::take(columns);
+
+    // Sort everything by column_index first (stable order within each level).
+    top_level.sort_by_key(|c| c.column_index);
+
+    // Build a map from column_id to children.
+    let mut children: std::collections::HashMap<u64, Vec<ColumnRow>> =
+        std::collections::HashMap::new();
+    let mut roots: Vec<ColumnRow> = Vec::new();
+    for col in top_level {
+        if let Some(parent_id) = col.parent_column {
+            children.entry(parent_id).or_default().push(col);
+        } else {
+            roots.push(col);
+        }
+    }
+
+    // Recursively expand each root into the output list.
+    fn expand(
+        col: ColumnRow,
+        children: &mut std::collections::HashMap<u64, Vec<ColumnRow>>,
+        out: &mut Vec<ColumnRow>,
+    ) {
+        let col_id = col.column_id;
+        out.push(col);
+        if let Some(mut kids) = children.remove(&col_id) {
+            kids.sort_by_key(|c| c.column_index);
+            for kid in kids {
+                expand(kid, children, out);
+            }
+        }
+    }
+
+    for root in roots {
+        expand(root, &mut children, columns);
+    }
+    // Append any orphaned children that had an unknown parent (shouldn't happen normally).
+    for (_, orphans) in children {
+        for orphan in orphans {
+            columns.push(orphan);
+        }
     }
 }
