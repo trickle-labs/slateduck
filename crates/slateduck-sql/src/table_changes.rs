@@ -169,12 +169,11 @@ pub async fn extract_rows_from_parquet(
         .map_err(|e| TableChangesError::Storage(e.to_string()))?;
 
     // Use the synchronous reader on the in-memory bytes.
-    let reader =
-        parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(bytes)
-            .map_err(|e| TableChangesError::Storage(e.to_string()))?
-            .with_batch_size(batch_size)
-            .build()
-            .map_err(|e| TableChangesError::Storage(e.to_string()))?;
+    let reader = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(bytes)
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?
+        .with_batch_size(batch_size)
+        .build()
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?;
 
     let mut rows = Vec::new();
     let mut rowid = base_rowid;
@@ -240,42 +239,60 @@ fn arrow_to_json_value(array: &dyn arrow::array::Array, row_idx: usize) -> serde
             serde_json::Value::Bool(arr.value(row_idx))
         }
         DataType::Int8 => {
-            serde_json::json!(array.as_any().downcast_ref::<Int8Array>().unwrap().value(row_idx))
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int8Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::Int16 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<Int16Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::Int32 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<Int32Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::Int64 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<Int64Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::UInt8 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<UInt8Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt8Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::UInt16 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<UInt16Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt16Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::UInt32 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<UInt32Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::UInt64 => {
-            serde_json::json!(
-                array.as_any().downcast_ref::<UInt64Array>().unwrap().value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::Float32 => {
             let v = array
@@ -328,22 +345,18 @@ fn arrow_to_json_value(array: &dyn arrow::array::Array, row_idx: usize) -> serde
             serde_json::Value::String(hex)
         }
         DataType::Date32 => {
-            serde_json::json!(
-                array
-                    .as_any()
-                    .downcast_ref::<Date32Array>()
-                    .unwrap()
-                    .value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .unwrap()
+                .value(row_idx))
         }
         DataType::Date64 => {
-            serde_json::json!(
-                array
-                    .as_any()
-                    .downcast_ref::<Date64Array>()
-                    .unwrap()
-                    .value(row_idx)
-            )
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Date64Array>()
+                .unwrap()
+                .value(row_idx))
         }
         other => {
             // Complex or unsupported types: render type name as a string.

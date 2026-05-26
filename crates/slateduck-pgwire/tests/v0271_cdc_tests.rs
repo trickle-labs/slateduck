@@ -80,8 +80,14 @@ async fn pgwire_table_changes_returns_query_response() {
         let mut writer = lock.begin_write();
         let schema_id = writer.create_schema("events").await.unwrap();
         table_id = writer.create_table(schema_id, "logs", None).await.unwrap();
-        writer.add_column(table_id, "id", "INTEGER", 0, false, None).await.unwrap();
-        writer.add_column(table_id, "name", "VARCHAR", 1, true, None).await.unwrap();
+        writer
+            .add_column(table_id, "id", "INTEGER", 0, false, None)
+            .await
+            .unwrap();
+        writer
+            .add_column(table_id, "name", "VARCHAR", 1, true, None)
+            .await
+            .unwrap();
         writer.create_snapshot(None, None).await.unwrap();
         lock.commit_writer(&writer);
     }
@@ -100,10 +106,9 @@ async fn pgwire_table_changes_returns_query_response() {
     let sql = "SELECT * FROM table_changes('events.logs', 1, 2)";
     let params = ParamValues::default();
     let mut session = SessionState::new();
-    let mut responses =
-        executor::execute_sql(sql, &params, &store, &mut session, &nm(), &ext())
-            .await
-            .expect("table_changes must not return an error");
+    let mut responses = executor::execute_sql(sql, &params, &store, &mut session, &nm(), &ext())
+        .await
+        .expect("table_changes must not return an error");
 
     assert_eq!(responses.len(), 1, "expected exactly one response");
     match responses.remove(0) {
@@ -125,7 +130,10 @@ async fn pgwire_table_changes_missing_file_returns_storage_error() {
         let mut lock = store.lock().await;
         let mut writer = lock.begin_write();
         let schema_id = writer.create_schema("analytics").await.unwrap();
-        let table_id = writer.create_table(schema_id, "events", None).await.unwrap();
+        let table_id = writer
+            .create_table(schema_id, "events", None)
+            .await
+            .unwrap();
         writer
             .register_data_file(table_id, "missing.parquet", "parquet", 5, 0)
             .await
@@ -137,8 +145,7 @@ async fn pgwire_table_changes_missing_file_returns_storage_error() {
     let sql = "SELECT * FROM table_changes('analytics.events', 0, 1)";
     let params = ParamValues::default();
     let mut session = SessionState::new();
-    let result =
-        executor::execute_sql(sql, &params, &store, &mut session, &nm(), &ext()).await;
+    let result = executor::execute_sql(sql, &params, &store, &mut session, &nm(), &ext()).await;
 
     let err = match result {
         Err(e) => e,

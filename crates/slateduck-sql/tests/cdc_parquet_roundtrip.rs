@@ -83,13 +83,14 @@ async fn cdc_parquet_roundtrip_single_file() {
     let dir = TempDir::new().unwrap();
     let rel_path = write_test_parquet(&dir, "insert1.parquet");
 
-    let store: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let store: Arc<dyn object_store::ObjectStore> =
+        Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
 
     let rows = extract_rows_from_parquet(
         &store,
         &rel_path,
-        0,                     // base_rowid
-        Some(2),               // expected_record_count matches
+        0,       // base_rowid
+        Some(2), // expected_record_count matches
         DEFAULT_CDC_BATCH_SIZE,
     )
     .await
@@ -120,18 +121,14 @@ async fn cdc_parquet_roundtrip_multi_file_window() {
     let insert_path = write_test_parquet(&dir, "snap1_insert.parquet");
     let delete_path = write_delete_parquet(&dir, "snap2_delete.parquet");
 
-    let store: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let store: Arc<dyn object_store::ObjectStore> =
+        Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
 
     // Scan "added" file (snapshot N — rows inserted).
-    let added_rows = extract_rows_from_parquet(
-        &store,
-        &insert_path,
-        0,
-        Some(2),
-        DEFAULT_CDC_BATCH_SIZE,
-    )
-    .await
-    .unwrap();
+    let added_rows =
+        extract_rows_from_parquet(&store, &insert_path, 0, Some(2), DEFAULT_CDC_BATCH_SIZE)
+            .await
+            .unwrap();
 
     // Scan "retired" file (snapshot N+2 — row deleted).
     let removed_rows = extract_rows_from_parquet(
@@ -145,8 +142,8 @@ async fn cdc_parquet_roundtrip_multi_file_window() {
     .unwrap();
 
     // Compute CDC for window snapshot 0 → 3 with no GC floor.
-    let result = compute_table_changes("public.events", 0, 3, 0, &added_rows, &removed_rows)
-        .unwrap();
+    let result =
+        compute_table_changes("public.events", 0, 3, 0, &added_rows, &removed_rows).unwrap();
 
     // Expect 2 inserts (rowid 0 and 1) and 1 delete (rowid 100).
     let inserts: Vec<_> = result
@@ -166,7 +163,10 @@ async fn cdc_parquet_roundtrip_multi_file_window() {
     // Verify insert column values.
     let i0: serde_json::Value = serde_json::from_str(&inserts[0].columns_json).unwrap();
     assert!(i0.get("id").is_some(), "insert row must have 'id' column");
-    assert!(i0.get("name").is_some(), "insert row must have 'name' column");
+    assert!(
+        i0.get("name").is_some(),
+        "insert row must have 'name' column"
+    );
 
     // Verify delete column values.
     let d0: serde_json::Value = serde_json::from_str(&deletes[0].columns_json).unwrap();
@@ -182,7 +182,8 @@ async fn cdc_parquet_roundtrip_multi_file_window() {
 #[tokio::test]
 async fn cdc_parquet_notfound_returns_storage_error() {
     let dir = TempDir::new().unwrap();
-    let store: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let store: Arc<dyn object_store::ObjectStore> =
+        Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
 
     let result = extract_rows_from_parquet(
         &store,
@@ -213,7 +214,8 @@ async fn cdc_parquet_notfound_returns_storage_error() {
 async fn cdc_record_count_mismatch_increments_counter() {
     let dir = TempDir::new().unwrap();
     let rel_path = write_test_parquet(&dir, "mismatch.parquet");
-    let store: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let store: Arc<dyn object_store::ObjectStore> =
+        Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
 
     let before = slateduck_sql::cdc_record_count_mismatch_total();
 

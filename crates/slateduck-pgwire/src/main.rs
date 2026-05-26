@@ -143,9 +143,7 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let m = metrics.clone();
         tokio::spawn(async move {
             loop {
-                m.set_cdc_record_count_mismatches(
-                    slateduck_sql::cdc_record_count_mismatch_total(),
-                );
+                m.set_cdc_record_count_mismatches(slateduck_sql::cdc_record_count_mismatch_total());
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
         });
