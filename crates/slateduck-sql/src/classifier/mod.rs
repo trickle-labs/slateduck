@@ -183,6 +183,7 @@ pub enum StatementKind {
     /// Full latest-snapshot tuple used by DuckLake metadata manager:
     /// `SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM ducklake_snapshot ...`
     SelectLatestSnapshotInfo,
+    SelectSnapshotStatsAndChanges,
     /// `SELECT max(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1`
     SelectMaxSnapshotAfter,
     SelectSchemas,
@@ -338,6 +339,19 @@ pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> 
 
     if lower.contains("update") && lower.contains("ducklake_table_column_stats") {
         return Ok(StatementKind::UpdateTableColumnStats);
+    }
+
+    if lower.contains("update") && lower.contains("ducklake_inlined_data_") {
+        return Ok(StatementKind::UpdateInlinedRowEndSnapshot);
+    }
+
+    if lower.contains("union all")
+        && lower.contains("ducklake_snapshot")
+        && lower.contains("ducklake_snapshot_changes")
+        && lower.contains("ducklake_table_stats")
+        && lower.contains("ducklake_table_column_stats")
+    {
+        return Ok(StatementKind::SelectSnapshotStatsAndChanges);
     }
 
     // Pre-parse detection for the multi-statement pg_namespace catalog scan.

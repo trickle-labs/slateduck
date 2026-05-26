@@ -1,5 +1,6 @@
 //! Catalog executor operations: response builders, execute_commit, table_changes, next_rowid.
 
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
@@ -29,6 +30,49 @@ fn literal_u64_value(value: Option<&str>) -> Option<u64> {
     value?.parse::<u64>().ok()
 }
 
+fn collect_replaced_inlined_rows(ops: &[BufferedOp]) -> HashSet<(u64, u64, u64)> {
+    let mut rows = HashSet::new();
+    for op in ops {
+        let BufferedOp::InsertInlinedRow {
+            table_name,
+            rows: values,
+        } = op
+        else {
+            continue;
+        };
+        let Some((table_id, schema_version)) = parse_inlined_table_ids(table_name) else {
+            continue;
+        };
+        for row in values {
+            if let Some(row_id) = literal_u64_value(row.first().and_then(|value| value.as_deref()))
+            {
+                rows.insert((table_id, schema_version, row_id));
+            }
+        }
+    }
+    rows
+}
+
+fn collect_deleted_inlined_rows(ops: &[BufferedOp]) -> HashSet<(u64, u64, u64)> {
+    let mut rows = HashSet::new();
+    for op in ops {
+        let BufferedOp::DeleteInlinedRows {
+            table_name,
+            row_ids,
+        } = op
+        else {
+            continue;
+        };
+        let Some((table_id, schema_version)) = parse_inlined_table_ids(table_name) else {
+            continue;
+        };
+        for row_id in row_ids {
+            rows.insert((table_id, schema_version, *row_id));
+        }
+    }
+    rows
+}
+
 pub(super) async fn execute_commit(
     ops: Vec<BufferedOp>,
     store: &Arc<tokio::sync::Mutex<CatalogStore>>,
@@ -54,6 +98,9 @@ pub(super) async fn execute_commit(
     let mut snapshot_author: Option<String> = None;
     let mut snapshot_message: Option<String> = None;
     let mut needs_snapshot = false;
+    let replaced_inlined_rows = collect_replaced_inlined_rows(&ops);
+    let deleted_inlined_rows = collect_deleted_inlined_rows(&ops);
+    let mut reserved_inlined_rows = HashSet::new();
 
     for op in ops {
         match op {
@@ -307,11 +354,56 @@ pub(super) async fn execute_commit(
                         else {
                             continue;
                         };
+                        let mut effective_row_id = row_id;
+                        if !deleted_inlined_rows.contains(&(table_id, schema_version, row_id)) {
+                            while reserved_inlined_rows.contains(&(
+                                table_id,
+                                schema_version,
+                                effective_row_id,
+                            )) || writer
+                                .inlined_insert_key_exists(
+                                    table_id,
+                                    schema_version,
+                                    effective_row_id,
+                                )
+                                .await
+                                .map_err(SlateDuckError::from)?
+                            {
+                                effective_row_id = effective_row_id.saturating_add(1);
+                            }
+                        }
+                        reserved_inlined_rows.insert((
+                            table_id,
+                            schema_version,
+                            effective_row_id,
+                        ));
                         let payload =
                             serde_json::to_vec(&values.iter().skip(3).cloned().collect::<Vec<_>>())
                                 .map_err(|err| SlateDuckError::Internal(err.to_string()))?;
                         writer
-                            .register_inlined_insert(table_id, schema_version, row_id, payload)
+                            .register_inlined_insert(
+                                table_id,
+                                schema_version,
+                                effective_row_id,
+                                payload,
+                            )
+                            .await
+                            .map_err(SlateDuckError::from)?;
+                    }
+                }
+            }
+            BufferedOp::DeleteInlinedRows {
+                table_name,
+                row_ids,
+            } => {
+                needs_snapshot = true;
+                if let Some((table_id, schema_version)) = parse_inlined_table_ids(&table_name) {
+                    for row_id in row_ids {
+                        if replaced_inlined_rows.contains(&(table_id, schema_version, row_id)) {
+                            continue;
+                        }
+                        writer
+                            .mark_inlined_insert_deleted(table_id, schema_version, row_id)
                             .await
                             .map_err(SlateDuckError::from)?;
                     }
@@ -1176,6 +1268,358 @@ pub(super) fn make_file_ids_response(file_ids: Vec<u64>) -> Response<'static> {
     Response::Query(resp)
 }
 
+#[derive(Clone)]
+enum FileColumnStatsProjectionSource {
+    DataFileId,
+    TableId,
+    ColumnId,
+    ColumnSizeBytes,
+    ValueCount,
+    NullCount,
+    MinValue,
+    MaxValue,
+    ContainsNan,
+    ExtraStats,
+}
+
+#[derive(Clone)]
+struct FileColumnStatsProjection {
+    name: String,
+    datatype: Type,
+    source: FileColumnStatsProjectionSource,
+}
+
+pub(super) fn make_file_column_stats_response(
+    sql: &str,
+    rows: Vec<slateduck_core::rows::FileColumnStatsRow>,
+) -> Response<'static> {
+    let projections = file_column_stats_projections(sql);
+    let schema = Arc::new(
+        projections
+            .iter()
+            .map(|projection| {
+                FieldInfo::new(
+                    projection.name.clone(),
+                    None,
+                    None,
+                    projection.datatype.clone(),
+                    FieldFormat::Text,
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    let mut data_rows = Vec::new();
+    for row in &rows {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        for projection in &projections {
+            match projection.source {
+                FileColumnStatsProjectionSource::DataFileId => {
+                    encode_text_i64(&mut encoder, row.data_file_id)
+                }
+                FileColumnStatsProjectionSource::TableId => {
+                    encode_text_i64(&mut encoder, row.table_id)
+                }
+                FileColumnStatsProjectionSource::ColumnId => {
+                    encode_text_i64(&mut encoder, row.column_id)
+                }
+                FileColumnStatsProjectionSource::ColumnSizeBytes => {
+                    encode_text_optional_i64(&mut encoder, row.column_size_bytes)
+                }
+                FileColumnStatsProjectionSource::ValueCount => {
+                    encode_text_optional_i64(&mut encoder, row.value_count)
+                }
+                FileColumnStatsProjectionSource::NullCount => {
+                    encode_text_optional_i64(&mut encoder, row.null_count)
+                }
+                FileColumnStatsProjectionSource::MinValue => {
+                    encode_text_value(&mut encoder, &row.min_value)
+                }
+                FileColumnStatsProjectionSource::MaxValue => {
+                    encode_text_value(&mut encoder, &row.max_value)
+                }
+                FileColumnStatsProjectionSource::ContainsNan => {
+                    let value = Some(row.contains_nan.to_string());
+                    encode_text_value(&mut encoder, &value);
+                }
+                FileColumnStatsProjectionSource::ExtraStats => {
+                    encode_text_value(&mut encoder, &row.extra_stats)
+                }
+            }
+        }
+        data_rows.push(encoder.finish());
+    }
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
+}
+
+fn encode_text_i64(encoder: &mut DataRowEncoder, value: u64) {
+    encode_text_value(encoder, &Some(value.to_string()));
+}
+
+fn encode_text_optional_i64(encoder: &mut DataRowEncoder, value: Option<u64>) {
+    encode_text_value(encoder, &value.map(|value| value.to_string()));
+}
+
+fn encode_text_value(encoder: &mut DataRowEncoder, value: &Option<String>) {
+    encoder
+        .encode_field_with_type_and_format(value, &Type::TEXT, FieldFormat::Text)
+        .expect("pgwire field encoding is infallible");
+}
+
+fn text_field(name: &str) -> FieldInfo {
+    FieldInfo::new(
+        name.to_string(),
+        None,
+        None,
+        Type::TEXT,
+        FieldFormat::Text,
+    )
+}
+
+fn file_column_stats_projections(sql: &str) -> Vec<FileColumnStatsProjection> {
+    let items = select_projection_items(sql).unwrap_or_default();
+    let mut projections = Vec::new();
+    for item in items {
+        match item {
+            SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => {
+                projections.extend(default_file_column_stats_projections());
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                let source_name = expr_last_identifier(&expr);
+                if let Some(projection) =
+                    file_column_stats_projection_for_name(&source_name, &source_name)
+                {
+                    projections.push(projection);
+                }
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let source_name = expr_last_identifier(&expr);
+                if let Some(projection) =
+                    file_column_stats_projection_for_name(&source_name, &alias.value)
+                {
+                    projections.push(projection);
+                }
+            }
+        }
+    }
+
+    if projections.is_empty() {
+        default_file_column_stats_projections()
+    } else {
+        projections
+    }
+}
+
+fn table_stats_projections(sql: &str) -> Vec<TableStatsProjection> {
+    let items = select_projection_items(sql).unwrap_or_default();
+    let mut projections = Vec::new();
+    for item in items {
+        match item {
+            SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => {
+                projections.extend(default_table_stats_projections());
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                let source_name = expr_last_identifier(&expr);
+                if let Some(projection) = table_stats_projection_for_name(&source_name, &source_name)
+                {
+                    projections.push(projection);
+                }
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let source_name = expr_last_identifier(&expr);
+                if let Some(projection) = table_stats_projection_for_name(&source_name, &alias.value)
+                {
+                    projections.push(projection);
+                }
+            }
+        }
+    }
+
+    if projections.is_empty() {
+        default_table_stats_projections()
+    } else {
+        projections
+    }
+}
+
+fn default_table_stats_projections() -> Vec<TableStatsProjection> {
+    vec![
+        table_stats_projection("table_id", TableStatsProjectionSource::TableId),
+        table_stats_projection("record_count", TableStatsProjectionSource::RecordCount),
+        table_stats_projection("next_row_id", TableStatsProjectionSource::NextRowId),
+        table_stats_projection("file_size_bytes", TableStatsProjectionSource::FileSizeBytes),
+    ]
+}
+
+fn table_stats_projection_for_name(
+    source_name: &str,
+    output_name: &str,
+) -> Option<TableStatsProjection> {
+    let source_name = source_name.trim_matches('"').to_ascii_lowercase();
+    let output_name = output_name.trim_matches('"');
+    match source_name.as_str() {
+        "table_id" => Some(table_stats_projection(
+            output_name,
+            TableStatsProjectionSource::TableId,
+        )),
+        "record_count" => Some(table_stats_projection(
+            output_name,
+            TableStatsProjectionSource::RecordCount,
+        )),
+        "next_row_id" => Some(table_stats_projection(
+            output_name,
+            TableStatsProjectionSource::NextRowId,
+        )),
+        "file_size_bytes" => Some(table_stats_projection(
+            output_name,
+            TableStatsProjectionSource::FileSizeBytes,
+        )),
+        _ => None,
+    }
+}
+
+fn table_stats_projection(
+    name: &str,
+    source: TableStatsProjectionSource,
+) -> TableStatsProjection {
+    TableStatsProjection {
+        name: name.to_string(),
+        datatype: Type::INT8,
+        source,
+    }
+}
+
+fn default_file_column_stats_projections() -> Vec<FileColumnStatsProjection> {
+    vec![
+        file_column_stats_projection(
+            "data_file_id",
+            Type::INT8,
+            FileColumnStatsProjectionSource::DataFileId,
+        ),
+        file_column_stats_projection(
+            "table_id",
+            Type::INT8,
+            FileColumnStatsProjectionSource::TableId,
+        ),
+        file_column_stats_projection(
+            "column_id",
+            Type::INT8,
+            FileColumnStatsProjectionSource::ColumnId,
+        ),
+        file_column_stats_projection(
+            "column_size_bytes",
+            Type::INT8,
+            FileColumnStatsProjectionSource::ColumnSizeBytes,
+        ),
+        file_column_stats_projection(
+            "value_count",
+            Type::INT8,
+            FileColumnStatsProjectionSource::ValueCount,
+        ),
+        file_column_stats_projection(
+            "null_count",
+            Type::INT8,
+            FileColumnStatsProjectionSource::NullCount,
+        ),
+        file_column_stats_projection(
+            "min_value",
+            Type::TEXT,
+            FileColumnStatsProjectionSource::MinValue,
+        ),
+        file_column_stats_projection(
+            "max_value",
+            Type::TEXT,
+            FileColumnStatsProjectionSource::MaxValue,
+        ),
+        file_column_stats_projection(
+            "contains_nan",
+            Type::BOOL,
+            FileColumnStatsProjectionSource::ContainsNan,
+        ),
+        file_column_stats_projection(
+            "extra_stats",
+            Type::TEXT,
+            FileColumnStatsProjectionSource::ExtraStats,
+        ),
+    ]
+}
+
+fn file_column_stats_projection_for_name(
+    source_name: &str,
+    output_name: &str,
+) -> Option<FileColumnStatsProjection> {
+    let source_name = source_name.trim_matches('"').to_ascii_lowercase();
+    let output_name = output_name.trim_matches('"');
+    match source_name.as_str() {
+        "data_file_id" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::DataFileId,
+        )),
+        "table_id" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::TableId,
+        )),
+        "column_id" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::ColumnId,
+        )),
+        "column_size_bytes" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::ColumnSizeBytes,
+        )),
+        "value_count" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::ValueCount,
+        )),
+        "null_count" => Some(file_column_stats_projection(
+            output_name,
+            Type::INT8,
+            FileColumnStatsProjectionSource::NullCount,
+        )),
+        "min_value" => Some(file_column_stats_projection(
+            output_name,
+            Type::TEXT,
+            FileColumnStatsProjectionSource::MinValue,
+        )),
+        "max_value" => Some(file_column_stats_projection(
+            output_name,
+            Type::TEXT,
+            FileColumnStatsProjectionSource::MaxValue,
+        )),
+        "contains_nan" => Some(file_column_stats_projection(
+            output_name,
+            Type::BOOL,
+            FileColumnStatsProjectionSource::ContainsNan,
+        )),
+        "extra_stats" => Some(file_column_stats_projection(
+            output_name,
+            Type::TEXT,
+            FileColumnStatsProjectionSource::ExtraStats,
+        )),
+        _ => None,
+    }
+}
+
+fn file_column_stats_projection(
+    name: &str,
+    datatype: Type,
+    source: FileColumnStatsProjectionSource,
+) -> FileColumnStatsProjection {
+    FileColumnStatsProjection {
+        name: name.to_string(),
+        datatype,
+        source,
+    }
+}
+
 // ─── v0.27.1: CDC Completeness & Real Parquet Row Scanning ─────────────────
 
 /// Execute `table_changes(table_ref, start_snapshot, end_snapshot)`.
@@ -1371,19 +1815,78 @@ pub(super) async fn execute_next_rowid_range<'a>(
     Ok(vec![Response::Query(resp)])
 }
 
-/// Build a PgWire response for `SELECT * FROM ducklake_table_stats WHERE table_id = $1`.
-pub(super) fn make_table_stats_response(
-    stats: Option<slateduck_core::rows::TableStatsRow>,
-) -> Response<'static> {
-    make_table_stats_rows_response(stats.into_iter().collect())
+#[derive(Clone, Copy)]
+enum TableStatsProjectionSource {
+    TableId,
+    RecordCount,
+    NextRowId,
+    FileSizeBytes,
 }
 
-pub(super) fn make_table_stats_rows_response(
+struct TableStatsProjection {
+    name: String,
+    datatype: Type,
+    source: TableStatsProjectionSource,
+}
+
+pub(super) fn make_table_stats_rows_response_for_sql(
+    sql: &str,
     rows: Vec<slateduck_core::rows::TableStatsRow>,
+) -> Response<'static> {
+    let projections = table_stats_projections(sql);
+    let schema = Arc::new(
+        projections
+            .iter()
+            .map(|projection| {
+                FieldInfo::new(
+                    projection.name.clone(),
+                    None,
+                    None,
+                    projection.datatype.clone(),
+                    FieldFormat::Text,
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    let mut data_rows = Vec::new();
+    for row in rows {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        for projection in &projections {
+            match projection.source {
+                TableStatsProjectionSource::TableId => encode_text_i64(&mut encoder, row.table_id),
+                TableStatsProjectionSource::RecordCount => {
+                    encode_text_i64(&mut encoder, row.record_count)
+                }
+                TableStatsProjectionSource::NextRowId => {
+                    encode_text_optional_i64(&mut encoder, row.next_row_id)
+                }
+                TableStatsProjectionSource::FileSizeBytes => {
+                    encode_text_i64(&mut encoder, row.file_size_bytes)
+                }
+            }
+        }
+        data_rows.push(encoder.finish());
+    }
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
+}
+
+pub(super) fn make_global_table_stats_response(
+    stats_rows: Vec<slateduck_core::rows::TableStatsRow>,
+    column_stats_rows: Vec<slateduck_core::rows::TableColumnStatsRow>,
 ) -> Response<'static> {
     let schema = Arc::new(vec![
         FieldInfo::new(
             "table_id".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "column_id".to_string(),
             None,
             None,
             Type::INT8,
@@ -1397,7 +1900,7 @@ pub(super) fn make_table_stats_rows_response(
             FieldFormat::Text,
         ),
         FieldInfo::new(
-            "file_count".to_string(),
+            "next_row_id".to_string(),
             None,
             None,
             Type::INT8,
@@ -1411,54 +1914,237 @@ pub(super) fn make_table_stats_rows_response(
             FieldFormat::Text,
         ),
         FieldInfo::new(
-            "next_row_id".to_string(),
+            "contains_null".to_string(),
             None,
             None,
-            Type::INT8,
+            Type::BOOL,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "contains_nan".to_string(),
+            None,
+            None,
+            Type::BOOL,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "min_value".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "max_value".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "extra_stats".to_string(),
+            None,
+            None,
+            Type::TEXT,
             FieldFormat::Text,
         ),
     ]);
     let mut data_rows = Vec::new();
-    for s in rows {
-        let mut encoder = DataRowEncoder::new(schema.clone());
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(s.table_id.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(s.record_count.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(s.file_count.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(s.file_size_bytes.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
-        let next_row_id = s.next_row_id.map(|v| v.to_string());
-        encoder
-            .encode_field_with_type_and_format(&next_row_id, &Type::TEXT, FieldFormat::Text)
-            .expect("pgwire field encoding is infallible");
-        data_rows.push(encoder.finish());
+    for stats in &stats_rows {
+        let matching_column_stats = column_stats_rows
+            .iter()
+            .filter(|row| row.table_id == stats.table_id)
+            .collect::<Vec<_>>();
+        if matching_column_stats.is_empty() {
+            data_rows.push(encode_global_table_stats_row(schema.clone(), stats, None));
+        } else {
+            for column_stats in matching_column_stats {
+                data_rows.push(encode_global_table_stats_row(
+                    schema.clone(),
+                    stats,
+                    Some(column_stats),
+                ));
+            }
+        }
     }
     let count = data_rows.len();
     let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
     resp.set_command_tag(&format!("SELECT {count}"));
     Response::Query(resp)
+}
+
+fn encode_global_table_stats_row(
+    schema: Arc<Vec<FieldInfo>>,
+    stats: &slateduck_core::rows::TableStatsRow,
+    column_stats: Option<&slateduck_core::rows::TableColumnStatsRow>,
+) -> pgwire::error::PgWireResult<pgwire::messages::data::DataRow> {
+    let mut encoder = DataRowEncoder::new(schema);
+    encode_text_value(&mut encoder, &Some(stats.table_id.to_string()));
+    encode_text_value(
+        &mut encoder,
+        &column_stats.map(|row| row.column_id.to_string()),
+    );
+    encode_text_value(&mut encoder, &Some(stats.record_count.to_string()));
+    encode_text_value(
+        &mut encoder,
+        &stats.next_row_id.map(|value| value.to_string()),
+    );
+    encode_text_value(&mut encoder, &Some(stats.file_size_bytes.to_string()));
+    encode_text_value(
+        &mut encoder,
+        &column_stats.map(|row| row.contains_null.to_string()),
+    );
+    encode_text_value(
+        &mut encoder,
+        &column_stats.and_then(|row| row.contains_nan.map(|value| value.to_string())),
+    );
+    encode_text_value(
+        &mut encoder,
+        &column_stats.and_then(|row| row.min_value.clone()),
+    );
+    encode_text_value(
+        &mut encoder,
+        &column_stats.and_then(|row| row.max_value.clone()),
+    );
+    encode_text_value(
+        &mut encoder,
+        &column_stats.and_then(|row| row.extra_stats.clone()),
+    );
+    encoder.finish()
+}
+
+pub(super) fn make_snapshot_stats_changes_response(
+    snapshot: Option<slateduck_core::rows::SnapshotRow>,
+    stats_rows: Vec<slateduck_core::rows::TableStatsRow>,
+    column_stats_rows: Vec<slateduck_core::rows::TableColumnStatsRow>,
+) -> Response<'static> {
+    let schema = Arc::new(vec![
+        text_field("snapshot_id"),
+        text_field("schema_version"),
+        text_field("next_catalog_id"),
+        text_field("next_file_id"),
+        text_field("changes"),
+        text_field("table_id"),
+        text_field("column_id"),
+        text_field("record_count"),
+        text_field("next_row_id"),
+        text_field("file_size_bytes"),
+        text_field("contains_null"),
+        text_field("contains_nan"),
+        text_field("min_value"),
+        text_field("max_value"),
+        text_field("extra_stats"),
+    ]);
+
+    let mut data_rows = Vec::new();
+    let snapshot = snapshot.unwrap_or(slateduck_core::rows::SnapshotRow {
+        snapshot_id: 0,
+        schema_version: 0,
+        snapshot_time: String::new(),
+        author: None,
+        message: None,
+        next_catalog_id: Some(1),
+        next_file_id: Some(1),
+    });
+    data_rows.push(encode_optional_text_row(
+        schema.clone(),
+        vec![
+            Some(snapshot.snapshot_id.to_string()),
+            Some(snapshot.schema_version.to_string()),
+            Some(snapshot.next_catalog_id.unwrap_or(1).to_string()),
+            Some(snapshot.next_file_id.unwrap_or(1).to_string()),
+            Some(String::new()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
+    ));
+
+    let stats_by_table: BTreeMap<u64, slateduck_core::rows::TableStatsRow> = stats_rows
+        .into_iter()
+        .map(|stats| (stats.table_id, stats))
+        .collect();
+    let mut column_stats_by_table: BTreeMap<
+        u64,
+        Vec<slateduck_core::rows::TableColumnStatsRow>,
+    > = BTreeMap::new();
+    for row in column_stats_rows {
+        column_stats_by_table
+            .entry(row.table_id)
+            .or_default()
+            .push(row);
+    }
+
+    for (table_id, stats) in stats_by_table {
+        if let Some(column_rows) = column_stats_by_table.remove(&table_id) {
+            for column in column_rows {
+                data_rows.push(encode_optional_text_row(
+                    schema.clone(),
+                    vec![
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(table_id.to_string()),
+                        Some(column.column_id.to_string()),
+                        Some(stats.record_count.to_string()),
+                        stats.next_row_id.map(|value| value.to_string()),
+                        Some(stats.file_size_bytes.to_string()),
+                        Some(column.contains_null.to_string()),
+                        column.contains_nan.map(|value| value.to_string()),
+                        column.min_value,
+                        column.max_value,
+                        column.extra_stats,
+                    ],
+                ));
+            }
+        } else {
+            data_rows.push(encode_optional_text_row(
+                schema.clone(),
+                vec![
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(table_id.to_string()),
+                    Some("0".to_string()),
+                    Some(stats.record_count.to_string()),
+                    stats.next_row_id.map(|value| value.to_string()),
+                    Some(stats.file_size_bytes.to_string()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            ));
+        }
+    }
+
+    let count = data_rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
+}
+
+fn encode_optional_text_row(
+    schema: Arc<Vec<FieldInfo>>,
+    values: Vec<Option<String>>,
+) -> pgwire::error::PgWireResult<pgwire::messages::data::DataRow> {
+    let mut encoder = DataRowEncoder::new(schema);
+    for value in values {
+        encode_text_value(&mut encoder, &value);
+    }
+    encoder.finish()
 }
 
 pub(super) fn make_table_column_stats_response(
@@ -2423,6 +3109,7 @@ fn expr_last_identifier(expr: &Expr) -> String {
             .last()
             .map(|id| id.value.to_ascii_lowercase())
             .unwrap_or_default(),
+        Expr::Cast { expr, .. } | Expr::Nested(expr) => expr_last_identifier(expr),
         _ => expr.to_string().to_ascii_lowercase(),
     }
 }
@@ -2608,6 +3295,12 @@ pub(super) fn make_metadata_table_empty_response(table_name: &str) -> Response<'
             text("min_value"),
             text("max_value"),
             text("extra_stats"),
+        ],
+        "ducklake_table_stats" => vec![
+            int8("table_id"),
+            int8("record_count"),
+            int8("next_row_id"),
+            int8("file_size_bytes"),
         ],
         "ducklake_partition_info" => vec![
             int8("partition_id"),

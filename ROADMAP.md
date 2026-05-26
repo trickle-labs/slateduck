@@ -74,7 +74,8 @@ binding on every roadmap release below.
 | **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Done |
 | **v0.27.4 — DuckDB 1.5.x PostgreSQL Scanner Compatibility** | Handle all DuckDB 1.5.x postgres scanner initialization queries: `DISCARD ALL`; `SELECT to_regclass('duckdb_secrets')`; `SELECT EXISTS(... information_schema.tables ...)`; multi-statement catalog scan (`pg_namespace`, `pg_class`/`pg_attribute`/`pg_constraint`, `pg_enum`, `pg_type` composites, `pg_indexes`); `SELECT pg_database_size(current_database())`; capture DuckDB 1.5.x wire-corpus fixture; update compatibility matrix to DuckDB 1.5.x only | Done |
 | **v0.27.5 — DuckLake v1.0 Spec Gap Closure** | Close P0/P1/P2 gaps from `plans/ducklake-1.0-spec-gaps.md`: exact SQL catalog facades for all 28 tables; fix snapshot/snapshot_changes schema; implement spec-complete delete-file semantics; DROP TABLE cascade; inlined data SQL support; data file spec fields; metadata facades; column stats completeness; field naming alignment | Planning |
-| **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
+| **v0.35.0 — Strategy C: Native DuckDB Extension** | Complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; eliminates all Postgres-scanner compatibility burden for local/embedded use; `slateduck-ffi` C ABI already done; C++ catalog registration is the remaining gap | Planning |
+| **v0.40.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -2941,7 +2942,7 @@ DuckDB expects five result sets (one per SELECT) in sequence before the final `R
 - [x] Record a new `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` by running DuckDB 1.5.x against SlateDuck once all the above handlers are in place.
 - [x] The fixture must capture the full ATTACH sequence: connection, version check, `DISCARD ALL`, `to_regclass`, `information_schema.tables`, multi-statement catalog scan, and at least one DuckLake metadata query.
 - [x] Add a corpus replay test that validates every message in the fixture against the running SlateDuck server.
-- [x] Update `docs/compatibility.md` and `tests/fixtures/compatibility-matrix.toml` (from v0.28.0 scope) to record DuckDB 1.5.x as the primary supported version.
+- [x] Update `docs/compatibility.md` and `tests/fixtures/compatibility-matrix.toml` (from v0.40.0 scope) to record DuckDB 1.5.x as the primary supported version.
 - [x] Remove or demote DuckDB 1.2.2 from the supported matrix to `legacy` / `untested`.
 
 ### Definition of Done
@@ -3170,9 +3171,82 @@ These tables are internally complete but lack SQL facades and lifecycle coverage
 
 ---
 
-## v0.28.0 — Full Ecosystem Compatibility Certification
+## v0.35.0 — Strategy C: Native DuckDB Extension
 
-> Turn the compatibility matrix into release-blocking evidence. No v0.28.0 tag may ship until every supported, expected, untested, or unsupported claim in `docs/compatibility.md` is backed by an automated check, an explicit negative test, or a deliberate documentation downgrade.
+> Complete the native DuckDB extension so that `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar. This eliminates the Postgres-scanner compatibility burden entirely for local and embedded use. The `slateduck-ffi` Rust C ABI is already complete (v0.5, v0.9.2); the `extension/` C++ wrapper exists but stubs catalog type registration pending DuckDB's community extension catalog API.
+
+### Current State
+
+The v0.5 roadmap described Strategy C as Done, but the C++ extension in `extension/src/slateduck_extension.cpp` explicitly defers the key step:
+
+```cpp
+// catalog type registration would go here
+// once DuckDB's extension catalog API is available for community extensions.
+```
+
+`INSTALL slateduck; ATTACH 'ducklake:slatedb:...' AS lake` does not work today. The Rust FFI layer is real; the DuckDB integration is a skeleton.
+
+### Step 1 — DuckDB Extension Catalog API Research
+
+- [ ] Audit DuckDB 1.5.x source for `CatalogType`, `AttachFunction`, and custom storage extension registration. Determine whether a community extension can register a new `ATTACH` scheme without modifying DuckDB core.
+- [ ] Evaluate the community extension distribution path: [extension.duckdb.org](https://extension.duckdb.org) repository submission vs. self-hosted `custom_extension_repository`.
+- [ ] Decision gate: **can the extension register a `slatedb:` attach handler via the public DuckDB extension API, or does it require an upstream DuckDB change or fork?** Record the finding in `docs/architecture/crate-structure.md`.
+
+### Step 2 — C++ Catalog Implementation
+
+If the public extension API supports catalog registration:
+
+- [ ] Implement `SlateduckCatalog : duckdb::Catalog` in `extension/src/` delegating all virtual methods to `SlateduckCatalogWrapper` (which already wraps the C FFI calls).
+- [ ] Register the attach handler for the `slatedb:` scheme in `slateduck_extension_init()` using DuckDB's `StorageExtension` or equivalent API.
+- [ ] Implement the minimum required virtual methods for a read-only attach: `ScanEntry`, `GetEntry` (schemas, tables, columns), `GetTableIOFunction` (Parquet scan via existing data path).
+- [ ] Implement write-path virtual methods for `CreateEntry` (table, schema, data file registration) delegating to `slateduck_ffi` write functions.
+
+If the public extension API does not yet support catalog registration:
+
+- [ ] Document the blocker in `docs/architecture/crate-structure.md` and file a DuckDB upstream issue/discussion requesting the required API surface.
+- [ ] Provide a workaround path documented in `docs/integration/native-extension.md`: load the extension manually with a custom DuckDB build, or use the PG-wire sidecar (Strategy B) for all use cases until the upstream API is available.
+
+### Step 3 — Build System
+
+- [ ] Update `extension/CMakeLists.txt` to link against the DuckDB extension development headers (`duckdb.hpp`, `duckdb/main/extension_util.hpp`).
+- [ ] Add a `build-extension` Makefile target or `justfile` recipe: `cargo build --release -p slateduck-ffi && cmake --build extension/build`.
+- [ ] Output artifact: `slateduck.duckdb_extension` compatible with the DuckDB 1.5.x ABI.
+- [ ] Add `extension/` to the release workflow (`release.yml`) so binaries for Linux x86-64/arm64 and macOS arm64 are attached to each GitHub Release.
+
+### Step 4 — End-to-End Tests
+
+- [ ] Add `tests/native_extension_e2e.rs` (or a shell-based golden test): `LOAD slateduck; ATTACH 'ducklake:slatedb:///tmp/test-catalog' AS lake; CREATE SCHEMA lake.s; CREATE TABLE lake.s.t (id INTEGER); INSERT INTO lake.s.t VALUES (1); SELECT * FROM lake.s.t` — asserts row count and value without starting a SlateDuck sidecar process.
+- [ ] Add a parity test: run the same DuckLake tutorial operations against both the PG-wire sidecar (Strategy B) and the native extension (Strategy C) against the same catalog path; assert identical query results.
+- [ ] Wire the Strategy C tests into CI under a separate job `native-extension` that builds the `.duckdb_extension` artifact and runs the end-to-end tests.
+
+### Step 5 — Documentation
+
+- [ ] Update `docs/architecture/crate-structure.md` with the current accurate status of the `extension/` directory and `slateduck-ffi` crate.
+- [ ] Update `docs/getting-started/` to add a section on the native extension attach path alongside the existing PG-wire sidecar instructions.
+- [ ] Add `docs/integration/native-extension.md` covering: when to use Strategy C vs. Strategy B, install steps, connection string format (`ducklake:slatedb:s3://bucket/catalog` or `ducklake:slatedb:///local/path`), known limitations vs. PG-wire, and ABI versioning policy.
+- [ ] Update `docs/compatibility.md` with a new `Native Extension` row in the deployment matrix.
+- [ ] Update `docs/design-decisions/` page covering Strategy B vs. Strategy C to reflect actual current status.
+
+### Why This Eliminates the Postgres-Scanner Problem
+
+When using the native extension, DuckDB calls into `slateduck.duckdb_extension` directly as an in-process function call. There is no TCP connection, no PG-wire handshake, no `postgres_scanner` initialization, and no system catalog probing (`DISCARD ALL`, `to_regclass`, `pg_namespace` scans). The DuckDB 1.5.x postgres-scanner compatibility work in v0.27.4 is permanently unnecessary for this path.
+
+Strategy B (PG-wire sidecar) remains for use cases that require remote access, multi-client, or non-DuckDB SQL clients. Both strategies share the same `slateduck-catalog` / `slateduck-core` stack and produce identical catalog state.
+
+### Definition of Done
+
+- [ ] Decision gate from Step 1 documented; either the extension registers correctly or the upstream blocker is filed with a public tracking issue.
+- [ ] `LOAD slateduck; ATTACH 'ducklake:slatedb:///tmp/test' AS lake; CREATE TABLE lake.main.t (id INTEGER); INSERT INTO lake.main.t VALUES (1); SELECT * FROM lake.main.t` passes in CI without any `slateduck serve` process running.
+- [ ] Strategy B and Strategy C produce identical results on the same catalog path (parity test green).
+- [ ] `.duckdb_extension` binary attached to the GitHub Release for Linux x86-64/arm64 and macOS arm64.
+- [ ] `docs/integration/native-extension.md` written and reviewed.
+- [ ] `docs/compatibility.md` Native Extension row present with CI evidence.
+
+---
+
+## v0.40.0 — Full Ecosystem Compatibility Certification
+
+> Turn the compatibility matrix into release-blocking evidence. No v0.40.0 tag may ship until every supported, expected, untested, or unsupported claim in `docs/compatibility.md` is backed by an automated check, an explicit negative test, or a deliberate documentation downgrade.
 
 ### Current Gap Analysis
 
@@ -3253,8 +3327,8 @@ Harnesses are added to `slateduck-testkit` and exposed as conditional features (
 
 - [ ] `DuckDB Compatibility Matrix` renamed or expanded to `Ecosystem Compatibility Matrix`, with separate jobs for real clients, corpus replay, SQL clients, engines, object stores, TLS/auth, Rust, and platforms.
 - [ ] `docs/compatibility.md` and `docs/integration/duckdb-compatibility.md` cannot be edited to add a supported row unless the manifest and CI evidence are updated in the same PR.
-- [ ] `mkdocs build --strict`, the compatibility manifest validator, all release-blocking compatibility jobs, and all release artifact builds are green before tagging v0.28.0.
-- [ ] Publish a v0.28.0 compatibility report under `benchmarks/` or `docs/performance/` with the exact component versions, platforms, object stores, and CI run URLs used for certification.
+- [ ] `mkdocs build --strict`, the compatibility manifest validator, all release-blocking compatibility jobs, and all release artifact builds are green before tagging v0.40.0.
+- [ ] Publish a v0.40.0 compatibility report under `benchmarks/` or `docs/performance/` with the exact component versions, platforms, object stores, and CI run URLs used for certification.
 
 ### Deliverables
 

@@ -662,6 +662,19 @@ impl CatalogWriter {
         Ok(())
     }
 
+    pub async fn inlined_insert_key_exists(
+        &self,
+        table_id: u64,
+        schema_version: u64,
+        row_id: u64,
+    ) -> CatalogResult<bool> {
+        let key = keys::key_inlined_insert(table_id, schema_version, row_id);
+        if self.staged.iter().any(|(staged_key, _)| staged_key == &key) {
+            return Ok(true);
+        }
+        Ok(self.db.get(&key).await?.is_some())
+    }
+
     pub async fn register_inlined_data_table(
         &mut self,
         table_id: u64,

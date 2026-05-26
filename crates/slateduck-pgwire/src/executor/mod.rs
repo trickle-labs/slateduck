@@ -29,12 +29,13 @@ use crate::session::{BufferedOp, CopyAccumulator, SessionState};
 use catalog::{
     execute_commit, execute_next_rowid_range, execute_table_changes, make_column_tags_response,
     make_columns_response, make_data_files_response, make_delete_files_response,
-    make_file_ids_response, make_inlined_data_tables_response, make_inlined_rows_response,
+    make_file_column_stats_response, make_file_ids_response, make_global_table_stats_response,
+    make_inlined_data_tables_response, make_inlined_rows_response,
     make_latest_snapshot_info_response, make_macro_impls_response, make_macro_parameters_response,
     make_macros_response, make_metadata_response, make_metadata_table_empty_response,
     make_schema_version_response, make_schema_versions_response, make_schemas_response,
-    make_snapshot_row_response, make_sort_info_response, make_table_column_stats_response,
-    make_table_stats_response, make_table_stats_rows_response, make_tables_response,
+    make_snapshot_row_response, make_snapshot_stats_changes_response, make_sort_info_response,
+    make_table_column_stats_response, make_table_stats_rows_response_for_sql, make_tables_response,
     make_tags_response, make_views_response, parse_inlined_table_ids,
 };
 use extension::{
@@ -443,6 +444,23 @@ async fn execute_classified<'a>(
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             Ok(vec![make_latest_snapshot_info_response(snap)])
         }
+        StatementKind::SelectSnapshotStatsAndChanges => {
+            let reader = { store.lock().await.read_latest() };
+            let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
+            let stats_rows = reader
+                .list_all_table_stats()
+                .await
+                .map_err(SlateDuckError::from)?;
+            let column_stats = reader
+                .list_all_table_column_stats()
+                .await
+                .map_err(SlateDuckError::from)?;
+            Ok(vec![make_snapshot_stats_changes_response(
+                snap,
+                stats_rows,
+                column_stats,
+            )])
+        }
         StatementKind::SelectSchemas => {
             let snap_id = get_snapshot_param(params);
             let reader = {
@@ -552,13 +570,19 @@ async fn execute_classified<'a>(
             Ok(vec![make_data_files_response(files)])
         }
         StatementKind::SelectFileColumnStats => {
-            if params.get_u64(0).is_err() || params.get_u64(1).is_err() {
+            let table_id = params
+                .get_u64(0)
+                .ok()
+                .or_else(|| literal_assignment_u64(_sql, "table_id"));
+            let column_id = params
+                .get_u64(1)
+                .ok()
+                .or_else(|| literal_assignment_u64(_sql, "column_id"));
+            let (Some(table_id), Some(column_id)) = (table_id, column_id) else {
                 return Ok(vec![make_metadata_table_empty_response(
                     "ducklake_file_column_stats",
                 )]);
-            }
-            let table_id = require_param_u64(params, 0, "table_id")?;
-            let column_id = require_param_u64(params, 1, "column_id")?;
+            };
             let snap_id = params.get_u64(2).unwrap_or(u64::MAX);
             let reader = {
                 let s = store.lock().await;
@@ -566,6 +590,13 @@ async fn execute_classified<'a>(
                     .map_err(SlateDuckError::from)?
             };
             let predicate = params.get(3).unwrap_or("");
+            if predicate.is_empty() {
+                let rows = reader
+                    .list_file_column_stats(table_id, column_id)
+                    .await
+                    .map_err(SlateDuckError::from)?;
+                return Ok(vec![make_file_column_stats_response(_sql, rows)]);
+            }
             // v0.26: look up the actual column type for type-aware pruning.
             let col_type = reader
                 .get_column_type(table_id, column_id)
@@ -588,18 +619,51 @@ async fn execute_classified<'a>(
                 s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
                     .map_err(SlateDuckError::from)?
             };
+            if _sql
+                .to_ascii_lowercase()
+                .contains("ducklake_table_column_stats")
+            {
+                let table_id = table_id.or_else(|| literal_assignment_u64(_sql, "table_id"));
+                let stats_rows = if let Some(table_id) = table_id {
+                    reader
+                        .get_table_stats(table_id)
+                        .await
+                        .map_err(SlateDuckError::from)?
+                        .into_iter()
+                        .collect()
+                } else {
+                    reader
+                        .list_all_table_stats()
+                        .await
+                        .map_err(SlateDuckError::from)?
+                };
+                let mut column_stats = reader
+                    .list_all_table_column_stats()
+                    .await
+                    .map_err(SlateDuckError::from)?;
+                if let Some(table_id) = table_id {
+                    column_stats.retain(|row| row.table_id == table_id);
+                }
+                return Ok(vec![make_global_table_stats_response(
+                    stats_rows,
+                    column_stats,
+                )]);
+            }
             if let Some(table_id) = table_id {
                 let stats = reader
                     .get_table_stats(table_id)
                     .await
                     .map_err(SlateDuckError::from)?;
-                Ok(vec![make_table_stats_response(stats)])
+                Ok(vec![make_table_stats_rows_response_for_sql(
+                    _sql,
+                    stats.into_iter().collect(),
+                )])
             } else {
                 let rows = reader
                     .list_all_table_stats()
                     .await
                     .map_err(SlateDuckError::from)?;
-                Ok(vec![make_table_stats_rows_response(rows)])
+                Ok(vec![make_table_stats_rows_response_for_sql(_sql, rows)])
             }
         }
         StatementKind::SelectTableColumnStats => {
@@ -1112,7 +1176,7 @@ async fn execute_classified<'a>(
                     .ok()
                     .or_else(|| literal_u64(&literals, 3))
                     .unwrap_or(0),
-            };
+                };
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {
@@ -1453,7 +1517,26 @@ async fn execute_classified<'a>(
             )))])
         }
         StatementKind::UpdateInlinedRowEndSnapshot => {
-            Ok(vec![Response::Execution(Tag::new("UPDATE 1"))])
+            let table_name = inlined_table_name_from_sql(_sql).unwrap_or_default();
+            let row_ids = literal_insert_rows(_sql)
+                .into_iter()
+                .filter_map(|row| literal_u64(&row, 0))
+                .collect::<Vec<_>>();
+            let row_count = row_ids.len();
+            if !table_name.is_empty() && !row_ids.is_empty() {
+                let op = BufferedOp::DeleteInlinedRows {
+                    table_name,
+                    row_ids,
+                };
+                if session.in_transaction {
+                    session.pending_txn.push(op)?;
+                } else {
+                    execute_commit(vec![op], store, notify_manager).await?;
+                }
+            }
+            Ok(vec![Response::Execution(Tag::new(&format!(
+                "UPDATE {row_count}"
+            )))])
         }
 
         // ─── Virtual Catalog SQL Tables ────────────────────────────────

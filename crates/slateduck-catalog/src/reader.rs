@@ -415,6 +415,29 @@ impl CatalogReader {
         Ok(kept_file_ids)
     }
 
+    /// List file-level column statistics for a table column.
+    pub async fn list_file_column_stats(
+        &self,
+        table_id: u64,
+        column_id: u64,
+    ) -> CatalogResult<Vec<FileColumnStatsRow>> {
+        let mut prefix = Vec::with_capacity(17);
+        prefix.push(TAG_FILE_COLUMN_STATS);
+        prefix.extend_from_slice(&keys::encode_u64(table_id));
+        prefix.extend_from_slice(&keys::encode_u64(column_id));
+
+        let mut stats = Vec::new();
+        let mut iter = self.db.scan_prefix(&prefix).await?;
+        while let Some(kv) = iter
+            .next()
+            .await
+            .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+        {
+            stats.push(values::decode_value(&kv.value)?);
+        }
+        Ok(stats)
+    }
+
     /// Look up a single metadata entry by scope, scope ID, and key.
     pub async fn get_metadata(
         &self,

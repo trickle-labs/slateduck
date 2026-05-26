@@ -109,6 +109,10 @@ pub enum BufferedOp {
         table_name: String,
         rows: Vec<Vec<Option<String>>>,
     },
+    DeleteInlinedRows {
+        table_name: String,
+        row_ids: Vec<u64>,
+    },
     InsertView {
         schema_id: u64,
         view_name: String,
