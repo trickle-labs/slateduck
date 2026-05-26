@@ -70,7 +70,7 @@ binding on every roadmap release below.
 | **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Complete |
 | **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Done |
 | **v0.27.1 — CDC Completeness & Real Parquet Row Scanning** | Implement real `extract_rows_from_parquet()` via `object_store`; replace synthetic CDC column payloads with actual file data; verify `record_count` against scanned rows; streaming/batching for large Parquet files; end-to-end CDC round-trip tests | Done |
-| **v0.27.2 — DataFusion Completeness, Code Hardening & Security** | Auto-resolve `data_root` from catalog metadata; eliminate OS-thread-per-sync DataFusion bridge overhead; resolve or remove `slateduck-sqlite-vfs` placeholder; replace DataRowEncoder `unwrap()` calls; harden key/value decode paths; verify `checked_add` in writer; verify `SqlState` code propagation; API ergonomics for `CatalogStore` commit; warn on auth-without-TLS; address wall-clock lease concern | Planning |
+| **v0.27.2 — DataFusion Completeness, Code Hardening & Security** | Auto-resolve `data_root` from catalog metadata; eliminate OS-thread-per-sync DataFusion bridge overhead; resolve or remove `slateduck-sqlite-vfs` placeholder; replace DataRowEncoder `unwrap()` calls; harden key/value decode paths; verify `checked_add` in writer; verify `SqlState` code propagation; API ergonomics for `CatalogStore` commit; warn on auth-without-TLS; address wall-clock lease concern | Done |
 | **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Planning |
 | **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
@@ -2694,81 +2694,81 @@ SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following a
 
 ### DataFusion Auto-Resolve `data_root` (N-02)
 
-- [ ] Resolve `data_root` automatically from catalog metadata when not explicitly provided.
+- [x] Resolve `data_root` automatically from catalog metadata when not explicitly provided.
   - Read `ducklake_metadata` key `data_path` (schema-level or catalog-level) during `CatalogProvider` initialisation.
   - Fall back to `None` → `EmptyExec` only when no data path is configured anywhere and emit a `tracing::warn!` to make the root cause explicit.
-- [ ] Add a constructor `SlateDuckCatalogProvider::from_catalog_store(store, db_config)` that reads the data root automatically.
-- [ ] Update `docs/integration/datafusion.md` to document automatic vs explicit data-root configuration.
-- [ ] Add an integration test that creates a table entirely through PG-Wire DDL and then queries it via DataFusion without any explicit `data_root` override.
+- [x] Add a constructor `SlateDuckCatalogProvider::from_catalog_store(store, db_config)` that reads the data root automatically.
+- [x] Update `docs/integration/datafusion.md` to document automatic vs explicit data-root configuration.
+- [x] Add an integration test that creates a table entirely through PG-Wire DDL and then queries it via DataFusion without any explicit `data_root` override.
 
 ### DataFusion Sync Bridge Performance (N-05)
 
-- [ ] Replace the per-call OS thread spawn in `AsyncBridge::run_sync()` with a dedicated single-threaded `std::thread` running a `tokio::runtime::Builder::new_current_thread()` executor, started once at `CatalogProvider` construction and kept alive for the provider's lifetime.
-- [ ] Benchmark `schema_names()` and `table_names()` call latency before and after; record results in `benchmarks/datafusion-bridge.json`.
-- [ ] Add a microbenchmark (`benches/datafusion_bridge.rs` in `slateduck-datafusion`) using Criterion.
+- [x] Replace the per-call OS thread spawn in `AsyncBridge::run_sync()` with a dedicated single-threaded `std::thread` running a `tokio::runtime::Builder::new_current_thread()` executor, started once at `CatalogProvider` construction and kept alive for the provider's lifetime.
+- [x] Benchmark `schema_names()` and `table_names()` call latency before and after; record results in `benchmarks/datafusion-bridge.json`.
+- [x] Add a microbenchmark (`benches/datafusion_bridge.rs` in `slateduck-datafusion`) using Criterion.
 
 ### SQLite VFS — Resolve or Remove (N-06)
 
-- [ ] Decision gate: either begin a minimal implementation of `slateduck-sqlite-vfs` (VFS shim backed by `SlateDB`, read-only at minimum) or remove the crate from the workspace and `Cargo.toml`.
+- [x] Decision gate: either begin a minimal implementation of `slateduck-sqlite-vfs` (VFS shim backed by `SlateDB`, read-only at minimum) or remove the crate from the workspace and `Cargo.toml`.
   - If removed: update `docs/architecture/crate-structure.md`, `deny.toml`, and CI references.
   - If implemented: add at minimum `open()`, `read()`, `file_size()`, `close()` VFS methods and a SQLite-level round-trip integration test.
-- [ ] Either path: the workspace must not contain an empty crate with no code and no tests by the end of this release.
+- [x] Either path: the workspace must not contain an empty crate with no code and no tests by the end of this release.
 
 ### Replace DataRowEncoder `unwrap()` Calls (N-03)
 
-- [ ] Extract a private helper `encode_text(encoder: &mut DataRowEncoder, val: impl AsRef<Option<String>>)` in `crates/slateduck-pgwire/src/executor/catalog.rs` that calls `.expect("pgwire text encoding is infallible")`.
-- [ ] Replace all ~40 direct `.unwrap()` calls on `encode_field_with_type_and_format` with the helper.
-- [ ] Verify with `grep -n "\.unwrap()" crates/slateduck-pgwire/src/executor/catalog.rs` that no `unwrap()` calls remain on encoder paths.
+- [x] Extract a private helper `encode_text(encoder: &mut DataRowEncoder, val: impl AsRef<Option<String>>)` in `crates/slateduck-pgwire/src/executor/catalog.rs` that calls `.expect("pgwire text encoding is infallible")`.
+- [x] Replace all ~40 direct `.unwrap()` calls on `encode_field_with_type_and_format` with the helper.
+- [x] Verify with `grep -n "\.unwrap()" crates/slateduck-pgwire/src/executor/catalog.rs` that no `unwrap()` calls remain on encoder paths.
 
 ### Harden Key/Value Decode Paths (N-07, N-08)
 
-- [ ] In `crates/slateduck-core/src/keys.rs` lines 34 and 46: replace `try_into().unwrap()` with `.expect("length checked above")` or a `read_u64_be(bytes: &[u8]) -> u64` helper with a documented precondition.
-- [ ] In `crates/slateduck-core/src/values.rs` lines 55, 86, 107: same treatment — `.expect("bounds verified by caller")`.
-- [ ] These changes must not alter any public API or serialisation format.
+- [x] In `crates/slateduck-core/src/keys.rs` lines 34 and 46: replace `try_into().unwrap()` with `.expect("length checked above")` or a `read_u64_be(bytes: &[u8]) -> u64` helper with a documented precondition.
+- [x] In `crates/slateduck-core/src/values.rs` lines 55, 86, 107: same treatment — `.expect("bounds verified by caller")`.
+- [x] These changes must not alter any public API or serialisation format.
 
 ### Hardcoded Address Parse (N-12)
 
-- [ ] In `crates/slateduck-pgwire/src/server.rs` line 70: replace `"0.0.0.0:5432".parse().unwrap()` with `SocketAddr::from(([0, 0, 0, 0], 5432))` which is const-constructible and cannot panic.
+- [x] In `crates/slateduck-pgwire/src/server.rs` line 70: replace `"0.0.0.0:5432".parse().unwrap()` with `SocketAddr::from(([0, 0, 0, 0], 5432))` which is const-constructible and cannot panic.
 
 ### Verify Open Assessment-2 Partial Findings
 
-- [ ] **High-7 (rowid `checked_add`)**: audit all arithmetic on `rowid` in `crates/slateduck-catalog/src/writer/` for overflow safety; replace any unchecked `+` with `checked_add().ok_or(CatalogError::RowIdOverflow)?`.
-- [ ] **High-9 (`SqlState` code ignored)**: audit all `SlateDuckError::SqlState { code, message }` construction sites in the executor; ensure the `code` field is forwarded to the PG-Wire error response rather than replaced by a generic `42000`.
-- [ ] **F-07 (checkpoint restore snapshot-ID reuse)**: audit `slateduck restore-checkpoint` path; confirm snapshot IDs are always allocated via the in-memory counter (loaded from `COUNTER_SNAPSHOT`) and never re-issued from a restored snapshot's own IDs.
-- [ ] **F-10 (`rebuild_catalog`)**: locate `rebuild_catalog()` or confirm it was removed; if removed, update `docs/operations/repair.md`; if present, test it.
-- [ ] Document the outcome of each verification in a new `docs/internals/open-findings-verification.md`.
+- [x] **High-7 (rowid `checked_add`)**: audit all arithmetic on `rowid` in `crates/slateduck-catalog/src/writer/` for overflow safety; replace any unchecked `+` with `checked_add().ok_or(CatalogError::RowIdOverflow)?`.
+- [x] **High-9 (`SqlState` code ignored)**: audit all `SlateDuckError::SqlState { code, message }` construction sites in the executor; ensure the `code` field is forwarded to the PG-Wire error response rather than replaced by a generic `42000`.
+- [x] **F-07 (checkpoint restore snapshot-ID reuse)**: audit `slateduck restore-checkpoint` path; confirm snapshot IDs are always allocated via the in-memory counter (loaded from `COUNTER_SNAPSHOT`) and never re-issued from a restored snapshot's own IDs.
+- [x] **F-10 (`rebuild_catalog`)**: locate `rebuild_catalog()` or confirm it was removed; if removed, update `docs/operations/repair.md`; if present, test it.
+- [x] Document the outcome of each verification in a new `docs/internals/open-findings-verification.md`.
 
 ### API Ergonomics — `CatalogStore` Commit (design concern)
 
-- [ ] Introduce `CommitResult` returned from `create_snapshot()` that must be passed to `commit_writer(commit_result)`.
+- [x] Introduce `CommitResult` returned from `create_snapshot()` that must be passed to `commit_writer(commit_result)`.
   - `CommitResult` is a `#[must_use]` struct carrying the new counter state.
   - This makes it a compile-time error to drop a successful snapshot without updating in-memory counters.
-- [ ] Update all call sites in `slateduck-pgwire` and integration tests.
-- [ ] Add a section to `docs/architecture/transaction-model.md` explaining the `CommitResult` contract.
+- [x] Update all call sites in `slateduck-pgwire` and integration tests.
+- [x] Add a section to `docs/architecture/transaction-model.md` explaining the `CommitResult` contract.
 
 ### Security — Warn on Auth Without TLS (security note)
 
-- [ ] In the PG-Wire server startup path, if `--auth-user` / `SLATEDUCK_AUTH_USER` is set but `--tls-required` is not, emit a startup warning:
+- [x] In the PG-Wire server startup path, if `--auth-user` / `SLATEDUCK_AUTH_USER` is set but `--tls-required` is not, emit a startup warning:
   ```
   WARN slateduck_pgwire::server: authentication is enabled but TLS is not required; passwords will be transmitted in cleartext
   ```
-- [ ] Add a test in `security_tests.rs` that starts the server with auth but no TLS and captures the warning in the log output.
-- [ ] Document the risk and the mitigation (`--tls-required`) in `docs/deployment/security.md`.
+- [x] Add a test in `security_tests.rs` that starts the server with auth but no TLS and captures the warning in the log output.
+- [x] Document the risk and the mitigation (`--tls-required`) in `docs/deployment/security.md`.
 
 ### Wall-Clock Lease — Document or Replace (Medium-3)
 
-- [ ] Evaluate replacing `SystemTime::now()` in snapshot lease expiry with a monotonic token or a configurable clock abstraction injectable in tests.
-- [ ] If wall-clock is kept: document the expected clock-skew tolerance in `docs/architecture/transaction-model.md` and add an integration test that verifies lease expiry fires correctly under simulated time.
-- [ ] At minimum: add a `Clock` trait in `slateduck-core` with `real_clock()` and `mock_clock(instant)` implementations so lease logic is testable without wall-clock dependencies.
+- [x] Evaluate replacing `SystemTime::now()` in snapshot lease expiry with a monotonic token or a configurable clock abstraction injectable in tests.
+- [x] If wall-clock is kept: document the expected clock-skew tolerance in `docs/architecture/transaction-model.md` and add an integration test that verifies lease expiry fires correctly under simulated time.
+- [x] At minimum: add a `Clock` trait in `slateduck-core` with `real_clock()` and `mock_clock(instant)` implementations so lease logic is testable without wall-clock dependencies.
 
 ### Definition of Done
 
-- [ ] `table` call in DataFusion resolves file paths from catalog metadata without explicit `data_root` for tables created via PG-Wire DDL.
-- [ ] `AsyncBridge::run_sync()` no longer spawns a new OS thread per call.
-- [ ] `slateduck-sqlite-vfs` is either removed from the workspace or has a working `open()`/`read()` implementation with a round-trip test.
-- [ ] Zero `unwrap()` calls on `DataRowEncoder` in `executor/catalog.rs`.
-- [ ] High-7, High-9, F-07, and F-10 are each verified closed or have tracking issues created.
-- [ ] Assessment findings **N-02**, **N-03**, **N-05**, **N-06**, **N-07**, **N-08**, **N-12** resolved and closed.
+- [x] `table` call in DataFusion resolves file paths from catalog metadata without explicit `data_root` for tables created via PG-Wire DDL.
+- [x] `AsyncBridge::run_sync()` no longer spawns a new OS thread per call.
+- [x] `slateduck-sqlite-vfs` is either removed from the workspace or has a working `open()`/`read()` implementation with a round-trip test.
+- [x] Zero `unwrap()` calls on `DataRowEncoder` in `executor/catalog.rs`.
+- [x] High-7, High-9, F-07, and F-10 are each verified closed or have tracking issues created.
+- [x] Assessment findings **N-02**, **N-03**, **N-05**, **N-06**, **N-07**, **N-08**, **N-12** resolved and closed.
 
 ---
 

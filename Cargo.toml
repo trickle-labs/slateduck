@@ -3,7 +3,6 @@ members = [
     "crates/slateduck-core",
     "crates/slateduck-catalog",
     "crates/slateduck-sql",
-    "crates/slateduck-sqlite-vfs",
     "crates/slateduck-pgwire",
     "crates/slateduck-ffi",
     "crates/slateduck-datafusion",

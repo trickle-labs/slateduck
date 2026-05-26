@@ -51,7 +51,7 @@ async fn writer_epoch_cas_concurrent_open() {
     w2.create_schema("ok_schema").await.unwrap();
     let snap = w2.create_snapshot(None, None).await;
     assert!(snap.is_ok(), "second writer should succeed");
-    store2.commit_writer(&w2);
+    store2.commit_writer(snap.expect("second writer should succeed"));
 
     store1.close().await.unwrap();
     store2.close().await.unwrap();
@@ -141,8 +141,8 @@ async fn gc_advance_respects_lease() {
     // Create some snapshots to advance past
     for _ in 0..5 {
         let mut w = store.begin_write();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let result = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(result);
     }
 
     let db = store.db();
@@ -237,7 +237,7 @@ async fn staged_write_discipline_non_mvcc_visible_without_snapshot() {
     let schema_id = w.create_schema("test").await.unwrap();
     let table_id = w.create_table(schema_id, "orders", None).await.unwrap();
     let _snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(_snap);
 
     // Now write table stats directly (non-MVCC write)
     let mut w2 = store.begin_write();
@@ -266,8 +266,8 @@ async fn staged_write_discipline_mvcc_invisible_without_snapshot() {
 
     // Create initial snapshot so read_latest has something
     let mut w0 = store.begin_write();
-    w0.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w0);
+    let _cr = w0.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
 
     // Stage a schema creation but don't commit
     let mut w = store.begin_write();
@@ -299,7 +299,7 @@ async fn snapshot_diff_multi_window() {
     let schema_id = w.create_schema("public").await.unwrap();
     let table_id = w.create_table(schema_id, "events", None).await.unwrap();
     let snap0 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap0);
 
     // Snapshot 2: add file1
     let mut w = store.begin_write();
@@ -307,7 +307,7 @@ async fn snapshot_diff_multi_window() {
         .await
         .unwrap();
     let snap1 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap1);
 
     // Snapshot 3: add file2
     let mut w = store.begin_write();
@@ -315,7 +315,7 @@ async fn snapshot_diff_multi_window() {
         .await
         .unwrap();
     let snap2 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap2);
 
     // Snapshot 4: add file3
     let mut w = store.begin_write();
@@ -323,7 +323,7 @@ async fn snapshot_diff_multi_window() {
         .await
         .unwrap();
     let snap3 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap3);
 
     // Multi-window diff: snap0 → snap3 should include files from snap1, snap2, snap3
     let reader = store.read_at(snap3).unwrap();
@@ -358,7 +358,7 @@ async fn data_file_row_begin_snapshot_set() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let files = reader.list_data_files(table_id).await.unwrap();
@@ -527,11 +527,11 @@ async fn read_fresh_latest_reads_from_db() {
     let mut w = store.begin_write();
     w.create_schema("s").await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     // read_fresh_latest should see the same snapshot
     let reader = store.read_fresh_latest().await.unwrap();
-    assert_eq!(reader.snapshot_id(), snap);
+    assert_eq!(reader.snapshot_id(), snap.snapshot_id);
 
     store.close().await.unwrap();
 }

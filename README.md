@@ -8,6 +8,8 @@
 
 ---
 
+![SlateDuck](images/logo.png)
+
 ## What Is SlateDuck?
 
 Modern data teams are drowning in infrastructure. You want a lakehouse — fast analytical queries over Parquet files in object storage — but every existing solution demands a zoo of running services: a managed PostgreSQL for catalog metadata, a Kafka cluster for streaming, a Flink or Spark job for maintaining fresh aggregates, and a dedicated database to serve the results. SlateDuck makes the entire zoo disappear.

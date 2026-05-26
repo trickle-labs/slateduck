@@ -170,7 +170,7 @@ impl SlateDuckSink {
         // Update the consumer offset atomically with the data records.
         writer.set_metadata(MetadataScope::Global, 0, &self.offset_key, next_offset)?;
 
-        let snapshot_id = writer
+        let commit = writer
             .create_snapshot(
                 author,
                 Some(&format!(
@@ -179,8 +179,9 @@ impl SlateDuckSink {
                 )),
             )
             .await?;
+        let snapshot_id = commit.snapshot_id;
 
-        store.commit_writer(&writer);
+        store.commit_writer(commit);
 
         Ok(IngestResult {
             snapshot_id,

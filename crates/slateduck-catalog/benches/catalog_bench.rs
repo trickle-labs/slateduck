@@ -6,7 +6,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use object_store::path::Path as ObjectPath;
 use slateduck_catalog::writer::stats::FileColumnStatsInput;
-use slateduck_catalog::{CatalogStore, OpenOptions};
+use slateduck_catalog::{CatalogStore, CommitResult, OpenOptions};
 use slateduck_core::mvcc::SnapshotId;
 use slateduck_core::types::DuckLakeType;
 use std::sync::Arc;
@@ -156,14 +156,17 @@ fn bench_create_snapshot(c: &mut Criterion) {
     c.bench_function("create_snapshot", |b| {
         b.iter(|| {
             let mut writer = catalog.begin_write();
-            rt.block_on(writer.create_snapshot(None, None)).unwrap();
+            let _ = rt.block_on(writer.create_snapshot(None, None)).unwrap();
         });
     });
 
     rt.block_on(catalog.close()).unwrap();
 }
 
-fn setup_catalog_n_files(rt: &Runtime, n: usize) -> (CatalogStore, TempDir, u64, u64, SnapshotId) {
+fn setup_catalog_n_files(
+    rt: &Runtime,
+    n: usize,
+) -> (CatalogStore, TempDir, u64, u64, CommitResult) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_str().unwrap().to_string();
     let store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&path).unwrap());

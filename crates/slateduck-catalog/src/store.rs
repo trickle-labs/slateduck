@@ -14,7 +14,7 @@ use crate::encryption::{AesGcmTransformer, EncryptionConfig};
 use crate::error::{CatalogError, CatalogResult};
 use crate::init;
 use crate::reader::CatalogReader;
-use crate::writer::CatalogWriter;
+use crate::writer::{snapshot::CommitResult, CatalogWriter};
 
 /// Options for opening a CatalogStore.
 #[derive(Debug, Clone)]
@@ -138,7 +138,10 @@ impl CatalogStore {
     ///
     /// Returns `CatalogError::SnapshotOutOfRetention` (SQLSTATE 22023) if
     /// `dl_snapshot_id` falls below the current retain-from floor.
-    pub fn read_at(&self, dl_snapshot_id: SnapshotId) -> CatalogResult<CatalogReader> {
+    ///
+    /// Accepts any type that converts to `SnapshotId`, including `CommitResult`.
+    pub fn read_at(&self, dl_snapshot_id: impl Into<SnapshotId>) -> CatalogResult<CatalogReader> {
+        let dl_snapshot_id = dl_snapshot_id.into();
         let retain_from = self.retain_from_cache.load(Ordering::Acquire);
         if retain_from > 0 && dl_snapshot_id.as_u64() < retain_from {
             return Err(CatalogError::SnapshotOutOfRetention {
@@ -210,16 +213,20 @@ impl CatalogStore {
     }
 
     /// Synchronise the store's in-memory counters from a successfully committed
-    /// writer.  Must be called after every successful `create_snapshot()` so
+    /// snapshot.  Must be called after every successful `create_snapshot()` so
     /// that subsequent `begin_write()` and `read_latest()` calls reflect the
     /// newly committed state.
-    pub fn commit_writer(&mut self, writer: &CatalogWriter) {
+    ///
+    /// The `result` argument is the [`CommitResult`] returned by
+    /// `CatalogWriter::create_snapshot()`.  It is `#[must_use]` so the compiler
+    /// will reject code that discards it without calling this method.
+    pub fn commit_writer(&mut self, result: CommitResult) {
         self.counters.sync_from(
-            writer.counters.peek_snapshot_id(),
-            writer.counters.peek_catalog_id(),
-            writer.counters.peek_file_id(),
+            result.next_snapshot_id,
+            result.next_catalog_id,
+            result.next_file_id,
         );
-        self.schema_version = writer.schema_version();
+        self.schema_version = result.schema_version;
     }
 
     /// Close the catalog store.

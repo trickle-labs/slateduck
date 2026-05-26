@@ -52,7 +52,9 @@ pub fn decode_value_envelope(data: &[u8]) -> Result<&[u8], ValueError> {
     if version != ENCODING_VERSION {
         return Err(ValueError::UnsupportedVersion(version));
     }
-    let magic: [u8; 4] = data[1..5].try_into().unwrap();
+    let magic: [u8; 4] = data[1..5]
+        .try_into()
+        .expect("bounds verified: data.len() >= 5");
     if &magic != VALUE_MAGIC {
         return Err(ValueError::InvalidMagic(magic));
     }
@@ -83,7 +85,11 @@ pub fn decode_counter(data: &[u8]) -> Result<u64, ValueError> {
             actual: payload.len(),
         });
     }
-    Ok(u64::from_be_bytes(payload[..8].try_into().unwrap()))
+    Ok(u64::from_be_bytes(
+        payload[..8]
+            .try_into()
+            .expect("bounds verified by caller: payload.len() >= 8"),
+    ))
 }
 
 /// Encode a raw u32 value (for catalog-format-version).
@@ -104,7 +110,11 @@ pub fn decode_format_version(data: &[u8]) -> Result<u32, ValueError> {
             actual: payload.len(),
         });
     }
-    Ok(u32::from_be_bytes(payload[..4].try_into().unwrap()))
+    Ok(u32::from_be_bytes(
+        payload[..4]
+            .try_into()
+            .expect("bounds verified by caller: payload.len() >= 4"),
+    ))
 }
 
 /// Encode raw bytes inside the SlateDuck value envelope.

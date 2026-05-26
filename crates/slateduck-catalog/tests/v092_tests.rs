@@ -46,7 +46,7 @@ async fn encrypted_catalog_round_trip() {
             .create_table(schema_id, "secrets", None)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
+        let _ = writer.create_snapshot(None, None).await.unwrap();
         catalog.close().await.unwrap();
     }
 
@@ -82,7 +82,7 @@ async fn encrypted_catalog_wrong_key_returns_error() {
             .create_table(schema_id, "secrets", None)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
+        let _ = writer.create_snapshot(None, None).await.unwrap();
         catalog.close().await.unwrap();
     }
 

@@ -128,6 +128,32 @@ let df = ctx.sql("
 ").await?;
 ```
 
+### Creating a Provider from an Existing `CatalogStore` (v0.27.2)
+
+When your application already holds a `CatalogStore` (for example, in an
+embedded server that uses both the PG-Wire interface and DataFusion), use
+`SlateDuckCatalogProvider::from_catalog_store()` to avoid opening a second
+connection to the same catalog:
+
+```rust
+use slateduck_catalog::store::CatalogStore;
+use slateduck_datafusion::SlateDuckCatalogProvider;
+use datafusion::prelude::*;
+use std::sync::Arc;
+
+// Assume `store` is an Arc<Mutex<CatalogStore>> already open.
+let provider = SlateDuckCatalogProvider::from_catalog_store(store.clone()).await?;
+
+let ctx = SessionContext::new();
+ctx.register_catalog("lake", Arc::new(provider));
+```
+
+**Key difference from `SlateDuckCatalog::open()`**: `from_catalog_store()`
+reads the `data_path` key from the catalog metadata automatically, so you do
+not need to supply `data_root` explicitly. The bridge uses a single persistent
+background thread (started at construction time) to run async catalog calls from
+DataFusion's synchronous `TableProvider` trait, avoiding per-query thread spawns.
+
 ## What This Enables
 
 ### Rust-Native Analytics Applications

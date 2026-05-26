@@ -30,7 +30,7 @@ async fn concurrent_readers_do_not_block() {
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(_snap);
 
     // read_at() is now sync — the lock is dropped immediately after this call.
     let snap_id = SnapshotId::new(1);
@@ -78,7 +78,7 @@ async fn describe_table_uses_secondary_index() {
         .await
         .unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let result = reader.describe_table(table_id).await.unwrap();
@@ -99,7 +99,7 @@ async fn describe_table_nonexistent_returns_none() {
     let mut writer = store.begin_write();
     writer.create_schema("s").await.unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let result = reader.describe_table(9999).await.unwrap();
@@ -118,15 +118,15 @@ async fn sequential_sessions_monotonic_snapshot_ids() {
     let mut w1 = store.begin_write();
     w1.create_schema("s1").await.unwrap();
     let snap1 = w1.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w1);
+    store.commit_writer(snap1);
 
     let mut w2 = store.begin_write();
     w2.create_schema("s2").await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     assert!(
-        snap2 > snap1,
+        *snap2 > *snap1,
         "second session snapshot must be greater than first"
     );
     assert!(snap1.as_u64() >= 1, "first snapshot must be >= 1");
@@ -140,8 +140,8 @@ async fn read_latest_reflects_committed_snapshot() {
 
     let mut writer = store.begin_write();
     let schema_id = writer.create_schema("fresh_schema").await.unwrap();
-    let _ = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
 
     let reader = store.read_latest();
     let schemas = reader.list_schemas().await.unwrap();
@@ -162,7 +162,7 @@ async fn aborted_session_mutations_not_visible() {
     let mut w_base = store.begin_write();
     w_base.create_schema("baseline").await.unwrap();
     let snap_base = w_base.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w_base);
+    store.commit_writer(snap_base);
 
     // Abort: begin a write, mutate, then drop without create_snapshot.
     {
@@ -211,7 +211,7 @@ mod datafusion_concurrent {
             writer.create_schema("alpha").await.unwrap();
             writer.create_schema("beta").await.unwrap();
             let _snap = writer.create_snapshot(None, None).await.unwrap();
-            store.commit_writer(&writer);
+            store.commit_writer(_snap);
             store.close().await.unwrap();
         });
 
@@ -268,7 +268,7 @@ mod datafusion_concurrent {
             let mut writer = store.begin_write();
             writer.create_schema("sync_schema").await.unwrap();
             let _snap = writer.create_snapshot(None, None).await.unwrap();
-            store.commit_writer(&writer);
+            store.commit_writer(_snap);
             store.close().await.unwrap();
         });
 

@@ -42,19 +42,19 @@ async fn sequential_write_sessions_produce_monotonically_increasing_snapshot_ids
     let mut w1 = store.begin_write();
     let schema_id = w1.create_schema("s1").await.unwrap();
     let snap1 = w1.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w1);
+    store.commit_writer(snap1);
 
     // Session 2
     let mut w2 = store.begin_write();
     let _table_id = w2.create_table(schema_id, "t1", None).await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     // Session 3
     let mut w3 = store.begin_write();
     let _table_id2 = w3.create_table(schema_id, "t2", None).await.unwrap();
     let snap3 = w3.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w3);
+    store.commit_writer(snap3);
 
     assert!(
         snap1.as_u64() < snap2.as_u64(),
@@ -83,7 +83,7 @@ async fn read_latest_reflects_post_commit_snapshot() {
     let mut w1 = store.begin_write();
     w1.create_schema("main").await.unwrap();
     let snap1 = w1.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w1);
+    store.commit_writer(snap1);
 
     let reader = store.read_latest();
     let latest_snap = reader.get_snapshot().await.unwrap();
@@ -98,7 +98,7 @@ async fn read_latest_reflects_post_commit_snapshot() {
     let mut w2 = store.begin_write();
     w2.create_schema("analytics").await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     let reader2 = store.read_latest();
     let latest_snap2 = reader2.get_snapshot().await.unwrap();
@@ -124,15 +124,15 @@ async fn sequential_write_sessions_no_catalog_id_reuse() {
     let mut w1 = store.begin_write();
     let schema_id1 = w1.create_schema("s1").await.unwrap();
     let table_id1 = w1.create_table(schema_id1, "t1", None).await.unwrap();
-    w1.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w1);
+    let snap1 = w1.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(snap1);
 
     // Session 2: allocate more IDs — they must be higher than session 1's
     let mut w2 = store.begin_write();
     let schema_id2 = w2.create_schema("s2").await.unwrap();
     let table_id2 = w2.create_table(schema_id2, "t2", None).await.unwrap();
-    w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    let snap2 = w2.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(snap2);
 
     assert!(
         schema_id2 > schema_id1,
@@ -159,7 +159,7 @@ async fn abandoned_writer_leaves_no_phantom_rows() {
     let mut w_base = store.begin_write();
     let schema_id = w_base.create_schema("base").await.unwrap();
     let base_snap = w_base.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w_base);
+    store.commit_writer(base_snap);
 
     // Start a writer that stages a table but never calls create_snapshot()
     {
@@ -174,7 +174,7 @@ async fn abandoned_writer_leaves_no_phantom_rows() {
     // A new snapshot must not see the ghost table
     let mut w_final = store.begin_write();
     let final_snap = w_final.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w_final);
+    store.commit_writer(final_snap);
 
     let reader = store.read_latest();
     let tables = reader.list_tables(schema_id).await.unwrap();
@@ -222,7 +222,7 @@ async fn all_staged_mutations_visible_after_create_snapshot() {
         .await
         .unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
@@ -254,7 +254,7 @@ async fn find_table_schema_id_returns_correct_schema() {
         .await
         .unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     // Verify find_table_schema_id returns the correct schema
     let reader_writer = store.begin_write();
@@ -273,7 +273,7 @@ async fn find_table_schema_id_returns_correct_schema() {
         .await
         .unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     // After drop, table must not be visible at the new snapshot
     let reader2 = store.read_at(snap2).unwrap();
@@ -310,7 +310,7 @@ async fn find_column_table_id_returns_correct_table() {
         .await
         .unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     // Verify find_column_table_id returns the correct table
     let lookup_writer = store.begin_write();
@@ -329,7 +329,7 @@ async fn find_column_table_id_returns_correct_table() {
         .await
         .unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     // After drop, column must not be visible at the new snapshot
     let reader2 = store.read_at(snap2).unwrap();
@@ -361,7 +361,7 @@ async fn writer_protocol_conformance_no_duplicate_ids_under_simulated_failure() 
     let schema_id = w1.create_schema("prod").await.unwrap();
     let _t1 = w1.create_table(schema_id, "t1", None).await.unwrap();
     let snap1 = w1.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w1);
+    store.commit_writer(snap1);
 
     // Step 2: Simulated failure — writer abandoned mid-write
     {
@@ -374,10 +374,10 @@ async fn writer_protocol_conformance_no_duplicate_ids_under_simulated_failure() 
     let mut w2 = store.begin_write();
     let t2 = w2.create_table(schema_id, "t2", None).await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     // Assertions:
-    // 1. snap2 > snap1 (monotonically increasing)
+    // 1. *snap2 > *snap1 (monotonically increasing)
     assert!(
         snap2.as_u64() > snap1.as_u64(),
         "snap2={} must be > snap1={}",
@@ -425,7 +425,7 @@ async fn reopen_catalog_loads_counters_from_persistent_storage() {
         let s1 = w.create_schema("alpha").await.unwrap();
         let s2 = w.create_schema("beta").await.unwrap();
         let snap = w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        store.commit_writer(snap);
         store.close().await.unwrap();
         (s1, s2, snap)
     };
@@ -435,7 +435,7 @@ async fn reopen_catalog_loads_counters_from_persistent_storage() {
     let mut w2 = store2.begin_write();
     let schema_id3 = w2.create_schema("gamma").await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store2.commit_writer(&w2);
+    store2.commit_writer(snap2);
 
     assert!(
         schema_id3 > schema_id2,

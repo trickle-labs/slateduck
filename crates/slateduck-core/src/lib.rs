@@ -1,5 +1,6 @@
 //! SlateDuck Core: foundational types, key/value encoding, and SlateDB integration.
 
+pub mod clock;
 pub mod counters;
 pub mod keys;
 pub mod mvcc;

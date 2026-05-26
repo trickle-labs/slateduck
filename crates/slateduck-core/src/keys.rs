@@ -31,7 +31,11 @@ pub fn decode_u64(bytes: &[u8]) -> Result<u64, KeyError> {
             actual: bytes.len(),
         });
     }
-    Ok(u64::from_be_bytes(bytes[..8].try_into().unwrap()))
+    Ok(u64::from_be_bytes(
+        bytes[..8]
+            .try_into()
+            .expect("length checked above: at least 8 bytes"),
+    ))
 }
 
 /// Decode a u32 from 4 big-endian bytes.
@@ -43,7 +47,11 @@ pub fn decode_u32(bytes: &[u8]) -> Result<u32, KeyError> {
             actual: bytes.len(),
         });
     }
-    Ok(u32::from_be_bytes(bytes[..4].try_into().unwrap()))
+    Ok(u32::from_be_bytes(
+        bytes[..4]
+            .try_into()
+            .expect("length checked above: at least 4 bytes"),
+    ))
 }
 
 /// Encode a u32 as 4 big-endian bytes.

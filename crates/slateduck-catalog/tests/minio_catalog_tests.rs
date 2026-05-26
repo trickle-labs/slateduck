@@ -47,7 +47,7 @@ async fn open_fresh_catalog() {
         .create_snapshot(Some("test"), Some("open_fresh"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(snap_id);
     assert!(snap_id.as_u64() > 0, "snapshot id must be > 0");
 }
 
@@ -63,11 +63,11 @@ async fn reopen_catalog_reads_state() {
             .unwrap();
         let mut writer = cat.begin_write();
         writer.create_schema("public").await.unwrap();
-        writer
+        let _cr = writer
             .create_snapshot(Some("test"), Some("reopen_test"))
             .await
             .unwrap();
-        cat.commit_writer(&writer);
+        cat.commit_writer(_cr);
     }
     // Second open: should see the schema.
     let cat = CatalogStore::open(make_opts(Arc::clone(&object_store)))
@@ -90,11 +90,11 @@ async fn flush_visibility_barrier() {
     // Write a schema.
     let mut writer = cat.begin_write();
     writer.create_schema("flush_test").await.unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("flush"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
     // Immediately read latest — should see the schema.
     let reader = cat.read_latest();
     let schemas = reader.list_schemas().await.unwrap();
@@ -136,14 +136,14 @@ async fn sequential_snapshot_ids() {
         let snap = writer
             .create_snapshot(Some("test"), Some("seq_test"))
             .await
-            .unwrap()
-            .as_u64();
-        cat.commit_writer(&writer);
+            .unwrap();
+        cat.commit_writer(snap);
+        let snap_id = snap.as_u64();
         assert!(
-            snap > last_id,
-            "snapshot id {snap} must be > previous {last_id}"
+            snap_id > last_id,
+            "snapshot id {snap_id} must be > previous {last_id}"
         );
-        last_id = snap;
+        last_id = snap_id;
     }
 }
 
@@ -161,7 +161,7 @@ async fn reader_snapshot_isolation() {
         .create_snapshot(Some("test"), Some("snap_a"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(snap_a);
 
     // Obtain reader at snap_a.
     let reader_at_a = cat.read_at(snap_a).unwrap();
@@ -169,11 +169,11 @@ async fn reader_snapshot_isolation() {
     // Write schema B.
     let mut writer2 = cat.begin_write();
     writer2.create_schema("schema_b").await.unwrap();
-    writer2
+    let _cr = writer2
         .create_snapshot(Some("test"), Some("snap_b"))
         .await
         .unwrap();
-    cat.commit_writer(&writer2);
+    cat.commit_writer(_cr);
 
     // Reader at snap_a must NOT see schema_b.
     let schemas = reader_at_a.list_schemas().await.unwrap();
@@ -202,11 +202,11 @@ async fn ten_k_file_registration() {
         .create_table(schema_id, "perf_table", None)
         .await
         .unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("setup"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // Register 10 000 data files in batches of 500.
     let batch_size = 500usize;
@@ -226,11 +226,11 @@ async fn ten_k_file_registration() {
                 .await
                 .unwrap();
         }
-        writer
+        let _cr = writer
             .create_snapshot(Some("test"), Some("batch"))
             .await
             .unwrap();
-        cat.commit_writer(&writer);
+        cat.commit_writer(_cr);
         registered += batch_size.min(total - registered);
     }
 
@@ -261,11 +261,11 @@ async fn zone_map_pruning() {
         .add_column(table_id, "amount", "BIGINT", 0, false, None)
         .await
         .unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("setup"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // Register two files: one with amount 1..100, one with amount 200..300.
     let mut writer = cat.begin_write();
@@ -277,11 +277,11 @@ async fn zone_map_pruning() {
         .register_data_file(table_id, "s3://bucket/file2.parquet", "parquet", 1000, 4096)
         .await
         .unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("files"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // Read back all files — both registered files should be visible.
     let reader = cat.read_latest();
@@ -303,11 +303,11 @@ async fn writer_failover() {
     // Make a write with the original writer.
     let mut writer = cat.begin_write();
     writer.create_schema("failover_schema").await.unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("original_write"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // Simulating failover: open a new store from the same object store.
     let new_cat = CatalogStore::open(make_opts(
@@ -332,11 +332,11 @@ async fn stale_epoch_sqlstate() {
     // Commit one write.
     let mut writer = cat.begin_write();
     writer.create_schema("epoch_test").await.unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("epoch_write"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // The writer epoch check happens on create_snapshot.
     // Trying to create a second snapshot without a fresh begin_write
@@ -364,11 +364,11 @@ async fn new_writer_sees_committed_state() {
         .create_table(schema_id, "committed_table", None)
         .await
         .unwrap();
-    writer
+    let _cr = writer
         .create_snapshot(Some("test"), Some("commit1"))
         .await
         .unwrap();
-    cat.commit_writer(&writer);
+    cat.commit_writer(_cr);
 
     // A new writer should be able to read the committed table.
     let mut writer2 = cat.begin_write();
@@ -376,11 +376,11 @@ async fn new_writer_sees_committed_state() {
         .add_column(table_id, "col1", "VARCHAR", 0, true, None)
         .await
         .unwrap();
-    writer2
+    let _cr = writer2
         .create_snapshot(Some("test"), Some("commit2"))
         .await
         .unwrap();
-    cat.commit_writer(&writer2);
+    cat.commit_writer(_cr);
 
     let reader = cat.read_latest();
     let desc = reader.describe_table(table_id).await.unwrap();
@@ -406,11 +406,11 @@ async fn flush_visibility_p99_latency() {
             .await
             .unwrap();
         let t0 = Instant::now();
-        writer
+        let _cr = writer
             .create_snapshot(Some("test"), Some("latency_snap"))
             .await
             .unwrap();
-        cat.commit_writer(&writer);
+        cat.commit_writer(_cr);
         // read_latest immediately after commit.
         let _ = cat.read_latest().list_schemas().await.unwrap();
         let elapsed_ms = t0.elapsed().as_millis() as u64;

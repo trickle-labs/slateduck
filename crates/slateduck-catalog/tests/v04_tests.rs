@@ -49,11 +49,11 @@ async fn gc_apply_advances_retain_from() {
     let mut writer = store.begin_write();
 
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.create_schema("s2").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.create_schema("s3").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -77,9 +77,9 @@ async fn gc_respects_pinned_snapshots() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.create_schema("s2").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -133,11 +133,11 @@ async fn excise_plan_shows_eligible_rows() {
     let mut writer = store.begin_write();
 
     let schema_id = writer.create_schema("old").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.drop_schema(schema_id).await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.create_schema("new").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -155,11 +155,11 @@ async fn excise_apply_deletes_and_records_audit() {
     let mut writer = store.begin_write();
 
     let schema_id = writer.create_schema("temp").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.drop_schema(schema_id).await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     writer.create_schema("keep").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -191,7 +191,7 @@ async fn excise_refuses_without_retain_from_advance() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -214,7 +214,7 @@ async fn checkpoint_create_list_restore() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -248,7 +248,7 @@ async fn checkpoint_restore_after_modifications() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("original").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -265,7 +265,7 @@ async fn checkpoint_restore_after_modifications() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("added_later").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     // Restore checkpoint
@@ -315,7 +315,7 @@ async fn export_import_roundtrip() {
         )
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     // Export
@@ -344,7 +344,7 @@ async fn pg_migrate_produces_insert_statements() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -408,7 +408,7 @@ async fn inspect_shows_current_state() {
         .register_data_file(table_id, "file1.parquet", "parquet", 100, 1000)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -432,7 +432,7 @@ async fn verify_catalog_passes_on_healthy_catalog() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -454,7 +454,7 @@ async fn verify_data_files_reports_missing() {
         .register_data_file(table_id, "nonexistent.parquet", "parquet", 100, 1000)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let path = dir.path().to_str().unwrap().to_string();
@@ -477,7 +477,7 @@ async fn repair_plan_on_healthy_catalog_empty() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -493,7 +493,7 @@ async fn repair_fixes_stale_counter() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -581,7 +581,7 @@ async fn collect_referenced_paths_includes_all_files() {
         .register_data_file(table_id, "data/file2.parquet", "parquet", 200, 2000)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;

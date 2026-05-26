@@ -140,7 +140,7 @@ async fn select_ducklake_tag_returns_tags_with_spec_column_names() {
         let table_id = w.create_table(schema_id, "t", None).await.unwrap();
         w.set_tag(table_id, "owner", "data-team").await.unwrap();
         let _snap = w.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&w);
+        lock.commit_writer(_snap);
     }
 
     let resp = exec("SELECT * FROM ducklake_tag", &store, &params).await;
@@ -179,7 +179,7 @@ async fn select_ducklake_column_tag_returns_column_tags() {
             .await
             .unwrap();
         let _snap = w.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&w);
+        lock.commit_writer(_snap);
     }
 
     let resp = exec("SELECT * FROM ducklake_column_tag", &store, &params).await;
@@ -212,7 +212,7 @@ async fn select_ducklake_sort_info_returns_sort_rows() {
         let table_id = w.create_table(schema_id, "orders", None).await.unwrap();
         w.add_sort_info(table_id, 1).await.unwrap();
         let _snap = w.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&w);
+        lock.commit_writer(_snap);
     }
 
     let resp = exec("SELECT * FROM ducklake_sort_info", &store, &params).await;
@@ -257,7 +257,7 @@ async fn ducklake_schema_version_increments_after_ddl() {
         let schema_id = w.create_schema("main").await.unwrap();
         let _t = w.create_table(schema_id, "events", None).await.unwrap();
         let _snap = w.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&w);
+        lock.commit_writer(_snap);
     }
 
     // Schema version facade still returns exactly 1 row.

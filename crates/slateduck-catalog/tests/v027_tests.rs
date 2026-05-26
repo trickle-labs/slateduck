@@ -82,7 +82,7 @@ async fn drop_table_retires_tags() {
         .unwrap();
     writer.set_tag(table_id, "retention", "90d").await.unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap1);
 
     // Verify tags are visible at snap1.
     let reader = store.read_at(snap1).unwrap();
@@ -96,7 +96,7 @@ async fn drop_table_retires_tags() {
         .await
         .unwrap();
     let snap2 = writer2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer2);
+    store.commit_writer(snap2);
 
     let reader2 = store.read_at(snap2).unwrap();
     let tags_after = reader2.list_all_tags().await.unwrap();
@@ -132,7 +132,7 @@ async fn drop_table_retires_column_tags() {
         .await
         .unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap1);
 
     let reader = store.read_at(snap1).unwrap();
     let col_tags = reader.list_all_column_tags().await.unwrap();
@@ -144,7 +144,7 @@ async fn drop_table_retires_column_tags() {
         .await
         .unwrap();
     let snap2 = writer2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer2);
+    store.commit_writer(snap2);
 
     let reader2 = store.read_at(snap2).unwrap();
     let col_tags_after = reader2.list_all_column_tags().await.unwrap();
@@ -174,7 +174,7 @@ async fn sort_info_round_trip() {
     // Define sort info on the table.
     writer.add_sort_info(table_id, 1).await.unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap1);
 
     let reader = store.read_at(snap1).unwrap();
     let sort_rows = reader.list_all_sort_info().await.unwrap();
@@ -197,7 +197,7 @@ async fn drop_table_retires_sort_info() {
 
     writer.add_sort_info(table_id, 1).await.unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap1);
 
     // Verify sort_info is visible.
     let reader = store.read_at(snap1).unwrap();
@@ -211,7 +211,7 @@ async fn drop_table_retires_sort_info() {
         .await
         .unwrap();
     let snap2 = writer2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer2);
+    store.commit_writer(snap2);
 
     let reader2 = store.read_at(snap2).unwrap();
     let sort_rows_after = reader2.list_all_sort_info().await.unwrap();
@@ -242,7 +242,7 @@ async fn schema_version_increments_with_ddl() {
     let schema_id = writer.create_schema("main").await.unwrap();
     let _table_id = writer.create_table(schema_id, "t", None).await.unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(_snap);
 
     let after_ddl = store.schema_version();
     assert!(
@@ -270,7 +270,7 @@ async fn schema_version_exposed_via_facade() {
         .await
         .unwrap();
     let _snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(_snap);
 
     let version = store.schema_version();
     assert!(version >= 1, "schema_version must be >= 1 after DDL");
@@ -294,7 +294,7 @@ async fn list_all_tags_returns_tags_for_all_objects() {
     writer.set_tag(table2, "env", "staging").await.unwrap();
     writer.set_tag(table2, "owner", "analytics").await.unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let tags = reader.list_all_tags().await.unwrap();
@@ -338,7 +338,7 @@ async fn list_all_column_tags_returns_tags_for_all_columns() {
         .await
         .unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let col_tags = reader.list_all_column_tags().await.unwrap();
@@ -369,7 +369,7 @@ async fn list_all_sort_info_returns_entries_for_multiple_tables() {
     writer.add_sort_info(t1, 2).await.unwrap();
     writer.add_sort_info(t2, 1).await.unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let sort_rows = reader.list_all_sort_info().await.unwrap();
@@ -468,7 +468,7 @@ async fn dod_mvcc_windows_in_tag_rows() {
     let table_id = writer.create_table(schema_id, "t", None).await.unwrap();
     writer.set_tag(table_id, "k", "v").await.unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let tags = reader.list_all_tags().await.unwrap();
@@ -507,7 +507,7 @@ async fn dod_no_supported_write_is_noop() {
         .unwrap();
     writer.add_sort_info(table_id, 1).await.unwrap();
     let snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     assert_eq!(reader.list_all_tags().await.unwrap().len(), 1);
@@ -528,7 +528,7 @@ async fn dod_time_travel_sees_retired_tags() {
     let table_id = writer.create_table(schema_id, "t", None).await.unwrap();
     writer.set_tag(table_id, "tier", "gold").await.unwrap();
     let snap1 = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(snap1);
 
     // At snap1: 1 tag.
     let r1 = store.read_at(snap1).unwrap();
@@ -541,7 +541,7 @@ async fn dod_time_travel_sees_retired_tags() {
         .await
         .unwrap();
     let snap2 = writer2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer2);
+    store.commit_writer(snap2);
 
     // At snap2: 0 tags (retired).
     let r2 = store.read_at(snap2).unwrap();

@@ -72,12 +72,13 @@ impl CatalogRegistry {
             .put(&key, values::encode_value(&row))
             .await?;
 
-        writer
+        let commit = writer
             .create_snapshot(
                 Some("registry"),
                 Some(&format!("register dataset: {}", entry.name)),
             )
             .await?;
+        self.store.commit_writer(commit);
         Ok(())
     }
 
@@ -99,12 +100,13 @@ impl CatalogRegistry {
             .await?;
 
         let mut writer = self.store.begin_write();
-        writer
+        let commit = writer
             .create_snapshot(
                 Some("registry"),
                 Some(&format!("unregister dataset: {}", name)),
             )
             .await?;
+        self.store.commit_writer(commit);
         Ok(())
     }
 

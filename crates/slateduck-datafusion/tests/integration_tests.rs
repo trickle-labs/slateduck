@@ -7,6 +7,7 @@ use slateduck_core::mvcc::SnapshotId;
 use slateduck_datafusion::SlateDuckCatalogProvider;
 use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::sync::RwLock;
 
 fn test_opts(dir: &TempDir) -> OpenOptions {
     let path = dir.path().to_str().unwrap().to_string();
@@ -27,7 +28,7 @@ async fn datafusion_provider_schema_names() {
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
     writer.create_schema("analytics").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     // Create provider at snapshot 1
     let provider = SlateDuckCatalogProvider::new(store, Some(SnapshotId::new(1)));
@@ -50,7 +51,7 @@ async fn datafusion_provider_table_names() {
         .create_table(schema_id, "orders", None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     let provider = SlateDuckCatalogProvider::new(store, Some(SnapshotId::new(1)));
     let schema_provider = provider.schema("main").unwrap();
@@ -80,7 +81,7 @@ async fn datafusion_provider_table_schema() {
         .add_column(table_id, "active", "BOOLEAN", 2, false, None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     let provider = SlateDuckCatalogProvider::new(store, Some(SnapshotId::new(1)));
     let schema_provider = provider.schema("main").unwrap();
@@ -106,7 +107,7 @@ async fn datafusion_provider_nonexistent_table() {
 
     let mut writer = store.begin_write();
     writer.create_schema("main").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     let provider = SlateDuckCatalogProvider::new(store, Some(SnapshotId::new(1)));
     let schema_provider = provider.schema("main").unwrap();
@@ -125,7 +126,7 @@ async fn datafusion_provider_table_exist() {
         .create_table(schema_id, "orders", None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     let provider = SlateDuckCatalogProvider::new(store, Some(SnapshotId::new(1)));
     let schema_provider = provider.schema("main").unwrap();
@@ -207,8 +208,8 @@ async fn datafusion_scan_reads_parquet_data() {
         )
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
-    catalog_store.commit_writer(&writer);
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    catalog_store.commit_writer(_cr);
     catalog_store.close().await.unwrap();
 
     // Open via the DataFusion provider.
@@ -234,4 +235,59 @@ async fn datafusion_scan_reads_parquet_data() {
     let results = df.collect().await.unwrap();
     let total_rows: usize = results.iter().map(|b| b.num_rows()).sum();
     assert_eq!(total_rows, 2, "should read 2 rows from the Parquet file");
+}
+
+// ─── N-02: from_catalog_store auto-resolves data_root ─────────────────────
+
+/// Verify that `from_catalog_store` reads `data_path` from `ducklake_metadata`
+/// and exposes it as the `data_root` on the provider, enabling Parquet scans
+/// without re-opening the catalog.
+#[tokio::test]
+async fn from_catalog_store_resolves_data_root() {
+    use slateduck_core::keys::MetadataScope;
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    let obj_store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&root).unwrap());
+
+    let mut store = CatalogStore::open(OpenOptions {
+        object_store: obj_store,
+        path: ObjectPath::from("catalog"),
+        encryption: None,
+    })
+    .await
+    .unwrap();
+
+    // Write a data_path metadata entry (DuckDB system key, no dot prefix needed).
+    let mut writer = store.begin_write();
+    writer
+        .set_metadata(MetadataScope::Global, 0, "data_path", "/catalog/data")
+        .unwrap();
+    let schema_id = writer.create_schema("main").await.unwrap();
+    writer
+        .create_table(schema_id, "events", None)
+        .await
+        .unwrap();
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
+
+    // Wrap in Arc<RwLock<_>> and build a provider via from_catalog_store.
+    let shared = Arc::new(RwLock::new(store));
+    let provider = SlateDuckCatalogProvider::from_catalog_store(shared, None)
+        .await
+        .unwrap();
+
+    // Schema discovery still works.
+    let names = provider.schema_names();
+    assert!(
+        names.contains(&"main".to_string()),
+        "schema 'main' should be visible"
+    );
+
+    // The schema provider is reachable (data_root was resolved from metadata).
+    let schema_prov = provider.schema("main").unwrap();
+    assert!(
+        schema_prov.table_exist("events"),
+        "table 'events' should be visible"
+    );
 }

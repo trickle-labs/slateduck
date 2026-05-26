@@ -53,6 +53,7 @@ pub use streaming::{measure_ingest_throughput, IngestRecord, IngestResult, Slate
 pub use warmup::{publish_writer_endpoint, read_writer_endpoint, warmup_cache, WarmupResult};
 pub use writer::{
     next_rowid_range,
+    snapshot::CommitResult,
     stats::{FileColumnStatsInput, FileVariantStatsInput},
     validate_app_metadata_key, CatalogWriter,
 };

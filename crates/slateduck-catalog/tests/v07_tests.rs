@@ -356,12 +356,12 @@ async fn partitioned_writer_open_multiple_datasets() {
     let ds1 = writer.open_dataset("dataset_a").await.unwrap();
     let mut w1 = ds1.begin_write();
     let _schema_id = w1.create_schema("main").await.unwrap();
-    w1.create_snapshot(None, None).await.unwrap();
+    let _ = w1.create_snapshot(None, None).await.unwrap();
 
     let ds2 = writer.open_dataset("dataset_b").await.unwrap();
     let mut w2 = ds2.begin_write();
     let _schema_id_b = w2.create_schema("analytics").await.unwrap();
-    w2.create_snapshot(None, None).await.unwrap();
+    let _ = w2.create_snapshot(None, None).await.unwrap();
 
     // Verify isolation: each dataset has its own schema
     let ds1_ref = writer.open_dataset("dataset_a").await.unwrap();
@@ -392,14 +392,14 @@ async fn partitioned_writer_concurrent_independent_writes() {
     let ds_x = writer1.open_dataset("x").await.unwrap();
     let mut wx = ds_x.begin_write();
     wx.create_schema("schema_x").await.unwrap();
-    wx.create_snapshot(None, None).await.unwrap();
+    let _ = wx.create_snapshot(None, None).await.unwrap();
 
     // Writer 2 works on dataset_y (no contention with writer 1)
     let mut writer2 = PartitionedWriter::new(store.clone(), ObjectPath::from("concurrent"));
     let ds_y = writer2.open_dataset("y").await.unwrap();
     let mut wy = ds_y.begin_write();
     wy.create_schema("schema_y").await.unwrap();
-    wy.create_snapshot(None, None).await.unwrap();
+    let _ = wy.create_snapshot(None, None).await.unwrap();
 
     // Verify both are independent
     let ds_x_read = writer1.open_dataset("x").await.unwrap();

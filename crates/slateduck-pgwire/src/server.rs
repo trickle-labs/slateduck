@@ -67,7 +67,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            bind_addr: "0.0.0.0:5432".parse().unwrap(),
+            bind_addr: SocketAddr::from(([0, 0, 0, 0], 5432)),
             max_sessions: 50,
             max_active_scans: 25,
             tls: TlsConfig::default(),

@@ -105,7 +105,6 @@ slateduck/
 │   ├── slateduck-pgwire/     # PG wire protocol server (binary lives here)
 │   ├── slateduck-ffi/        # C FFI for native DuckDB extension
 │   ├── slateduck-datafusion/ # DataFusion catalog provider
-│   └── slateduck-sqlite-vfs/ # SQLite VFS layer (experimental)
 ├── tests/
 │   ├── fixtures/             # Wire corpus and test data
 │   └── golden/               # Golden test runner
@@ -125,7 +124,6 @@ graph TD
     catalog --> core[slateduck-core<br/>Types + encoding]
     ffi[slateduck-ffi<br/>C FFI] --> catalog
     datafusion[slateduck-datafusion<br/>DataFusion] --> catalog
-    sqlite[slateduck-sqlite-vfs<br/>SQLite VFS] --> catalog
 ```
 
 You only need to understand the crates relevant to your change. Most contributions touch one or two crates.

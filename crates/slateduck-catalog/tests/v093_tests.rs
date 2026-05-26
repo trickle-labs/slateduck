@@ -35,7 +35,7 @@ async fn read_at_below_retain_from_returns_error() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -64,7 +64,7 @@ async fn read_at_at_retain_from_succeeds() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -87,7 +87,7 @@ async fn read_at_before_any_gc_apply_succeeds() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     // No gc_apply → retain_from == 0 → all reads allowed
@@ -108,7 +108,7 @@ async fn excise_apply_fails_when_retain_from_is_zero() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -129,7 +129,7 @@ async fn excise_plan_shows_unsafe_when_retain_from_is_zero() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("s1").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -156,7 +156,7 @@ async fn checkpoint_restore_hides_post_checkpoint_facts() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("pre_checkpoint").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -169,7 +169,7 @@ async fn checkpoint_restore_hides_post_checkpoint_facts() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("post_checkpoint").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     // Restore to checkpoint
@@ -202,7 +202,7 @@ async fn checkpoint_restore_new_writes_visible() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("original").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -215,7 +215,7 @@ async fn checkpoint_restore_new_writes_visible() {
     let mut store = CatalogStore::open(test_opts(&dir)).await.unwrap();
     let mut writer = store.begin_write();
     writer.create_schema("discarded").await.unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;
@@ -229,7 +229,7 @@ async fn checkpoint_restore_new_writes_visible() {
     let mut writer = store.begin_write();
     writer.create_schema("post_restore").await.unwrap();
     let new_snap = writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    store.commit_writer(new_snap);
     let reader = store.read_at(new_snap).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
     let names: Vec<_> = schemas.iter().map(|s| s.schema_name.as_str()).collect();
@@ -368,7 +368,7 @@ async fn pg_migrate_escapes_single_quotes() {
         .add_column(table_id, "col'a", "VARCHAR", 0, true, None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
     store.close().await.unwrap();
 
     let db = open_db(&dir).await;

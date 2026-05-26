@@ -88,8 +88,8 @@ async fn pgwire_table_changes_returns_query_response() {
             .add_column(table_id, "name", "VARCHAR", 1, true, None)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&writer);
+        let _cr = writer.create_snapshot(None, None).await.unwrap();
+        lock.commit_writer(_cr);
     }
 
     {
@@ -99,8 +99,8 @@ async fn pgwire_table_changes_returns_query_response() {
             .register_data_file(table_id, "events.parquet", "parquet", 2, 0)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&writer);
+        let _cr = writer.create_snapshot(None, None).await.unwrap();
+        lock.commit_writer(_cr);
     }
 
     let sql = "SELECT * FROM table_changes('events.logs', 1, 2)";
@@ -138,8 +138,8 @@ async fn pgwire_table_changes_missing_file_returns_storage_error() {
             .register_data_file(table_id, "missing.parquet", "parquet", 5, 0)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
-        lock.commit_writer(&writer);
+        let _cr = writer.create_snapshot(None, None).await.unwrap();
+        lock.commit_writer(_cr);
     }
 
     let sql = "SELECT * FROM table_changes('analytics.events', 0, 1)";

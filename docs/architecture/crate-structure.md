@@ -11,7 +11,6 @@ graph TD
     CORE["slateduck-core<br/><small>Types, keys, values, MVCC</small>"] --> CAT["slateduck-catalog<br/><small>Persistence, GC, export</small>"]
     CORE --> SQL["slateduck-sql<br/><small>SQL classification</small>"]
     CORE --> FFI["slateduck-ffi<br/><small>C/C++ FFI for DuckDB</small>"]
-    CORE --> VFS["slateduck-sqlite-vfs<br/><small>SQLite VFS (experimental)</small>"]
     CAT --> PG["slateduck-pgwire<br/><small>PG wire server + CLI binary</small>"]
     CAT --> DF["slateduck-datafusion<br/><small>DataFusion integration</small>"]
     CAT --> FFI
@@ -23,7 +22,6 @@ graph TD
     style PG fill:#fce4ec
     style DF fill:#f3e5f5
     style FFI fill:#e0f7fa
-    style VFS fill:#f5f5f5
 ```
 
 The arrows point from dependency to dependent. `slateduck-core` is the leaf (depends on no other workspace crate). `slateduck-pgwire` is the root (produces the main binary and depends on multiple crates). No circular dependencies exist — Cargo's resolver would reject them.
@@ -148,14 +146,6 @@ The arrows point from dependency to dependent. `slateduck-core` is the leaf (dep
 
 **External dependencies:** `slateduck-core`, `slateduck-catalog`, `tokio` (for async bridge — the FFI creates a Tokio runtime internally to drive SlateDB's async operations).
 
-## slateduck-sqlite-vfs
-
-**Role:** SQLite Virtual File System implementation for potential SQLite compatibility. Currently experimental and not used in production.
-
-**Why it exists:** Exploratory work on using SQLite as an alternative catalog query interface. May be removed or substantially redesigned in future versions.
-
-**External dependencies:** `slateduck-core`.
-
 ## Dependency Layering Rules
 
 The crates follow strict layering rules enforced by Cargo's dependency resolver:
@@ -183,7 +173,6 @@ This layering provides concrete benefits:
 | slateduck-pgwire | ~4,000 | Medium (network + TLS) | Binary entry point |
 | slateduck-datafusion | ~1,500 | Medium (DataFusion is large) | Optional feature |
 | slateduck-ffi | ~1,000 | Fast (thin wrapper) | Shared library |
-| slateduck-sqlite-vfs | ~500 | Fast (minimal) | Experimental |
 
 The total workspace compiles in approximately 60–90 seconds on a modern machine (M1/M2 Mac or equivalent). Incremental builds after changing a single file in `slateduck-pgwire` take 5–10 seconds because only the changed crate and its dependents need recompilation.
 

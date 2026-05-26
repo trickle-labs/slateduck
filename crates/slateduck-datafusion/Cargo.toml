@@ -18,3 +18,8 @@ tracing = { workspace = true }
 tempfile = { workspace = true }
 parquet = { version = "54", features = ["arrow"] }
 arrow = { version = "54", features = ["ipc"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "datafusion_bridge"
+harness = false

@@ -13,7 +13,6 @@ graph TD
     catalog --> core[slateduck-core<br/><small>Types, keys, values, MVCC</small>]
     ffi[slateduck-ffi<br/><small>C FFI for DuckDB extension</small>] --> catalog
     datafusion[slateduck-datafusion<br/><small>DataFusion provider</small>] --> catalog
-    sqlite[slateduck-sqlite-vfs<br/><small>SQLite VFS</small>] --> catalog
 ```
 
 Information flows from top (network layer) to bottom (persistence layer). Each crate depends only on crates below it — never on peers or ancestors. This means:
@@ -121,15 +120,6 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Supporting additional DataFusion query patterns
 - Exposing new catalog metadata to DataFusion queries
 - Fixing compatibility with newer DataFusion versions
-
-### slateduck-sqlite-vfs
-
-**The SQLite VFS (experimental).** Provides a virtual filesystem layer that stores SQLite databases in the SlateDuck catalog:
-
-- **VFS** (`vfs.rs`): Implements SQLite's VFS interface
-- **IO** (`io.rs`): Translates VFS calls to catalog reads/writes
-
-This crate is experimental and may change significantly.
 
 ## Where to Make Changes
 

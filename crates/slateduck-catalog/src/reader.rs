@@ -705,9 +705,11 @@ impl CatalogReader {
     /// versioning.
     pub async fn snapshot_diff(
         &self,
-        from_snapshot: SnapshotId,
-        to_snapshot: SnapshotId,
+        from_snapshot: impl Into<SnapshotId>,
+        to_snapshot: impl Into<SnapshotId>,
     ) -> CatalogResult<SnapshotDiff> {
+        let to_snapshot: SnapshotId = to_snapshot.into();
+        let from_snapshot: SnapshotId = from_snapshot.into();
         let to = to_snapshot.as_u64();
         let from = from_snapshot.as_u64();
 

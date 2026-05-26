@@ -173,7 +173,7 @@ async fn warmup_with_tables_warms_more_entries() {
         .create_table(schema_id, "mytable", None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer.create_snapshot(None, None).await.unwrap();
 
     let result_small = warmup_cache(catalog.db(), 1).await.unwrap();
     let result_large = warmup_cache(catalog.db(), 100).await.unwrap();
@@ -448,11 +448,12 @@ async fn writer_failover_localfs_slo() {
             .create_table(schema_id, "failover_table", None)
             .await
             .unwrap();
-        writer.create_snapshot(None, None).await.unwrap();
+        let _ = writer.create_snapshot(None, None).await.unwrap();
 
         for i in 0..2 {
             let mut w2 = catalog.begin_write();
-            w2.create_snapshot(Some(&format!("snapshot-{i}")), None)
+            let _ = w2
+                .create_snapshot(Some(&format!("snapshot-{i}")), None)
                 .await
                 .unwrap();
         }
@@ -465,7 +466,7 @@ async fn writer_failover_localfs_slo() {
 
     // Step 3: Second writer commits a new snapshot
     let mut writer2 = catalog2.begin_write();
-    writer2
+    let _ = writer2
         .create_snapshot(Some("post-failover"), None)
         .await
         .unwrap();

@@ -40,8 +40,8 @@ async fn open_with_table(dir: &TempDir) -> (CatalogStore, u64) {
         .create_table(schema_id, "events", None)
         .await
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
     (store, table_id)
 }
 
@@ -58,8 +58,8 @@ async fn metadata_system_key_accepted() {
     writer
         .set_metadata(MetadataScope::Global, 0, "data_path", "s3://bucket/wh")
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
 
     let reader = store.read_latest();
     let row = reader
@@ -85,8 +85,8 @@ async fn metadata_app_key_valid_namespace() {
             "4782",
         )
         .unwrap();
-    writer.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&writer);
+    let _cr = writer.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(_cr);
 
     let reader = store.read_latest();
     let row = reader
@@ -441,14 +441,14 @@ async fn snapshot_diff_detects_added_and_retired_schema() {
     let mut w = store.begin_write();
     let schema_id = w.create_schema("alpha").await.unwrap();
     let snap1 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap1);
 
     // Snapshot 2: create schema "beta" and drop schema "alpha".
     let mut w2 = store.begin_write();
     w2.create_schema("beta").await.unwrap();
     w2.drop_schema(schema_id).await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     let reader = store.read_at(snap2).unwrap();
     let diff = reader.snapshot_diff(snap1, snap2).await.unwrap();
@@ -482,7 +482,7 @@ async fn snapshot_diff_detects_added_table_and_columns() {
         .await
         .unwrap();
     let snap2 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap2);
 
     let reader = store.read_at(snap2).unwrap();
     let diff = reader.snapshot_diff(snap1, snap2).await.unwrap();
@@ -607,8 +607,8 @@ async fn cdc_tailer_poll_returns_new_diffs() {
     // Commit snapshot 1.
     let mut w = store.begin_write();
     w.create_schema("main").await.unwrap();
-    w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    let snap2 = w.create_snapshot(None, None).await.unwrap();
+    store.commit_writer(snap2);
 
     // Poll should now return a non-empty diff.
     let cdc = tailer.poll_once(&store).await.unwrap();
@@ -676,7 +676,7 @@ async fn cdc_captures_materialized_view_table() {
     let mut w = store.begin_write();
     let schema_id = w.create_schema("main").await.unwrap();
     let snap1 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap1);
 
     // Create a "materialized view" table (just a table named with _mv suffix).
     let mut w2 = store.begin_write();
@@ -684,7 +684,7 @@ async fn cdc_captures_materialized_view_table() {
         .await
         .unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     let reader = store.read_at(snap2).unwrap();
     let diff = reader.snapshot_diff(snap1, snap2).await.unwrap();
@@ -726,7 +726,7 @@ async fn e2e_write_cdc_event_downstream_diff() {
         .await
         .unwrap();
     let snap_after = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap_after);
 
     let reader = store.read_at(snap_after).unwrap();
     let diff = reader.snapshot_diff(snap_before, snap_after).await.unwrap();

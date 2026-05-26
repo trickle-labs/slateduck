@@ -51,7 +51,7 @@ async fn create_schema_auto_generates_uuid() {
     let mut w = store.begin_write();
     let schema_id = w.create_schema("test_schema").await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let schemas = reader.list_schemas().await.unwrap();
@@ -95,7 +95,7 @@ async fn create_table_auto_generates_uuid() {
     let schema_id = w.create_schema("s1").await.unwrap();
     let table_id = w.create_table(schema_id, "my_table", None).await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let tables = reader.list_tables(schema_id).await.unwrap();
@@ -160,7 +160,7 @@ async fn add_column_with_opts_round_trips() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let (_, cols) = reader.describe_table(table_id).await.unwrap().unwrap();
@@ -198,7 +198,7 @@ async fn nested_column_parent_column_round_trips() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let (_, cols) = reader.describe_table(table_id).await.unwrap().unwrap();
@@ -244,7 +244,7 @@ async fn create_view_with_opts_round_trips() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let views = reader.list_views(schema_id).await.unwrap();
@@ -295,7 +295,7 @@ async fn create_macro_auto_generates_uuid() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let macros = reader.list_macros(schema_id).await.unwrap();
@@ -319,7 +319,7 @@ async fn add_macro_impl_with_opts_round_trips() {
         .await
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let impls = reader.list_macro_impls(macro_id).await.unwrap();
@@ -351,7 +351,7 @@ async fn set_metadata_global_round_trips() {
     w.set_metadata(MetadataScope::Global, 0, "app.v025.version", "1.0")
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let rows = reader.list_all_metadata().await.unwrap();
@@ -374,7 +374,7 @@ async fn set_metadata_table_scope_round_trips() {
     w.set_metadata(MetadataScope::Table, table_id, "table.owner.alice", "alice")
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let rows = reader.list_all_metadata().await.unwrap();
@@ -400,7 +400,7 @@ async fn list_all_views_returns_all_views_across_schemas() {
     w.create_view(s1, "v2", "SELECT 2").await.unwrap();
     w.create_view(s2, "v3", "SELECT 3").await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let views = reader.list_all_views().await.unwrap();
@@ -417,7 +417,7 @@ async fn list_all_macros_returns_all_macros_across_schemas() {
     w.create_macro(s1, "fn1", "scalar").await.unwrap();
     w.create_macro(s2, "fn2", "table").await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let macros = reader.list_all_macros().await.unwrap();
@@ -438,7 +438,7 @@ async fn list_all_metadata_returns_all_scope_entries() {
     w.set_metadata(MetadataScope::Table, table_id, "table.key.one", "tval")
         .unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
 
     let reader = store.read_at(snap).unwrap();
     let rows = reader.list_all_metadata().await.unwrap();
@@ -471,12 +471,12 @@ async fn drop_view_is_invisible_in_list_all_views() {
         .await
         .unwrap();
     let snap1 = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap1);
 
     let mut w2 = store.begin_write();
     w2.drop_view(schema_id, v2, snap1.as_u64()).await.unwrap();
     let snap2 = w2.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w2);
+    store.commit_writer(snap2);
 
     let reader = store.read_at(snap2).unwrap();
     let views = reader.list_all_views().await.unwrap();

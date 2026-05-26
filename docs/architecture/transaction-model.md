@@ -317,3 +317,63 @@ IDs already present in the catalog, causing non-deterministic read results.
 - Every `ducklake_data_file` row references an existing `ducklake_table`.
 - All MVCC rows with `end_snapshot IS NOT NULL` satisfy `end_snapshot > begin_snapshot`.
 - All counter values are ≥ the maximum ID found in their respective tables.
+
+## CommitResult Contract (v0.27.2)
+
+Before v0.27.2, `create_snapshot()` returned a bare `SnapshotId` and also
+silently updated the in-memory counters of the `CatalogStore`. This created a
+footgun: if a caller captured the `SnapshotId` and did not call any follow-up
+method, the counters were still updated — making it impossible to catch the
+bug of forgetting the mandatory `commit_writer()` call.
+
+From v0.27.2, `create_snapshot()` returns a `CommitResult`:
+
+```rust
+#[must_use = "CommitResult must be passed to CatalogStore::commit_writer(result)"]
+pub struct CommitResult {
+    pub snapshot_id: SnapshotId,
+    pub(crate) next_snapshot_id: u64,
+    pub(crate) next_catalog_id: u64,
+    pub(crate) next_file_id: u64,
+    pub(crate) schema_version: u64,
+}
+```
+
+The `#[must_use]` attribute causes a **compile-time warning** (promoted to an
+error in CI with `RUSTFLAGS=-Dwarnings`) if the value is dropped without being
+passed to `commit_writer`. The workflow is now:
+
+```rust
+let commit = writer.create_snapshot(author, comment).await?;
+store.commit_writer(commit);  // syncs in-memory counters; mandatory
+```
+
+`CommitResult` implements `Deref<Target = SnapshotId>` and `From<CommitResult>
+for SnapshotId`, so existing code that reads the snapshot ID continues to work
+without changes:
+
+```rust
+let commit = writer.create_snapshot(None, None).await?;
+store.commit_writer(commit);
+let reader = store.read_at(commit).unwrap();  // Into<SnapshotId> conversion
+```
+
+### Wall-Clock Lease Concern
+
+Snapshot lease expiry is evaluated against `SystemTime::now()`. A clock skew
+of more than the lease duration between nodes can cause a lease holder to see
+its lease as expired before the server-side clock does (or vice versa). The
+recommended tolerance is ≤ 5 seconds of skew for the default 1-hour lease TTL.
+
+For test isolation and future replacement, a `Clock` trait is available in
+`slateduck-core`:
+
+```rust
+pub trait Clock: Send + Sync {
+    fn now_secs(&self) -> u64;
+}
+```
+
+A `SystemClock` (real wall clock) and `MockClock` (injectable instant for
+tests) are provided. Lease logic uses the injected clock, making expiry
+behaviour deterministic in tests.

@@ -155,7 +155,7 @@ async fn snapshot_persists_next_catalog_and_file_ids() {
     let mut w = store.begin_write();
     w.create_schema("myschema").await.unwrap();
     let snap = w.create_snapshot(None, None).await.unwrap();
-    store.commit_writer(&w);
+    store.commit_writer(snap);
     let row = store
         .read_at(snap)
         .unwrap()
@@ -210,8 +210,8 @@ async fn data_file_mvcc_visibility_and_file_order() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
         tid
     };
     {
@@ -219,16 +219,16 @@ async fn data_file_mvcc_visibility_and_file_order() {
         w.register_data_file(table_id, "s3://b/a.parquet", "parquet", 100, 1000)
             .await
             .unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
     }
     {
         let mut w = store.begin_write();
         w.register_data_file(table_id, "s3://b/b.parquet", "parquet", 200, 2000)
             .await
             .unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
     }
     let snap = store.read_latest().snapshot_id();
     let files = store
@@ -286,8 +286,8 @@ async fn delete_file_registration_and_list() {
         w.register_delete_file(fid, "s3://b/delete.parquet", 50, 500)
             .await
             .unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
         tid
     };
     let snap = store.read_latest().snapshot_id();
@@ -324,8 +324,8 @@ async fn data_file_registration_tracks_next_row_id() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
         tid
     };
     {
@@ -335,8 +335,8 @@ async fn data_file_registration_tracks_next_row_id() {
             .unwrap();
         // update_table_stats takes ABSOLUTE totals (matching DuckLake protocol).
         w.update_table_stats(table_id, 100, 1, 1000).await.unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
     }
     {
         let mut w = store.begin_write();
@@ -345,8 +345,8 @@ async fn data_file_registration_tracks_next_row_id() {
             .unwrap();
         // Provide cumulative absolute totals (100 + 50 = 150 records, 2 files, 1500 bytes).
         w.update_table_stats(table_id, 150, 2, 1500).await.unwrap();
-        w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        let _cr = w.create_snapshot(None, None).await.unwrap();
+        store.commit_writer(_cr);
     }
     let snap = store.read_latest().snapshot_id();
     let stats = store
@@ -383,7 +383,7 @@ async fn drop_table_makes_table_invisible() {
             .await
             .unwrap();
         let snap = w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        store.commit_writer(snap);
         (sid, tid, snap)
     };
     let snap_after = {
@@ -392,7 +392,7 @@ async fn drop_table_makes_table_invisible() {
             .await
             .unwrap();
         let snap = w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        store.commit_writer(snap);
         snap
     };
     let before = store
@@ -423,7 +423,7 @@ async fn drop_table_retires_data_files() {
             .await
             .unwrap();
         let snap = w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        store.commit_writer(snap);
         (sid, tid, snap)
     };
     let snap_after = {
@@ -432,7 +432,7 @@ async fn drop_table_retires_data_files() {
             .await
             .unwrap();
         let snap = w.create_snapshot(None, None).await.unwrap();
-        store.commit_writer(&w);
+        store.commit_writer(snap);
         snap
     };
     let files_before = store

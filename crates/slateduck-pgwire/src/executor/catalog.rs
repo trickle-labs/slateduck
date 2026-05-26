@@ -6,7 +6,7 @@ use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse
 use pgwire::api::Type;
 
 use slateduck_catalog::writer::stats::FileColumnStatsInput;
-use slateduck_catalog::CatalogStore;
+use slateduck_catalog::{CatalogStore, CommitResult};
 
 use crate::error::SlateDuckError;
 use crate::notify::NotifyManager;
@@ -35,6 +35,7 @@ pub(super) async fn execute_commit(
 
     let mut s = store.lock().await;
     let mut writer = s.begin_write();
+    let mut commit_result: Option<CommitResult> = None;
 
     for op in ops {
         match op {
@@ -106,10 +107,11 @@ pub(super) async fn execute_commit(
                     .map_err(SlateDuckError::from)?;
             }
             BufferedOp::InsertSnapshot { author, message } => {
-                writer
+                let cr = writer
                     .create_snapshot(author.as_deref(), message.as_deref())
                     .await
                     .map_err(SlateDuckError::from)?;
+                commit_result = Some(cr);
             }
             BufferedOp::InsertSnapshotChanges {
                 change_type,
@@ -299,9 +301,11 @@ pub(super) async fn execute_commit(
             }
         }
     }
-    // Synchronise the store's in-memory counters from the committed writer
+    // Synchronise the store's in-memory counters from the committed snapshot
     // (F-01: ensures read_latest() and subsequent begin_write() see the new state).
-    s.commit_writer(&writer);
+    if let Some(cr) = commit_result {
+        s.commit_writer(cr);
+    }
     drop(s); // Release the store lock before async notification I/O.
 
     // Fire LISTEN/NOTIFY notifications for any tables that received new data files.
@@ -378,35 +382,35 @@ pub(super) fn make_snapshot_row_response(
             &Type::TEXT,
             FieldFormat::Text,
         )
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     encoder
         .encode_field_with_type_and_format(
             &Some(snap.schema_version.to_string()),
             &Type::TEXT,
             FieldFormat::Text,
         )
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     encoder
         .encode_field_with_type_and_format(
             &Some(snap.snapshot_time.clone()),
             &Type::TEXT,
             FieldFormat::Text,
         )
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     encoder
         .encode_field_with_type_and_format(&snap.author, &Type::TEXT, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     encoder
         .encode_field_with_type_and_format(&snap.message, &Type::TEXT, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     let next_catalog_id = snap.next_catalog_id.map(|v| v.to_string());
     encoder
         .encode_field_with_type_and_format(&next_catalog_id, &Type::TEXT, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     let next_file_id = snap.next_file_id.map(|v| v.to_string());
     encoder
         .encode_field_with_type_and_format(&next_file_id, &Type::TEXT, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     let row = encoder.finish();
     let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![row]));
     resp.set_command_tag("SELECT 1");
@@ -476,35 +480,35 @@ pub(super) fn make_schemas_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(s.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = s.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&s.schema_uuid, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(s.schema_name.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&s.path, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let pir = s.path_is_relative.map(|b| b.to_string());
         encoder
             .encode_field_with_type_and_format(&pir, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -583,42 +587,42 @@ pub(super) fn make_tables_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(t.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = t.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(t.schema_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(t.table_name.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&t.table_uuid, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&t.path, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let pir = t.path_is_relative.map(|b| b.to_string());
         encoder
             .encode_field_with_type_and_format(&pir, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -725,74 +729,74 @@ pub(super) fn make_columns_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = c.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.table_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.column_name.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.data_type.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.column_index.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(c.is_nullable.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&c.initial_default, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &c.default_value_type,
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &c.default_value_dialect,
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let parent = c.parent_column.map(|v| v.to_string());
         encoder
             .encode_field_with_type_and_format(&parent, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -892,62 +896,62 @@ pub(super) fn make_data_files_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.table_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let begin = f.begin_snapshot.map(|s| s.to_string());
         encoder
             .encode_field_with_type_and_format(&begin, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = f.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let file_order = f.file_order.map(|o| o.to_string());
         encoder
             .encode_field_with_type_and_format(&file_order, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.path.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let path_is_relative = f.path_is_relative.map(|b| b.to_string());
         encoder
             .encode_field_with_type_and_format(&path_is_relative, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.file_format.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.record_count.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.file_size_bytes.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let row_id_start = f.row_id_start.map(|r| r.to_string());
         encoder
             .encode_field_with_type_and_format(&row_id_start, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -973,7 +977,7 @@ pub(super) fn make_file_ids_response(file_ids: Vec<u64>) -> Response<'static> {
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1112,21 +1116,21 @@ pub(super) async fn execute_table_changes<'a>(
                 &Type::INT8,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(record.change_type.as_str().to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(record.columns_json.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
 
@@ -1168,10 +1172,10 @@ pub(super) async fn execute_next_rowid_range<'a>(
     let mut encoder = DataRowEncoder::new(schema.clone());
     encoder
         .encode_field_with_type_and_format(&Some(start.to_string()), &Type::INT8, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     encoder
         .encode_field_with_type_and_format(&Some(end.to_string()), &Type::INT8, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     let mut resp = QueryResponse::new(schema, futures::stream::iter(vec![encoder.finish()]));
     resp.set_command_tag("SELECT 1");
     Ok(vec![Response::Query(resp)])
@@ -1226,32 +1230,32 @@ pub(super) fn make_table_stats_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(s.record_count.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(s.file_count.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(s.file_size_bytes.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let next_row_id = s.next_row_id.map(|v| v.to_string());
         encoder
             .encode_field_with_type_and_format(&next_row_id, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         vec![encoder.finish()]
     } else {
         vec![]
@@ -1326,40 +1330,40 @@ pub(super) fn make_delete_files_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let tid = f.table_id.map(|t| t.to_string());
         encoder
             .encode_field_with_type_and_format(&tid, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.path.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.delete_count.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(f.file_size_bytes.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let begin = f.begin_snapshot.map(|b| b.to_string());
         encoder
             .encode_field_with_type_and_format(&begin, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = f.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1407,22 +1411,22 @@ pub(super) fn make_metadata_response(
         let mut encoder = DataRowEncoder::new(schema.clone());
         encoder
             .encode_field_with_type_and_format(&Some(r.key.clone()), &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.value.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let scope_str = r.scope.clone().or_else(|| Some("global".to_string()));
         encoder
             .encode_field_with_type_and_format(&scope_str, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let scope_id = r.scope_id.map(|v| v.to_string());
         encoder
             .encode_field_with_type_and_format(&scope_id, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1507,44 +1511,44 @@ pub(super) fn make_views_response(views: Vec<slateduck_core::rows::ViewRow>) -> 
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(v.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = v.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(v.schema_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(v.view_name.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&v.view_uuid, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&Some(v.sql.clone()), &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&v.dialect, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&v.column_aliases, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1610,35 +1614,35 @@ pub(super) fn make_macros_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(m.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = m.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(m.schema_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(m.macro_name.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(&m.macro_uuid, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1709,25 +1713,25 @@ pub(super) fn make_tags_response(rows: Vec<slateduck_core::rows::TagRow>) -> Res
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = r.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.object_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         // Internal field tag_key is exposed as spec column tag_name.
         encoder
             .encode_field_with_type_and_format(
@@ -1735,14 +1739,14 @@ pub(super) fn make_tags_response(rows: Vec<slateduck_core::rows::TagRow>) -> Res
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_value.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1813,25 +1817,25 @@ pub(super) fn make_column_tags_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = r.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.column_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         // Internal field tag_key is exposed as spec column tag_name.
         encoder
             .encode_field_with_type_and_format(
@@ -1839,14 +1843,14 @@ pub(super) fn make_column_tags_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_value.clone()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1918,25 +1922,25 @@ pub(super) fn make_sort_info_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.begin_snapshot.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         let end = r.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.table_id.to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         // sort_order and column_id: default to 0 until sort-expression rows are stored.
         encoder
             .encode_field_with_type_and_format(
@@ -1944,14 +1948,14 @@ pub(super) fn make_sort_info_response(
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some("0".to_string()),
                 &Type::TEXT,
                 FieldFormat::Text,
             )
-            .unwrap();
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1988,12 +1992,12 @@ pub(super) fn make_schema_version_response(catalog_schema_version: u64) -> Respo
             &Type::TEXT,
             FieldFormat::Text,
         )
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     // Human-readable description of the DuckLake catalog schema version.
     let info = Some(format!("DuckLake catalog schema v{catalog_schema_version}"));
     encoder
         .encode_field_with_type_and_format(&info, &Type::TEXT, FieldFormat::Text)
-        .unwrap();
+        .expect("pgwire field encoding is infallible");
     let data_rows = vec![encoder.finish()];
     let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
     resp.set_command_tag("SELECT 1");

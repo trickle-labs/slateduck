@@ -9,60 +9,71 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::*;
 use object_store::path::Path as ObjectPath;
 use slateduck_catalog::{CatalogStore, OpenOptions};
+use slateduck_core::keys::MetadataScope;
 use slateduck_core::mvcc::SnapshotId;
 use slateduck_core::rows::DataFileRow;
 use std::any::Any;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// F-14: Thread-safe bridge between DataFusion's sync trait methods and async
+/// N-05: Thread-safe bridge between DataFusion's sync trait methods and async
 /// catalog I/O.
 ///
-/// When constructed inside a Tokio runtime, the existing handle is reused
-/// (no owned runtime is created, so there is no risk of "drop in async context"
-/// panics).  When constructed outside any runtime, a one-shot
-/// `current_thread` runtime is created per call site from the spawned OS thread.
-#[derive(Clone, Debug)]
-enum AsyncBridge {
-    Handle(tokio::runtime::Handle),
-    NoRuntime,
+/// A single background OS thread is started at construction time and kept alive
+/// for the lifetime of the bridge.  All async work is submitted via a bounded
+/// channel and executed on that thread's `current_thread` Tokio runtime.  This
+/// avoids the per-call `std::thread::spawn` overhead of the previous design and
+/// eliminates the risk of exhausting the OS thread pool under concurrent
+/// DataFusion queries.
+///
+/// When constructed inside an existing Tokio runtime the same architecture is
+/// used: a dedicated worker thread is started so that `block_on` is never
+/// called from within an async task (which would panic).
+#[derive(Debug)]
+struct AsyncBridge {
+    sender: std::sync::mpsc::SyncSender<AsyncTask>,
 }
 
+type AsyncTask = Box<dyn FnOnce(&tokio::runtime::Runtime) + Send>;
+
 impl AsyncBridge {
-    fn new() -> Self {
-        match tokio::runtime::Handle::try_current() {
-            Ok(h) => AsyncBridge::Handle(h),
-            Err(_) => AsyncBridge::NoRuntime,
-        }
+    fn new() -> Arc<Self> {
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<AsyncTask>(64);
+        std::thread::Builder::new()
+            .name("slateduck-df-bridge".to_string())
+            .spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("datafusion async bridge runtime build failed");
+                while let Ok(task) = receiver.recv() {
+                    task(&rt);
+                }
+                // Sender dropped — exit cleanly.
+            })
+            .expect("datafusion async bridge thread spawn failed");
+        Arc::new(Self { sender })
     }
 
-    /// Run an async closure to completion from a freshly spawned OS thread.
-    ///
-    /// Spawning avoids the "Cannot block_on from within an async context" panic
-    /// that `Handle::block_on` triggers when called from inside a Tokio task.
+    /// Submit an async closure to the persistent background thread and block
+    /// the calling thread until the result is ready.
     fn run_sync<F, Fut, R>(&self, f: F) -> R
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: std::future::Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        match self {
-            AsyncBridge::Handle(handle) => {
-                let handle = handle.clone();
-                std::thread::spawn(move || handle.block_on(f()))
-                    .join()
-                    .unwrap_or_else(|_| panic!("datafusion async bridge thread panicked"))
-            }
-            AsyncBridge::NoRuntime => std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("datafusion one-shot runtime build failed");
-                rt.block_on(f())
-            })
-            .join()
-            .unwrap_or_else(|_| panic!("datafusion async bridge thread panicked")),
-        }
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel::<R>(1);
+        let task: AsyncTask = Box::new(move |rt| {
+            let result = rt.block_on(f());
+            let _ = result_tx.send(result);
+        });
+        self.sender
+            .send(task)
+            .expect("datafusion async bridge thread disconnected");
+        result_rx
+            .recv()
+            .expect("datafusion async bridge task panicked or disconnected")
     }
 }
 
@@ -92,9 +103,40 @@ impl SlateDuckCatalogProvider {
         Self {
             store: Arc::new(RwLock::new(store)),
             snapshot_id,
-            bridge: Arc::new(AsyncBridge::new()),
+            bridge: AsyncBridge::new(),
             data_root: None,
         }
+    }
+
+    /// N-02: Create a provider from a pre-opened `CatalogStore`, automatically
+    /// resolving `data_root` from the `ducklake_metadata` `data_path` entry.
+    ///
+    /// This constructor is useful when the catalog has already been opened (e.g.
+    /// by the PG-Wire server) and the DataFusion layer should reuse the same
+    /// store without re-opening it.  The `data_path` metadata key is read once
+    /// at construction time; later metadata changes are not tracked.
+    pub async fn from_catalog_store(
+        store: Arc<RwLock<CatalogStore>>,
+        snapshot_id: Option<SnapshotId>,
+    ) -> Result<Self, DataFusionError> {
+        let data_root = {
+            let store_guard = store.read().await;
+            let reader = store_guard.read_latest();
+            match reader
+                .get_metadata(MetadataScope::Global, 0, "data_path")
+                .await
+                .map_err(|e| DataFusionError::External(Box::new(e)))?
+            {
+                Some(row) if !row.value.is_empty() => Some(row.value),
+                _ => None,
+            }
+        };
+        Ok(Self {
+            store,
+            snapshot_id,
+            bridge: AsyncBridge::new(),
+            data_root,
+        })
     }
 
     /// Open a catalog at the given path and create a provider.
@@ -141,7 +183,7 @@ impl SlateDuckCatalogProvider {
         Ok(Self {
             store: Arc::new(RwLock::new(store)),
             snapshot_id,
-            bridge: Arc::new(AsyncBridge::new()),
+            bridge: AsyncBridge::new(),
             data_root,
         })
     }
