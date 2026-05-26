@@ -37,6 +37,38 @@ jobs:
       - name: Run all integration tests
         run: cargo test --package slateduck-pgwire
 
+  postgres-client-compatibility:
+    name: PostgreSQL Client Compatibility (${{ matrix.postgres-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        postgres-version:
+          - '16'
+          - '17'
+          - '18'
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres-version }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run psql client compatibility tests
+        run: cargo test --package slateduck-pgwire -- --include-ignored psql_compat
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+
   object-store-validation:
     name: Object Store Validation
     runs-on: ubuntu-latest

@@ -6,7 +6,7 @@ This page describes the tested compatibility between SlateDuck and various ecosy
 
 | Client | Version Tested | Status | Notes |
 |--------|---------------|--------|-------|
-| psql | 14, 15, 16 | ✅ Supported | Standard PostgreSQL client |
+| psql | 16, 17, 18 | ✅ Supported | Standard PostgreSQL client |
 | DBeaver | 24.x | ✅ Supported | JDBC PostgreSQL driver |
 | pgcli | 4.x | ✅ Supported | |
 | Metabase | 0.49+ | ✅ Supported | PostgreSQL connection |
