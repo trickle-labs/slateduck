@@ -149,3 +149,39 @@ pub(super) fn make_empty_response<'a>() -> Response<'a> {
     let resp = QueryResponse::new(schema, futures::stream::iter(Vec::new()));
     Response::Query(resp)
 }
+
+pub(super) fn make_version_with_rds_check_response<'a>() -> Response<'a> {
+    let schema = Arc::new(vec![
+        FieldInfo::new(
+            "version".to_string(),
+            None,
+            None,
+            Type::TEXT,
+            FieldFormat::Text,
+        ),
+        FieldInfo::new(
+            "count".to_string(),
+            None,
+            None,
+            Type::INT8,
+            FieldFormat::Text,
+        ),
+    ]);
+    let mut encoder = DataRowEncoder::new(schema.clone());
+    encoder
+        .encode_field_with_type_and_format(
+            &Some("PostgreSQL 15.0 on x86_64-pc-linux-gnu".to_string()),
+            &Type::TEXT,
+            FieldFormat::Text,
+        )
+        .expect("pgwire field encoding is infallible");
+    // RDS check: 0 means not on RDS
+    encoder
+        .encode_field_with_type_and_format(&Some("0".to_string()), &Type::INT8, FieldFormat::Text)
+        .expect("pgwire field encoding is infallible");
+    let row = encoder.finish();
+    let data_rows = vec![row];
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(data_rows));
+    resp.set_command_tag("SELECT 1");
+    Response::Query(resp)
+}

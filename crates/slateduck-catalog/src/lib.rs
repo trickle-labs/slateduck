@@ -1,5 +1,7 @@
 //! SlateDuck Catalog: DuckLake catalog operations backed by SlateDB.
 
+#![deny(missing_docs)]
+
 pub mod audit;
 pub mod cache;
 pub mod cdc;

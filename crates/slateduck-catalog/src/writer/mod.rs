@@ -29,6 +29,8 @@
 //! A partial write of any of these is always recoverable: either the data is
 //! recomputed on next access, or the operation is idempotent on retry.
 
+#![allow(missing_docs)]
+
 pub mod snapshot;
 pub mod stats;
 

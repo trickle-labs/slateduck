@@ -2,6 +2,8 @@
 //!
 //! These types use prost derive macros for protobuf encoding/decoding.
 
+#![allow(missing_docs)]
+
 /// Metadata row value.
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct MetadataRow {

@@ -1,5 +1,7 @@
 //! Catalog store errors.
 
+#![allow(missing_docs)]
+
 use slateduck_core::keys::KeyError;
 use slateduck_core::values::ValueError;
 

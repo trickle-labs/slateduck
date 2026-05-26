@@ -9,7 +9,6 @@ jobs:
   asan-ubsan:
     name: ASAN + UBSAN
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -27,11 +26,12 @@ jobs:
   miri:
     name: Miri
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      - name: Run Miri
+      - name: Run Miri (slateduck-ffi)
         run: cargo miri test -p slateduck-ffi
+      - name: Run Miri (slateduck-core key and value encode/decode)
+        run: cargo miri test -p slateduck-core

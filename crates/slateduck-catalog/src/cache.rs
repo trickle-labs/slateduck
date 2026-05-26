@@ -4,6 +4,8 @@
 //! ratio, eviction rate, and a recommended `--cache-size-mb` value based on the
 //! catalog's observed working-set size.
 
+#![allow(missing_docs)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 

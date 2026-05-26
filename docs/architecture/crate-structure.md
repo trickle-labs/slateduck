@@ -176,6 +176,18 @@ This layering provides concrete benefits:
 
 The total workspace compiles in approximately 60–90 seconds on a modern machine (M1/M2 Mac or equivalent). Incremental builds after changing a single file in `slateduck-pgwire` take 5–10 seconds because only the changed crate and its dependents need recompilation.
 
+## Removed Crates
+
+### `slateduck-sqlite-vfs` (removed in v0.27.2)
+
+An experimental crate that aimed to expose the SlateDuck catalog via an
+[SQLite VFS](https://www.sqlite.org/vfs.html) shim was removed in v0.27.2.
+The crate contained no functional code — it was a speculative placeholder
+without a planned near-term implementation. Retaining it inflated the
+workspace build graph and could mislead contributors into expecting a SQLite
+compatibility layer that does not exist. The removal is tracked in
+`docs/internals/open-findings-verification.md` (N-06).
+
 ## Further Reading
 
 - **[Contributing: Development Setup](../contributing/development-setup.md)** — How to clone, build, and test the workspace

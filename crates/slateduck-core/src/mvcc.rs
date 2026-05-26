@@ -9,10 +9,12 @@
 pub struct SnapshotId(pub u64);
 
 impl SnapshotId {
+    /// Create a new `SnapshotId` from a raw u64.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
 
+    /// Return the raw u64 snapshot identifier.
     pub fn as_u64(self) -> u64 {
         self.0
     }

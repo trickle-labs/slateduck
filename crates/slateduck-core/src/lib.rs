@@ -1,5 +1,7 @@
 //! SlateDuck Core: foundational types, key/value encoding, and SlateDB integration.
 
+#![deny(missing_docs)]
+
 pub mod clock;
 pub mod counters;
 pub mod keys;

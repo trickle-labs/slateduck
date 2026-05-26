@@ -4,6 +4,8 @@
 //! This module is the **single source of truth** for tag allocation.
 //! Every tag byte is allocated up front; unknown tags produce an explicit error.
 
+#![allow(missing_docs)]
+
 /// Implementation status of a table tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagStatus {

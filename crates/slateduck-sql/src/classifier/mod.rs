@@ -22,6 +22,11 @@ use prefix::classify_listen_prefix;
 pub enum StatementKind {
     // ─── Session / Introspection ───────────────────────────────────────
     SelectVersion,
+    /// `SELECT version(), (SELECT COUNT(*) FROM pg_settings WHERE name LIKE 'rds%')`
+    /// — DuckDB PostgreSQL connector checks for AWS RDS
+    SelectVersionWithRdsCheck,
+    /// `SELECT 1` — Health check query
+    SelectOne,
     SelectCurrentSchema,
     SelectCurrentDatabase,
     SelectPgType,

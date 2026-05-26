@@ -1,5 +1,7 @@
 //! Statistics writer methods: file column stats, file variant stats, table stats.
 
+#![allow(missing_docs)]
+
 use slateduck_core::keys;
 use slateduck_core::rows::{
     FileColumnStatsRow, FileVariantStatsRow, TableColumnStatsRow, TableStatsRow,

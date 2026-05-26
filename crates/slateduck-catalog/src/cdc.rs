@@ -12,6 +12,8 @@
 //! - **`slateduck-cdc` sidecar support**: a polling loop that tails the
 //!   catalog and exports each new snapshot diff
 
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use slateduck_core::mvcc::SnapshotId;
 

@@ -3,6 +3,8 @@
 //! Uses SlateDB's block-level encryption for catalog values.
 //! Parquet encryption is a separate, Parquet-native concern.
 
+#![allow(missing_docs)]
+
 use async_trait::async_trait;
 use bytes::Bytes;
 

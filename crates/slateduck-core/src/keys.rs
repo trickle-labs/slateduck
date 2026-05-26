@@ -8,21 +8,45 @@ use crate::tags::*;
 /// Errors that can occur during key encoding/decoding.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KeyError {
+    /// The tag byte is not registered in this build.
     #[error("unknown tag byte 0x{0:02X}")]
     UnknownTag(u8),
+    /// The byte slice is shorter than the minimum required length.
     #[error("key too short: expected at least {expected} bytes, got {actual}")]
-    TooShort { expected: usize, actual: usize },
+    TooShort {
+        /// Minimum number of bytes required.
+        expected: usize,
+        /// Actual number of bytes received.
+        actual: usize,
+    },
+    /// The key contains invalid UTF-8 in a string segment.
     #[error("invalid UTF-8 in key: {0}")]
     InvalidUtf8(String),
 }
 
 /// Encode a u64 as 8 big-endian bytes.
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::keys::{encode_u64, decode_u64};
+/// let bytes = encode_u64(0x0102030405060708);
+/// assert_eq!(decode_u64(&bytes).unwrap(), 0x0102030405060708);
+/// ```
 #[inline]
 pub fn encode_u64(val: u64) -> [u8; 8] {
     val.to_be_bytes()
 }
 
 /// Decode a u64 from 8 big-endian bytes.
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::keys::{encode_u64, decode_u64};
+/// let val = decode_u64(&encode_u64(42)).unwrap();
+/// assert_eq!(val, 42);
+/// ```
 #[inline]
 pub fn decode_u64(bytes: &[u8]) -> Result<u64, KeyError> {
     if bytes.len() < 8 {
@@ -64,12 +88,16 @@ pub fn encode_u32(val: u32) -> [u8; 4] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MetadataScope {
+    /// Global catalog-level metadata.
     Global = 0x00,
+    /// Schema-scoped metadata.
     Schema = 0x01,
+    /// Table-scoped metadata.
     Table = 0x02,
 }
 
 impl MetadataScope {
+    /// Parse a `MetadataScope` from its tag byte.
     pub fn from_byte(b: u8) -> Result<Self, KeyError> {
         match b {
             0x00 => Ok(Self::Global),
@@ -95,6 +123,15 @@ pub fn key_metadata(scope: MetadataScope, scope_id: u64, key: &str) -> Vec<u8> {
 }
 
 /// Build a key for `ducklake_snapshot`: `0x02 | snapshot_id(u64)`.
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::keys::key_snapshot;
+/// let key = key_snapshot(1);
+/// assert_eq!(key[0], 0x02); // TAG_SNAPSHOT
+/// assert_eq!(key.len(), 9);
+/// ```
 pub fn key_snapshot(snapshot_id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(9);
     buf.push(TAG_SNAPSHOT);
@@ -111,6 +148,14 @@ pub fn key_snapshot_changes(snapshot_id: u64) -> Vec<u8> {
 }
 
 /// Build a key for `ducklake_schema`: `0x04 | schema_id(u64)`.
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::keys::key_schema;
+/// let key = key_schema(7);
+/// assert_eq!(key.len(), 9);
+/// ```
 pub fn key_schema(schema_id: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(9);
     buf.push(TAG_SCHEMA);

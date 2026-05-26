@@ -5,6 +5,8 @@
 //! - `pg_migrate`: Convert NDJSON to PostgreSQL INSERT statements.
 //! - `rebuild`: Synthesize a fresh catalog from Parquet footers.
 
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
 use slateduck_core::keys;

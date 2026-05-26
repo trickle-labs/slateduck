@@ -130,9 +130,46 @@ pub(super) fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
 }
 
 pub(super) fn classify_no_from_select(select: &sqlparser::ast::Select) -> StatementKind {
+    // Check for multi-item SELECT (e.g., version() + RDS check)
+    if select.projection.len() >= 2 {
+        // Check if first item is version() and second is a subquery
+        if let Some(SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. }) =
+            select.projection.first()
+        {
+            if let Expr::Function(func) = expr {
+                if func.name.to_string().to_lowercase() == "version" {
+                    // Check second item for RDS pattern
+                    if let Some(
+                        SelectItem::UnnamedExpr(Expr::Subquery(_))
+                        | SelectItem::ExprWithAlias {
+                            expr: Expr::Subquery(_),
+                            ..
+                        },
+                    ) = select.projection.get(1)
+                    {
+                        return StatementKind::SelectVersionWithRdsCheck;
+                    }
+                }
+            }
+        }
+    }
+
+    // Single-item SELECT functions
     if let Some(SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. }) =
         select.projection.first()
     {
+        // Check for literal 1 (SELECT 1)
+        match expr {
+            Expr::Value(val) => {
+                if let sqlparser::ast::Value::Number(n, _) = &val.value {
+                    if n == "1" {
+                        return StatementKind::SelectOne;
+                    }
+                }
+            }
+            _ => {}
+        }
+
         if let Expr::Function(func) = expr {
             let func_name = func.name.to_string().to_lowercase();
             match func_name.as_str() {

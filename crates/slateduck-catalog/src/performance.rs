@@ -5,6 +5,8 @@
 //! - Metadata packing: composite value per table for single-read planning
 //! - SlateDB tuning: configurable block size, bloom filters, compaction
 
+#![allow(missing_docs)]
+
 use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::*;

@@ -9,18 +9,39 @@ use std::cmp::Ordering;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DuckLakeType {
     /// Signed integer types (TINYINT, SMALLINT, INTEGER, BIGINT, HUGEINT).
-    Integer { signed: bool, width_bits: u16 },
+    Integer {
+        /// Whether the integer is signed.
+        signed: bool,
+        /// Bit width (8, 16, 32, 64, 128).
+        width_bits: u16,
+    },
     /// Decimal / numeric with precision and scale.
-    Decimal { precision: u8, scale: u8 },
+    Decimal {
+        /// Total number of significant digits.
+        precision: u8,
+        /// Number of digits after the decimal point.
+        scale: u8,
+    },
     /// IEEE floating-point (FLOAT, DOUBLE).
-    Float { width_bits: u16 },
+    Float {
+        /// Bit width (32 or 64).
+        width_bits: u16,
+    },
     /// Timestamp types with optional timezone and explicit precision.
     /// precision: 0=seconds, 3=milliseconds, 6=microseconds, 9=nanoseconds.
-    Timestamp { with_timezone: bool, precision: u8 },
+    Timestamp {
+        /// Whether the timestamp includes timezone information.
+        with_timezone: bool,
+        /// Sub-second precision (0=s, 3=ms, 6=µs, 9=ns).
+        precision: u8,
+    },
     /// Date type.
     Date,
     /// Time type with optional timezone.
-    Time { with_timezone: bool },
+    Time {
+        /// Whether the time includes timezone information.
+        with_timezone: bool,
+    },
     /// Interval type.
     Interval,
     /// String / VARCHAR / TEXT.
@@ -43,7 +64,9 @@ pub enum DuckLakeType {
     Struct(Vec<(String, DuckLakeType)>),
     /// Map type with key and value types.
     Map {
+        /// Map key type.
         key: Box<DuckLakeType>,
+        /// Map value type.
         value: Box<DuckLakeType>,
     },
     /// Unknown / unsupported type.
@@ -55,6 +78,16 @@ impl DuckLakeType {
     ///
     /// Handles all spec primitive types and the three nested type forms
     /// (`list<T>`, `struct<f:T,...>`, `map<K,V>`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use slateduck_core::types::DuckLakeType;
+    ///
+    /// assert_eq!(DuckLakeType::parse("bigint"), DuckLakeType::Integer { signed: true, width_bits: 64 });
+    /// assert_eq!(DuckLakeType::parse("varchar"), DuckLakeType::Varchar);
+    /// assert_eq!(DuckLakeType::parse("decimal(18,3)"), DuckLakeType::Decimal { precision: 18, scale: 3 });
+    /// ```
     pub fn parse(s: &str) -> DuckLakeType {
         let s = s.trim();
         let lower = s.to_ascii_lowercase();
@@ -218,10 +251,18 @@ impl DuckLakeType {
 /// Error returned when type-aware comparison fails.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TypeCompareError {
+    /// The column type is not supported for statistics pruning.
     #[error("unsupported type for comparison: {0} (SQLSTATE 0A000)")]
     UnsupportedType(String),
+    /// A statistic value string could not be parsed as the target type.
     #[error("failed to parse value '{value}' as {type_name}")]
-    ParseError { value: String, type_name: String },
+    ParseError {
+        /// The value that failed to parse.
+        value: String,
+        /// The target type name.
+        type_name: String,
+    },
+    /// A NaN value was encountered; treated as keep-file.
     #[error("NaN comparison is undefined; treated as keep-file (SQLSTATE 22023)")]
     NanComparison,
 }

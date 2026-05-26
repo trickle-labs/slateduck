@@ -5,6 +5,8 @@
 //! presets that let operators pick a cost/latency trade-off without needing to
 //! understand SlateDB internals.
 
+#![allow(missing_docs)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};

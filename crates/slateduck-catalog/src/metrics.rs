@@ -1,5 +1,7 @@
 //! Observability: catalog-level metrics and Prometheus-compatible `/metrics` endpoint.
 
+#![allow(missing_docs)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 

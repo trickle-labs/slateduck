@@ -139,3 +139,116 @@ accidentally changed during a refactor.
 const-constructible and cannot panic.
 
 **Status**: ✅ Closed.
+
+---
+
+# Open Findings Verification — v0.27.3
+
+This section records the closure of all open findings targeted in v0.27.3.
+
+## N-09 — Coverage as a Hard Gate
+
+**Finding**: The CI coverage threshold was a `::warning` annotation only;
+falling below 80 % coverage did not block merges.
+
+**Fix**: `.github/workflows/ci.yml` now runs `exit 1` when workspace coverage
+falls below 80 %. Per-crate minimums are enforced: `slateduck-core` ≥ 85 %,
+`slateduck-catalog` ≥ 85 %, `slateduck-sql` ≥ 80 %, `slateduck-pgwire` ≥ 75 %.
+`slateduck-sqlite-vfs` (deleted) was removed from the coverage crate list.
+
+**Status**: ✅ Closed — hard gate in CI; `exit 1` on coverage failures.
+
+## N-10 — Missing Doc-Tests for Public APIs
+
+**Finding**: `slateduck-core` and `slateduck-catalog` had no `#![deny(missing_docs)]`
+enforcement and no `# Examples` doc-tests on key public functions.
+
+**Fix**:
+- Added `#![deny(missing_docs)]` to `slateduck-core/src/lib.rs` and
+  `slateduck-catalog/src/lib.rs`.
+- Added `# Examples` doc-tests to `encode_u64`, `decode_u64`, `key_snapshot`,
+  `key_schema` (keys.rs), `encode_counter`/`decode_counter` (values.rs),
+  `DuckLakeType::parse` (types.rs), `CatalogStore::open()` (store.rs),
+  `read_at()` (store.rs), `list_schemas()` and `list_tables()` (reader.rs).
+- All internal/generated modules (rows.rs, tags.rs, cdc.rs, etc.) carry
+  `#![allow(missing_docs)]` to scope the lint to the public API surface.
+
+**Test**: `cargo test --doc --workspace` passes with zero failures.
+
+**Status**: ✅ Closed.
+
+## N-11 — Network-Level PG-Wire Integration Test
+
+**Finding**: No test verified that a real `tokio-postgres` client could
+complete a full DuckLake DDL/DML/query cycle over a live TCP socket.
+
+**Fix**: Added `crates/slateduck-pgwire/tests/pgwire_network_test.rs` with
+five tests:
+- `full_ddl_dml_query_cycle_over_tcp` — CREATE SCHEMA → CREATE TABLE →
+  INSERT → SELECT → `table_changes()`, all via real TCP.
+- `select_version_returns_postgresql_compatible_string` — verifies the
+  PG-wire `SELECT version()` response.
+- `tls_required_rejects_plaintext_connection` — verifies TLS-required
+  server rejects plaintext clients.
+- `tls_optional_server_accepts_plaintext` — verifies TLS-optional server
+  accepts plaintext connections.
+- `auth_required_rejects_wrong_password` — verifies password authentication
+  rejects bad credentials.
+
+CI: `.github/workflows/ci.yml` has a `network-integration` job that runs
+`cargo test -p slateduck-pgwire --test pgwire_network_test`.
+
+**Status**: ✅ Closed.
+
+## F-07 — Checkpoint Restore Snapshot-ID Safety
+
+**Finding**: `restore_checkpoint()` might re-issue snapshot IDs if the
+in-memory counter was not reinitialised from the restored state.
+
+**Verification**: Confirmed in `checkpoint.rs` that `restore_checkpoint()`
+writes `hide_snapshot + 1` to `COUNTER_NEXT_SNAPSHOT_ID` before returning.
+
+**Test**: Added `crates/slateduck-catalog/tests/checkpoint_restore.rs` with:
+- `next_snapshot_id_after_restore_is_fresh` — write 5 snapshots, checkpoint,
+  restore, reopen; assert next ID > 5.
+- `multiple_writes_after_restore_stay_fresh` — multiple post-restore commits
+  all receive IDs greater than any pre-restore ID.
+
+**Status**: ✅ Closed — snapshot IDs are never reissued after restore.
+
+## Medium-10 — Metrics Documentation Alignment
+
+**Finding**: `docs/operations/monitoring.md` documented metric names
+(`slateduck_operations_total`, `slateduck_storage_requests_total`,
+`slateduck_sessions_active`, etc.) that are not emitted by the implementation.
+
+**Fix**: Rewrote the "Complete Metrics Catalog" section in `monitoring.md`
+to list only the 12 metrics actually emitted by `CatalogMetrics::render_prometheus()`:
+`slateduck_snapshots_created_total`, `slateduck_files_per_snapshot`,
+`slateduck_object_store_requests_total`, `slateduck_object_store_bytes_read_total`,
+`slateduck_object_store_bytes_written_total`, `slateduck_object_store_throttles_total`,
+`slateduck_object_store_retries_total`, `slateduck_active_sessions`,
+`slateduck_max_sessions`, `slateduck_writer_epoch_age_ms`,
+`slateduck_last_query_keys_scanned`, `slateduck_cdc_record_count_mismatch_total`.
+
+Updated alerting rules and Grafana dashboard panels to use only these names.
+CI smoke-test already verifies `--metrics-path` flag presence.
+
+**Status**: ✅ Closed.
+
+## Concurrent Writer Fencing
+
+**Finding**: No automated test verified that a stale writer receives a
+meaningful error on commit after a newer writer has taken over the epoch.
+
+**Fix**: Added `crates/slateduck-catalog/tests/concurrent_writer_fencing.rs`
+with three tests:
+- `stale_writer_fenced_on_commit` — verifies the stale writer receives
+  `WriterEpochMismatch` or `TransactionConflict` on commit.
+- `reopen_after_drop_succeeds` — verifies a fresh store can commit after
+  prior stores have been dropped.
+- `concurrent_open_exactly_one_commits` — uses `tokio::join!` to open two
+  stores simultaneously; verifies exactly one can commit and the other is
+  fenced (either at open time or at commit time).
+
+**Status**: ✅ Closed.

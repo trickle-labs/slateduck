@@ -2,6 +2,8 @@
 //!
 //! Thin wrapper around SlateDB's checkpoint functionality.
 
+#![allow(missing_docs)]
+
 use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::*;

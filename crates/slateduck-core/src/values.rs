@@ -14,16 +14,31 @@ pub const ENCODING_VERSION: u8 = 1;
 /// Errors during value encoding/decoding.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ValueError {
+    /// The byte slice is too short to contain a valid envelope.
     #[error("value too short: expected at least {expected} bytes, got {actual}")]
-    TooShort { expected: usize, actual: usize },
+    TooShort {
+        /// Minimum number of bytes required.
+        expected: usize,
+        /// Actual number of bytes received.
+        actual: usize,
+    },
+    /// The magic bytes do not match `SDKV`.
     #[error("invalid magic bytes: expected SDKV, got {0:?}")]
     InvalidMagic([u8; 4]),
+    /// The encoding version is not supported by this build.
     #[error("unsupported encoding version {0}; this build supports version {ENCODING_VERSION}")]
     UnsupportedVersion(u8),
+    /// Protobuf decoding failed.
     #[error("protobuf decode error: {0}")]
     DecodeError(String),
+    /// The encoded value exceeds the maximum permitted size.
     #[error("value exceeds maximum size of {max} bytes (actual: {actual})")]
-    TooLarge { max: usize, actual: usize },
+    TooLarge {
+        /// Maximum allowed size in bytes.
+        max: usize,
+        /// Actual size in bytes.
+        actual: usize,
+    },
 }
 
 /// Maximum encoded value size (64 MiB) for inlined rows.
@@ -68,6 +83,14 @@ pub fn decode_value<M: Message + Default>(data: &[u8]) -> Result<M, ValueError> 
 }
 
 /// Encode a raw u64 counter value (no protobuf, just the envelope + 8 bytes BE).
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::values::{encode_counter, decode_counter};
+/// let encoded = encode_counter(42);
+/// assert_eq!(decode_counter(&encoded).unwrap(), 42);
+/// ```
 pub fn encode_counter(val: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(13);
     buf.push(ENCODING_VERSION);
@@ -77,6 +100,14 @@ pub fn encode_counter(val: u64) -> Vec<u8> {
 }
 
 /// Decode a raw u64 counter value.
+///
+/// # Examples
+///
+/// ```
+/// use slateduck_core::values::{encode_counter, decode_counter};
+/// let val = decode_counter(&encode_counter(999)).unwrap();
+/// assert_eq!(val, 999);
+/// ```
 pub fn decode_counter(data: &[u8]) -> Result<u64, ValueError> {
     let payload = decode_value_envelope(data)?;
     if payload.len() < 8 {

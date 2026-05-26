@@ -38,7 +38,8 @@ use extension::{
 };
 use helpers::{
     apply_set, get_show_value, get_snapshot_param, make_empty_response, make_null_int_response,
-    make_pg_type_response, make_single_int_response, make_single_text_response, require_param_u64,
+    make_pg_type_response, make_single_int_response, make_single_text_response,
+    make_version_with_rds_check_response, require_param_u64,
 };
 use meta::execute_virtual_catalog_scan;
 use session::{execute_hold_snapshot, execute_release_snapshot};
@@ -74,12 +75,27 @@ async fn execute_classified<'a>(
     notify_manager: &Arc<NotifyManager>,
     extension_schemas: &Arc<Vec<String>>,
 ) -> Result<Vec<Response<'a>>, SlateDuckError> {
+    eprintln!(
+        "[DEBUG] execute_classified: kind={:?}, sql={:?}",
+        kind, _sql
+    );
     match kind {
         // ─── Session / Introspection ───────────────────────────────────
-        StatementKind::SelectVersion => Ok(vec![make_single_text_response(
-            "version",
-            "PostgreSQL 15.0 on x86_64-pc-linux-gnu",
-        )]),
+        StatementKind::SelectVersion => {
+            eprintln!("[DEBUG] Handling SelectVersion");
+            Ok(vec![make_single_text_response(
+                "version",
+                "PostgreSQL 15.0 on x86_64-pc-linux-gnu",
+            )])
+        }
+        StatementKind::SelectVersionWithRdsCheck => {
+            eprintln!("[DEBUG] Handling SelectVersionWithRdsCheck");
+            Ok(vec![make_version_with_rds_check_response()])
+        }
+        StatementKind::SelectOne => {
+            eprintln!("[DEBUG] Handling SelectOne");
+            Ok(vec![make_single_int_response("?column?", 1)])
+        }
         StatementKind::SelectCurrentSchema => {
             Ok(vec![make_single_text_response("current_schema", "public")])
         }

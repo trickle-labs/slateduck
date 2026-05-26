@@ -120,13 +120,30 @@ jobs:
             -p slateduck-pgwire \
             -p slateduck-ffi \
             -p slateduck-datafusion \
-            -p slateduck-sqlite-vfs \
             --summary-only 2>&1 | tee coverage-summary.txt
           COVERAGE=$(grep 'TOTAL' coverage-summary.txt | awk '{print $10}' | tr -d '%' || echo "0")
           echo "Coverage: ${COVERAGE}%"
           if [ "${COVERAGE%.*}" -lt 80 ]; then
-            echo "::warning::Coverage ${COVERAGE}% is below 80% threshold (enforced at v1.0)"
+            echo "::error::Coverage ${COVERAGE}% is below the 80% gate"
+            exit 1
           fi
+
+      - name: Per-crate coverage minimums
+        run: |
+          check_cov() {
+            local crate=$1 min=$2
+            local pct
+            pct=$(cargo llvm-cov -p "$crate" --summary-only 2>&1 | grep 'TOTAL' | awk '{print $10}' | tr -d '%' || echo "0")
+            echo "${crate} coverage: ${pct}%"
+            if [ "${pct%.*}" -lt "$min" ]; then
+              echo "::error::${crate} coverage ${pct}% is below the ${min}% minimum"
+              exit 1
+            fi
+          }
+          check_cov slateduck-core 85
+          check_cov slateduck-catalog 85
+          check_cov slateduck-sql 80
+          check_cov slateduck-pgwire 75
 
   # Tier 7: Fault injection tests (catalog).
   fault-injection:
@@ -151,6 +168,21 @@ jobs:
 
       - name: PG-Wire security tests
         run: cargo test -p slateduck-pgwire --test security_tests
+
+  # N-11: Network-level PG-Wire integration test.
+  # Spawns the real slateduck binary and verifies a tokio-postgres client can
+  # complete a full DDL/DML/query cycle over a real TCP socket.
+  network-integration:
+    name: Network Integration Tests
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Network-level PG-Wire tests
+        run: cargo test -p slateduck-pgwire --test pgwire_network_test -- --test-threads=1
 
   # Benchmark regression check.
   benchmarks:

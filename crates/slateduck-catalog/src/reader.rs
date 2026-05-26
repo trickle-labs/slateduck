@@ -20,7 +20,9 @@ use crate::error::{CatalogError, CatalogResult};
 /// stream.
 #[derive(Debug, Clone)]
 pub struct SnapshotDiff {
+    /// The base snapshot ("before" state).
     pub from_snapshot: SnapshotId,
+    /// The target snapshot ("after" state).
     pub to_snapshot: SnapshotId,
     /// Schema rows first written at `to_snapshot`.
     pub added_schemas: Vec<SchemaRow>,
@@ -77,10 +79,12 @@ impl CatalogReader {
         Self { db, dl_snapshot_id }
     }
 
+    /// Return the DuckLake snapshot ID this reader is bound to.
     pub fn snapshot_id(&self) -> SnapshotId {
         self.dl_snapshot_id
     }
 
+    /// Read the `ducklake_snapshot` row for this snapshot, if it exists.
     pub async fn get_snapshot(&self) -> CatalogResult<Option<SnapshotRow>> {
         let key = keys::key_snapshot(self.dl_snapshot_id.as_u64());
         match self.db.get(&key).await? {
@@ -89,6 +93,25 @@ impl CatalogReader {
         }
     }
 
+    /// List all schemas visible at this snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use std::sync::Arc;
+    /// use object_store::local::LocalFileSystem;
+    /// use object_store::path::Path as ObjectPath;
+    /// use slateduck_catalog::{CatalogStore, OpenOptions};
+    ///
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    /// let catalog = CatalogStore::open(OpenOptions { object_store: store, path: ObjectPath::from(""), encryption: None }).await.unwrap();
+    /// let reader = catalog.read_at(0).unwrap();
+    /// let schemas = reader.list_schemas().await.unwrap();
+    /// assert!(schemas.is_empty());
+    /// # });
+    /// ```
     pub async fn list_schemas(&self) -> CatalogResult<Vec<SchemaRow>> {
         let prefix = keys::prefix_for_tag(TAG_SCHEMA);
         let mut schemas = Vec::new();
@@ -106,6 +129,25 @@ impl CatalogReader {
         Ok(schemas)
     }
 
+    /// List all tables in a schema visible at this snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use std::sync::Arc;
+    /// use object_store::local::LocalFileSystem;
+    /// use object_store::path::Path as ObjectPath;
+    /// use slateduck_catalog::{CatalogStore, OpenOptions};
+    ///
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    /// let catalog = CatalogStore::open(OpenOptions { object_store: store, path: ObjectPath::from(""), encryption: None }).await.unwrap();
+    /// let reader = catalog.read_at(0).unwrap();
+    /// let tables = reader.list_tables(1).await.unwrap();
+    /// assert!(tables.is_empty());
+    /// # });
+    /// ```
     pub async fn list_tables(&self, schema_id: u64) -> CatalogResult<Vec<TableRow>> {
         let prefix = keys::prefix_tables_for_schema(schema_id);
         let mut tables = Vec::new();
@@ -123,6 +165,7 @@ impl CatalogReader {
         Ok(tables)
     }
 
+    /// Return the table row and its columns visible at this snapshot, or `None` if not found.
     pub async fn describe_table(
         &self,
         table_id: u64,
@@ -214,6 +257,7 @@ impl CatalogReader {
         Ok(Some((table, columns)))
     }
 
+    /// List all data files for a table visible at the current snapshot.
     pub async fn list_data_files(&self, table_id: u64) -> CatalogResult<Vec<DataFileRow>> {
         // Use the secondary index TAG_DATA_FILE_BY_SNAPSHOT (0x21) for an
         // O(log N) range scan bounded by read_snapshot instead of scanning all
@@ -287,6 +331,7 @@ impl CatalogReader {
         Ok(files)
     }
 
+    /// Return aggregate table stats for the given table, if recorded.
     pub async fn get_table_stats(&self, table_id: u64) -> CatalogResult<Option<TableStatsRow>> {
         let key = keys::key_table_stats(table_id);
         match self.db.get(&key).await? {
@@ -295,6 +340,7 @@ impl CatalogReader {
         }
     }
 
+    /// Return data file IDs that survive a statistics-based predicate prune for a column.
     pub async fn prune_files(
         &self,
         table_id: u64,
@@ -354,6 +400,7 @@ impl CatalogReader {
         Ok(kept_file_ids)
     }
 
+    /// Look up a single metadata entry by scope, scope ID, and key.
     pub async fn get_metadata(
         &self,
         scope: slateduck_core::keys::MetadataScope,
@@ -367,6 +414,7 @@ impl CatalogReader {
         }
     }
 
+    /// List inlined-insert rows for a table visible at the current snapshot.
     pub async fn list_inlined_inserts(
         &self,
         table_id: u64,
@@ -391,6 +439,7 @@ impl CatalogReader {
         Ok(rows)
     }
 
+    /// List inlined-delete rows for a table visible at the current snapshot.
     pub async fn list_inlined_deletes(
         &self,
         table_id: u64,
@@ -413,6 +462,7 @@ impl CatalogReader {
 
     // ─── Phase 6: Views ────────────────────────────────────────────────────
 
+    /// List all views in a schema visible at this snapshot.
     pub async fn list_views(&self, schema_id: u64) -> CatalogResult<Vec<ViewRow>> {
         let prefix = keys::prefix_views_for_schema(schema_id);
         let mut views = Vec::new();
@@ -450,6 +500,7 @@ impl CatalogReader {
 
     // ─── Phase 6: Macros ────────────────────────────────────────────────────
 
+    /// List all macros in a schema visible at this snapshot.
     pub async fn list_macros(&self, schema_id: u64) -> CatalogResult<Vec<MacroRow>> {
         let prefix = keys::prefix_macros_for_schema(schema_id);
         let mut macros = Vec::new();
@@ -501,6 +552,7 @@ impl CatalogReader {
         Ok(rows)
     }
 
+    /// List all implementations of a macro.
     pub async fn list_macro_impls(&self, macro_id: u64) -> CatalogResult<Vec<MacroImplRow>> {
         let prefix = keys::prefix_macro_impls(macro_id);
         let mut impls = Vec::new();
@@ -516,6 +568,7 @@ impl CatalogReader {
         Ok(impls)
     }
 
+    /// List all parameter rows for a macro implementation.
     pub async fn list_macro_parameters(
         &self,
         macro_id: u64,
@@ -537,6 +590,7 @@ impl CatalogReader {
 
     // ─── Phase 6: Tags ──────────────────────────────────────────────────────
 
+    /// List all tags for an object visible at this snapshot.
     pub async fn list_tags(&self, object_id: u64) -> CatalogResult<Vec<TagRow>> {
         let prefix = keys::prefix_tags_for_object(object_id);
         let mut tags = Vec::new();
@@ -554,6 +608,7 @@ impl CatalogReader {
         Ok(tags)
     }
 
+    /// List all column-level tags for a table column visible at this snapshot.
     pub async fn list_column_tags(
         &self,
         table_id: u64,
@@ -577,6 +632,7 @@ impl CatalogReader {
 
     // ─── Phase 6: File Variant Stats ────────────────────────────────────────
 
+    /// List file-level variant statistics for a column.
     pub async fn list_file_variant_stats(
         &self,
         table_id: u64,
@@ -602,6 +658,7 @@ impl CatalogReader {
 
     // ─── Phase 6: Files Scheduled for Deletion ──────────────────────────────
 
+    /// List all data files scheduled for deletion (GC candidates).
     pub async fn list_files_scheduled_for_deletion(
         &self,
     ) -> CatalogResult<Vec<FilesScheduledForDeletionRow>> {

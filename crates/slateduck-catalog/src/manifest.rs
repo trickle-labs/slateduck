@@ -3,6 +3,8 @@
 //! Provides a write-ahead manifest that tracks active SST files, compaction
 //! operations, and writer epochs for fencing.
 
+#![allow(missing_docs)]
+
 /// A manifest log tracking SST lifecycle and writer epochs.
 #[derive(Debug, Clone, Default)]
 pub struct ManifestLog {

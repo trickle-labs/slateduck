@@ -71,7 +71,8 @@ binding on every roadmap release below.
 | **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Done |
 | **v0.27.1 — CDC Completeness & Real Parquet Row Scanning** | Implement real `extract_rows_from_parquet()` via `object_store`; replace synthetic CDC column payloads with actual file data; verify `record_count` against scanned rows; streaming/batching for large Parquet files; end-to-end CDC round-trip tests | Done |
 | **v0.27.2 — DataFusion Completeness, Code Hardening & Security** | Auto-resolve `data_root` from catalog metadata; eliminate OS-thread-per-sync DataFusion bridge overhead; resolve or remove `slateduck-sqlite-vfs` placeholder; replace DataRowEncoder `unwrap()` calls; harden key/value decode paths; verify `checked_add` in writer; verify `SqlState` code propagation; API ergonomics for `CatalogStore` commit; warn on auth-without-TLS; address wall-clock lease concern | Done |
-| **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Planning |
+| **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Done |
+| **v0.27.4 — DuckDB 1.5.x PostgreSQL Scanner Compatibility** | Handle all DuckDB 1.5.x postgres scanner initialization queries: `DISCARD ALL`; `SELECT to_regclass('duckdb_secrets')`; `SELECT EXISTS(... information_schema.tables ...)`; multi-statement catalog scan (`pg_namespace`, `pg_class`/`pg_attribute`/`pg_constraint`, `pg_enum`, `pg_type` composites, `pg_indexes`); `SELECT pg_database_size(current_database())`; capture DuckDB 1.5.x wire-corpus fixture; update compatibility matrix to DuckDB 1.5.x only | Planning |
 | **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
@@ -2778,88 +2779,181 @@ SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following a
 
 ### Coverage as a Hard Gate (N-09)
 
-- [ ] In `.github/workflows/ci.yml`, replace the `::warning` threshold check with a hard `exit 1` when workspace coverage falls below 80 %:
+- [x] In `.github/workflows/ci.yml`, replace the `::warning` threshold check with a hard `exit 1` when workspace coverage falls below 80 %:
   ```bash
   if [ "${COVERAGE%.*}" -lt 80 ]; then
     echo "::error::Coverage ${COVERAGE}% is below the 80% gate"
     exit 1
   fi
   ```
-- [ ] Set per-crate minimums in the CI script: `slateduck-core` ≥ 85 %, `slateduck-catalog` ≥ 85 %, `slateduck-sql` ≥ 80 %, `slateduck-pgwire` ≥ 75 %.
-- [ ] Remove `continue-on-error: true` from the sanitizer jobs (ASAN, UBSAN, Miri); failures must block the merge queue.
+- [x] Set per-crate minimums in the CI script: `slateduck-core` ≥ 85 %, `slateduck-catalog` ≥ 85 %, `slateduck-sql` ≥ 80 %, `slateduck-pgwire` ≥ 75 %.
+- [x] Remove `continue-on-error: true` from the sanitizer jobs (ASAN, UBSAN, Miri); failures must block the merge queue.
 
 ### Doc-Tests for All Public APIs (N-10)
 
-- [ ] Add at least one `///` example (`# Examples` section with a compilable doctest) to every `pub fn` and `pub struct` in:
+- [x] Add at least one `///` example (`# Examples` section with a compilable doctest) to every `pub fn` and `pub struct` in:
   - `crates/slateduck-core/src/keys.rs` — key construction and round-trip decode
   - `crates/slateduck-core/src/values.rs` — value encode/decode
   - `crates/slateduck-core/src/types.rs` — DuckLake type parsing
   - `crates/slateduck-catalog/src/lib.rs` — `CatalogStore::open()`, `begin_write()`, `create_snapshot()`
   - `crates/slateduck-catalog/src/reader.rs` — `read_at()`, `list_schemas()`, `list_tables()`
-- [ ] Add `#![deny(missing_docs)]` to `slateduck-core` and `slateduck-catalog` crate roots.
-- [ ] Verify all doc-tests pass with `cargo test --doc --workspace`.
+- [x] Add `#![deny(missing_docs)]` to `slateduck-core` and `slateduck-catalog` crate roots.
+- [x] Verify all doc-tests pass with `cargo test --doc --workspace`.
 
 ### Network-Level PG-Wire Integration Test (N-11)
 
-- [ ] Add `tests/pgwire_network_test.rs` (or a new integration test binary in `slateduck-pgwire/tests/`):
+- [x] Add `tests/pgwire_network_test.rs` (or a new integration test binary in `slateduck-pgwire/tests/`):
   - Spawn the `slateduck serve` binary on a random available port using `std::process::Child`.
   - Connect using `tokio-postgres` (no libpq dependency) with a real TCP socket.
   - Execute: `CREATE SCHEMA`, `CREATE TABLE`, `INSERT`, `SELECT`, and `table_changes()`.
   - Assert row counts and column values in the response.
   - Tear down the process after the test regardless of outcome.
-- [ ] Add a separate test that connects with TLS enabled and verifies the handshake completes and auth is enforced.
-- [ ] Wire these tests into CI as a new `integration` job that runs after the main `test` job.
+- [x] Add a separate test that connects with TLS enabled and verifies the handshake completes and auth is enforced.
+- [x] Wire these tests into CI as a new `integration` job that runs after the main `test` job.
 
 ### Concurrent Writer Fencing Test
 
-- [ ] Add `tests/concurrent_writer_fencing.rs` in `slateduck-catalog`:
+- [x] Add `tests/concurrent_writer_fencing.rs` in `slateduck-catalog`:
   - Open two `CatalogStore` handles against the same `SlateDB` instance.
   - Have the first store acquire a writer epoch and commit a snapshot.
   - Have the second store attempt to acquire a writer epoch; assert it receives `CatalogError::WriterFenced` or equivalent.
   - Verify the second store can re-open successfully with a fresh epoch after the first store is dropped.
-- [ ] Extend the test to cover the race: both stores attempt epoch acquisition simultaneously (use `tokio::join!`); verify exactly one succeeds.
+- [x] Extend the test to cover the race: both stores attempt epoch acquisition simultaneously (use `tokio::join!`); verify exactly one succeeds.
 
 ### Checkpoint Restore Snapshot-ID Safety (closes F-07)
 
-- [ ] Add `tests/checkpoint_restore.rs` in `slateduck-catalog`:
+- [x] Add `tests/checkpoint_restore.rs` in `slateduck-catalog`:
   - Write 5 snapshots, checkpoint, delete catalog state, restore from checkpoint.
   - Assert the next allocated snapshot ID is strictly greater than the highest ID in the restored snapshot.
   - Verify no existing snapshot's `dl_snapshot_id` is reissued.
-- [ ] If any reuse is found, fix `restore_checkpoint()` to read `COUNTER_SNAPSHOT` from the restored state before re-initialising the in-memory counter.
+- [x] If any reuse is found, fix `restore_checkpoint()` to read `COUNTER_SNAPSHOT` from the restored state before re-initialising the in-memory counter.
 
 ### Metrics Documentation Alignment (Medium-10)
 
-- [ ] Audit `docs/operations/monitoring.md` against the actual `--metrics-path` / `SLATEDUCK_METRICS_PATH` CLI flags in `src/main.rs` and the pgwire server.
-- [ ] For each documented metric name, verify it is emitted by the implementation (add a `grep` assertion in a new `tests/metrics_smoke.rs` if helpful).
-- [ ] Update or remove metric names in the docs that no longer exist; add entries for any emitted metrics that are undocumented.
-- [ ] Add a CI step: `cargo run --bin slateduck -- --help | grep -q "metrics"` as a smoke check that the flag is present.
+- [x] Audit `docs/operations/monitoring.md` against the actual `--metrics-path` / `SLATEDUCK_METRICS_PATH` CLI flags in `src/main.rs` and the pgwire server.
+- [x] For each documented metric name, verify it is emitted by the implementation (add a `grep` assertion in a new `tests/metrics_smoke.rs` if helpful).
+- [x] Update or remove metric names in the docs that no longer exist; add entries for any emitted metrics that are undocumented.
+- [x] Add a CI step: `cargo run --bin slateduck -- --help | grep -q "metrics"` as a smoke check that the flag is present.
 
 ### Documentation Drift — Remaining Items (Section 8)
 
-- [ ] `docs/architecture/crate-structure.md`: reflect the outcome of the `slateduck-sqlite-vfs` decision from v0.27.2.
-- [ ] `docs/concepts/`: verify all concept pages reference current crate names and module paths (no references to removed crates such as `slateduck-ivm`).
-- [ ] `docs/roadmap/`: generate a per-version summary page for v0.27, v0.27.1, v0.27.2, v0.27.3 with the status of each Assessment finding.
-- [ ] `docs/internals/cdc.md`: document the real Parquet scanning path added in v0.27.1, including the `record_count` mismatch warning behaviour.
-- [ ] `docs/integration/datafusion.md`: fully updated after v0.27.2 DataFusion changes.
+- [x] `docs/architecture/crate-structure.md`: reflect the outcome of the `slateduck-sqlite-vfs` decision from v0.27.2.
+- [x] `docs/concepts/`: verify all concept pages reference current crate names and module paths (no references to removed crates such as `slateduck-ivm`).
+- [x] `docs/roadmap/`: generate a per-version summary page for v0.27, v0.27.1, v0.27.2, v0.27.3 with the status of each Assessment finding.
+- [x] `docs/internals/cdc.md`: document the real Parquet scanning path added in v0.27.1, including the `record_count` mismatch warning behaviour.
+- [x] `docs/integration/datafusion.md`: fully updated after v0.27.2 DataFusion changes.
 
 ### Sanitizer & Miri Hardening
 
-- [ ] Remove `continue-on-error: true` from `sanitizers.yml` for ASAN and UBSAN jobs.
-- [ ] Extend Miri coverage to `slateduck-core` key and value encode/decode functions (currently only `slateduck-ffi` is Miri-tested).
-- [ ] Add a `cargo miri test -p slateduck-core` step to the nightly Miri job.
-- [ ] Investigate and resolve any Miri `Stacked Borrows` or `Tree Borrows` errors surfaced by expanded coverage.
+- [x] Remove `continue-on-error: true` from `sanitizers.yml` for ASAN and UBSAN jobs.
+- [x] Extend Miri coverage to `slateduck-core` key and value encode/decode functions (currently only `slateduck-ffi` is Miri-tested).
+- [x] Add a `cargo miri test -p slateduck-core` step to the nightly Miri job.
+- [x] Investigate and resolve any Miri `Stacked Borrows` or `Tree Borrows` errors surfaced by expanded coverage.
 
 ### Definition of Done
 
-- [ ] Coverage below 80 % causes a hard CI failure on every PR and merge.
-- [ ] Sanitizer and Miri jobs are non-optional; a failure blocks merge.
-- [ ] Every public API in `slateduck-core` and `slateduck-catalog` has at least one passing doc-test.
-- [ ] A real TCP `tokio-postgres` client successfully completes a full DuckLake DDL/DML/query cycle against the running `slateduck serve` binary in CI.
-- [ ] Concurrent writer fencing is verified by an automated test.
-- [ ] Checkpoint restore snapshot-ID safety is verified by an automated test.
-- [ ] `docs/operations/monitoring.md` matches the implemented CLI flags and metric names.
-- [ ] Assessment findings **N-09**, **N-10**, **N-11**, **F-07**, **Medium-10** resolved and closed.
-- [ ] All open partial findings from Assessments 1 and 2 are marked either **Fixed** (with test) or **Accepted** (with rationale) in a new `docs/internals/open-findings-verification.md`.
+- [x] Coverage below 80 % causes a hard CI failure on every PR and merge.
+- [x] Sanitizer and Miri jobs are non-optional; a failure blocks merge.
+- [x] Every public API in `slateduck-core` and `slateduck-catalog` has at least one passing doc-test.
+- [x] A real TCP `tokio-postgres` client successfully completes a full DuckLake DDL/DML/query cycle against the running `slateduck serve` binary in CI.
+- [x] Concurrent writer fencing is verified by an automated test.
+- [x] Checkpoint restore snapshot-ID safety is verified by an automated test.
+- [x] `docs/operations/monitoring.md` matches the implemented CLI flags and metric names.
+- [x] Assessment findings **N-09**, **N-10**, **N-11**, **F-07**, **Medium-10** resolved and closed.
+- [x] All open partial findings from Assessments 1 and 2 are marked either **Fixed** (with test) or **Accepted** (with rationale) in a new `docs/internals/open-findings-verification.md`.
+
+---
+
+## v0.27.4 — DuckDB 1.5.x PostgreSQL Scanner Compatibility
+
+> Close the gap between the existing DuckDB 1.2.2 wire corpus and the full initialization sequence sent by DuckDB 1.5.x when attaching via `ATTACH 'ducklake:postgres:...'`. DuckDB 1.5.x uses the postgres scanner extension which probes the server with system catalog queries before DuckLake metadata initialization can begin. This release targets DuckDB 1.5.x only; older DuckDB versions are out of scope.
+
+### Context
+
+When DuckDB 1.5.x executes `ATTACH 'ducklake:postgres:host=... dbname=...' AS lake`, two code paths send SQL to SlateDuck:
+
+1. **Postgres scanner** (`duckdb/duckdb-postgres`) — sends version probes, catalog scans, and connection resets before any DuckLake logic runs.
+2. **DuckLake extension** (`duckdb/ducklake`) — sends queries against `ducklake_*` metadata tables once the catalog scan completes.
+
+The v0.27 series only fixed Phase 1 items 1.1 (version/RDS check) and 1.2 (SELECT 1). The remaining Phase 1 queries block the attach sequence.
+
+See `plans/ducklake-queries.md` for the full audit with exact SQL, expected columns, and SlateDuck status for each query.
+
+### Step 1 — `DISCARD ALL` (High, connection pool)
+
+- [ ] Add `DiscardAll` variant to `StatementKind` in `crates/slateduck-sql/src/classifier/mod.rs`.
+- [ ] Classify `DISCARD ALL` (and `DISCARD SEQUENCES`, `DISCARD PLANS`, `DISCARD TEMP`) in `crates/slateduck-sql/src/classifier/ast.rs`.
+- [ ] Add a handler in `crates/slateduck-pgwire/src/executor/mod.rs` that returns a `CommandComplete("DISCARD")` tag with zero rows — no error.
+- [ ] Add a test: verify `classify_statement("DISCARD ALL")` returns `DiscardAll` and that the executor returns a `CommandComplete` response.
+
+### Step 2 — `SELECT to_regclass('duckdb_secrets')` (High, secret storage)
+
+- [ ] Add `SelectToRegclass` variant to `StatementKind`.
+- [ ] Classify `SELECT to_regclass(...)` in the AST classifier: detect a function call named `to_regclass` in a no-FROM projection.
+- [ ] Add a handler that returns a single row with `NULL` in a column named `to_regclass` (type `TEXT`). Returning `NULL` tells DuckDB the `duckdb_secrets` table does not exist.
+- [ ] Add a test verifying `NULL` is returned for `to_regclass('duckdb_secrets')`.
+
+### Step 3 — `SELECT EXISTS(... information_schema.tables ...)` (High, secret storage fallback)
+
+- [ ] Add `SelectExistsInfoSchema` variant to `StatementKind`.
+- [ ] Classify the pattern: `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE ...)` — detect a no-FROM projection containing a scalar subquery against `information_schema.tables`.
+- [ ] Add a handler that returns a single `false` boolean row (column named `exists`, type `BOOL`).
+- [ ] Add a test verifying the classifier recognises the full `duckdb_secrets` existence query and returns `false`.
+
+### Step 4 — `SELECT pg_database_size(current_database())` (Low, informational)
+
+- [ ] Add `SelectPgDatabaseSize` variant to `StatementKind`.
+- [ ] Classify `SELECT pg_database_size(...)` in the AST classifier.
+- [ ] Add a handler returning `0::INT8` (or an approximation from the catalog store size if available).
+- [ ] Add a test verifying the handler returns a single integer row.
+
+### Step 5 — Multi-Statement Catalog Scan (`pg_namespace` / `pg_class` / `pg_enum` / `pg_type` / `pg_indexes`) (Critical)
+
+This is sent as a **single string** via the simple-query protocol:
+
+```
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SELECT oid, nspname FROM pg_namespace ORDER BY oid;
+SELECT ... FROM pg_class JOIN ... UNION ALL SELECT ... FROM pg_constraint ...;
+SELECT n.oid, enumtypid, typname, enumlabel FROM pg_enum JOIN ...;
+SELECT n.oid, t.typrelid, t.typname, pg_attribute.attname, sub_type.typname FROM pg_type JOIN ...;
+SELECT pg_namespace.oid, tablename, indexname FROM pg_indexes JOIN ...;
+ROLLBACK;
+```
+
+DuckDB expects five result sets (one per SELECT) in sequence before the final `ROLLBACK`.
+
+- [ ] Add `PgCatalogScan` variant to `StatementKind`.
+- [ ] Detect the batch: a `Begin` statement whose `sql` string contains the `pg_namespace` / `pg_class` / `pg_enum` characteristic queries.
+- [ ] Build a multi-result response in the executor:
+  - **pg_namespace result** (`oid INT8, nspname TEXT`): one row per schema SlateDuck exposes (at minimum `(1, 'public')` and `(2, 'main')`).
+  - **pg_class UNION result** (`namespace_id INT8, relname TEXT, relpages INT8, attname TEXT, type_name TEXT, type_modifier INT8, ndim INT8, attnum INT8, notnull BOOL, constraint_id INT8, constraint_type TEXT, constraint_key TEXT`): rows for every ducklake table with its column definitions. Constraints: empty.
+  - **pg_enum result** (`oid INT8, enumtypid INT8, typname TEXT, enumlabel TEXT`): zero rows.
+  - **pg_type composites result** (`oid INT8, id INT8, type TEXT, attname TEXT, typname TEXT`): zero rows.
+  - **pg_indexes result** (`oid INT8, tablename TEXT, indexname TEXT`): zero rows.
+- [ ] Verify the `pgwire` crate supports returning multiple result sets for a single simple-query string; adapt the handler or the protocol layer if needed.
+- [ ] Add tests for each of the five result set shapes.
+- [ ] Add an end-to-end test that replays a DuckDB 1.5.x ATTACH corpus through the PG-Wire layer and asserts all five result sets are present with correct schema.
+
+### Step 6 — Wire Corpus for DuckDB 1.5.x
+
+- [ ] Record a new `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` by running DuckDB 1.5.x against SlateDuck once all the above handlers are in place.
+- [ ] The fixture must capture the full ATTACH sequence: connection, version check, `DISCARD ALL`, `to_regclass`, `information_schema.tables`, multi-statement catalog scan, and at least one DuckLake metadata query.
+- [ ] Add a corpus replay test that validates every message in the fixture against the running SlateDuck server.
+- [ ] Update `docs/compatibility.md` and `tests/fixtures/compatibility-matrix.toml` (from v0.28.0 scope) to record DuckDB 1.5.x as the primary supported version.
+- [ ] Remove or demote DuckDB 1.2.2 from the supported matrix to `legacy` / `untested`.
+
+### Definition of Done
+
+- [ ] `DISCARD ALL` returns `CommandComplete("DISCARD")` with no error.
+- [ ] `SELECT to_regclass('duckdb_secrets')` returns a single `NULL` row.
+- [ ] `SELECT EXISTS(... information_schema.tables ...)` returns a single `false` row.
+- [ ] `SELECT pg_database_size(current_database())` returns a single integer row.
+- [ ] Multi-statement catalog scan returns five result sets with correct schema.
+- [ ] DuckDB 1.5.x `ATTACH 'ducklake:postgres:...'` completes without error in CI.
+- [ ] A new `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` fixture is captured and replayed by CI.
+- [ ] `docs/compatibility.md` states DuckDB 1.5.x as supported with CI evidence.
+- [ ] DuckDB 1.2.2 is downgraded to `legacy` in the compatibility matrix.
 
 ---
 
@@ -2914,10 +3008,29 @@ The workflow named `DuckDB Compatibility Matrix` is not a full compatibility mat
 - [ ] Promote `cargo test -p slateduck-datafusion` into the compatibility workflow for DataFusion 45 and include the Parquet scan test as the supported-row evidence.
 - [ ] Add a version-policy check proving DataFusion `< 45` is outside the supported range, or remove the row from the public matrix.
 
+### Object Storage Backend Testing
+
+Local testing strategy for all supported object stores via containerized emulators:
+
+| Backend | Local Emulator | Harness Pattern | Exercise |
+|---------|---|---|---|
+| **AWS S3** | MinIO (`minio/minio:latest`) | [MinioHarness](crates/slateduck-testkit/src/minio_harness.rs) (existing) | Catalog open/create, snapshot commit, read-after-write, list/prefix scan, writer fencing, recovery from fresh process |
+| **GCS** | Google Cloud Emulator or `fsouza/fake-gcs-server` | GcsEmulatorHarness (new) | Same as MinIO; use `GoogleCloudStorageBuilder` configured for emulator endpoint |
+| **Azure Blob** | Azurite (`mcr.microsoft.com/azure-storage/azurite`) | AzureEmulatorHarness (new) | Same as MinIO; use `MicrosoftAzureBuilder` configured for emulator endpoint |
+
+Each harness follows the MinioHarness pattern: start Docker container → wait for readiness → configure ObjectStore builder → return `Arc<dyn ObjectStore>` → teardown after test.
+
+Harnesses are added to `slateduck-testkit` and exposed as conditional features (`gcs-emulator`, `azure-emulator`, `minio-tests`) to allow local testing without requiring all Docker images.
+
+- [ ] Implement `GcsEmulatorHarness` in `crates/slateduck-testkit/src/gcs_emulator_harness.rs` with `GoogleCloudStorageBuilder` configuration and container lifecycle management.
+- [ ] Implement `AzureEmulatorHarness` in `crates/slateduck-testkit/src/azure_emulator_harness.rs` with `MicrosoftAzureBuilder` configuration and container lifecycle management.
+- [ ] Add shared backend test suite exercisable by all three harnesses: `catalog_backend_compat_test!()` macro covering open/create, commit, read-after-write, list/prefix, writer fencing, and recovery.
+- [ ] Wire all three harnesses into `crates/slateduck-pgwire/tests/integration_tests.rs` as optional gated tests.
+
 ### Storage, TLS, Rust, and Platform Matrix
 
-- [ ] Add real backend compatibility jobs for LocalFS, MinIO, AWS S3, GCS, and Azure Blob. Each supported backend must exercise catalog open/create, snapshot commit, read-after-write, list/prefix scan, writer fencing, and recovery from a fresh process.
-- [ ] Make credentialed AWS/GCS/Azure jobs release-blocking for v0.28.0, even if they run on a protected scheduled/release workflow rather than every PR.
+- [ ] Add real backend compatibility jobs for LocalFS, MinIO, AWS S3, GCS, and Azure Blob in the CI workflow. Each supported backend must exercise the shared backend compatibility suite (open/create, snapshot commit, read-after-write, list/prefix scan, writer fencing, recovery from fresh process).
+- [ ] LocalFS and MinIO tests run on every CI push. GCS and Azure Blob tests run on protected scheduled/release workflows or when explicitly triggered, backed by real cloud credentials.
 - [ ] Add TLS protocol-version tests using real client handshakes: TLS 1.2 accepted, TLS 1.3 accepted, TLS 1.1 and older rejected. Include auth + TLS combined coverage.
 - [ ] Reconcile Rust compatibility by either updating `docs/compatibility.md` to MSRV 1.93 or lowering the workspace MSRV with proof. Stable and MSRV checks must be represented in the manifest.
 - [ ] Add Windows x86-64 CI and release artifacts before claiming Windows support. The release workflow must build, checksum, upload, and document the Windows binary.

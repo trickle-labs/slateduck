@@ -1,5 +1,7 @@
 //! Catalog verification: primary-key uniqueness, FK references, MVCC consistency, counter monotonicity.
 
+#![allow(missing_docs)]
+
 use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::*;

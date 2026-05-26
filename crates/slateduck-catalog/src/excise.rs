@@ -6,6 +6,8 @@
 //!
 //! On per-key deletion failure: log and skip; do not retry aggressively.
 
+#![allow(missing_docs)]
+
 use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::*;

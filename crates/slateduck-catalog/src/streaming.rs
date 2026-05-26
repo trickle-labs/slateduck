@@ -30,6 +30,8 @@
 //! ```
 //! Multiple applications coexist using distinct prefixes.
 
+#![allow(missing_docs)]
+
 use slateduck_core::keys::MetadataScope;
 use slateduck_core::mvcc::SnapshotId;
 

@@ -7,6 +7,8 @@
 //!   missing `ducklake_snapshot` or `ducklake_metadata`, missing Parquet files for
 //!   retained snapshots — refuse mutation, direct operator to restore.
 
+#![allow(missing_docs)]
+
 use slatedb::Db;
 use slateduck_core::keys;
 use slateduck_core::rows::*;

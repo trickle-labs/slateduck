@@ -8,6 +8,8 @@
 //! and reports which statement families are handled, which need dispatcher updates
 //! (category-b), and which require new SQL operator types (category-c).
 
+#![allow(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 

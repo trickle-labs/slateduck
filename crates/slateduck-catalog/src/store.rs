@@ -47,6 +47,25 @@ impl CatalogStore {
     /// Open or create a catalog store.
     /// Uses safe `open_or_create` with serializable transactions.
     /// v0.19: Writer epoch is acquired via CAS — only one writer can hold the epoch.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use std::sync::Arc;
+    /// use object_store::local::LocalFileSystem;
+    /// use object_store::path::Path as ObjectPath;
+    /// use slateduck_catalog::{CatalogStore, OpenOptions};
+    ///
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    /// let catalog = CatalogStore::open(OpenOptions {
+    ///     object_store: store,
+    ///     path: ObjectPath::from(""),
+    ///     encryption: None,
+    /// }).await.unwrap();
+    /// # });
+    /// ```
     pub async fn open(opts: OpenOptions) -> CatalogResult<Self> {
         // Clone before moving into Db::builder / Db::open so we can keep a
         // reference for the `object_store` field added in v0.27.1.
@@ -140,6 +159,24 @@ impl CatalogStore {
     /// `dl_snapshot_id` falls below the current retain-from floor.
     ///
     /// Accepts any type that converts to `SnapshotId`, including `CommitResult`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use std::sync::Arc;
+    /// use object_store::local::LocalFileSystem;
+    /// use object_store::path::Path as ObjectPath;
+    /// use slateduck_catalog::{CatalogStore, OpenOptions};
+    ///
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    /// let catalog = CatalogStore::open(OpenOptions { object_store: store, path: ObjectPath::from(""), encryption: None }).await.unwrap();
+    /// let reader = catalog.read_at(0).unwrap();
+    /// let schemas = reader.list_schemas().await.unwrap();
+    /// assert!(schemas.is_empty());
+    /// # });
+    /// ```
     pub fn read_at(&self, dl_snapshot_id: impl Into<SnapshotId>) -> CatalogResult<CatalogReader> {
         let dl_snapshot_id = dl_snapshot_id.into();
         let retain_from = self.retain_from_cache.load(Ordering::Acquire);
