@@ -104,11 +104,9 @@ impl CopyHandler for SlateDuckCopyHandler {
         {
             let mut session = self.session.lock().await;
             match table.as_str() {
-                "ducklake_snapshot" => {
+                "ducklake_snapshot" if !rows.is_empty() => {
                     // Any row means DuckDB has initialised a snapshot.
-                    if !rows.is_empty() {
-                        session.bootstrap.has_snapshot = true;
-                    }
+                    session.bootstrap.has_snapshot = true;
                 }
                 "ducklake_schema" => {
                     for row in &rows {

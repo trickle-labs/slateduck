@@ -2489,7 +2489,7 @@ fn parse_bool(value: &str) -> Option<bool> {
 
 fn decode_bytea_literal(value: &str) -> Vec<u8> {
     let value = value.strip_prefix("\\x").unwrap_or(value);
-    if value.len() % 2 == 0 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if value.len().is_multiple_of(2) && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         let mut bytes = Vec::with_capacity(value.len() / 2);
         let mut chars = value.as_bytes().chunks_exact(2);
         for pair in &mut chars {
