@@ -37,6 +37,10 @@ pub struct CatalogStore {
     /// Updated eagerly on `open()` and after every `gc_apply()`.
     /// `read_at()` uses this atomically without holding the mutex.
     retain_from_cache: Arc<AtomicU64>,
+    /// The object store used to back the SlateDB database.
+    /// Exposed so callers (e.g. the PG-Wire executor) can read data files from
+    /// the same storage root without requiring a separate configuration parameter.
+    object_store: Arc<dyn object_store::ObjectStore>,
 }
 
 impl CatalogStore {
@@ -44,6 +48,9 @@ impl CatalogStore {
     /// Uses safe `open_or_create` with serializable transactions.
     /// v0.19: Writer epoch is acquired via CAS — only one writer can hold the epoch.
     pub async fn open(opts: OpenOptions) -> CatalogResult<Self> {
+        // Clone before moving into Db::builder / Db::open so we can keep a
+        // reference for the `object_store` field added in v0.27.1.
+        let object_store_ref = Arc::clone(&opts.object_store);
         let db = if let Some(ref enc) = opts.encryption {
             let transformer = Arc::new(AesGcmTransformer::new(enc));
             Db::builder(opts.path, opts.object_store)
@@ -118,6 +125,7 @@ impl CatalogStore {
             writer_epoch,
             schema_version,
             retain_from_cache,
+            object_store: object_store_ref,
         })
     }
 
@@ -223,6 +231,14 @@ impl CatalogStore {
     /// Get the underlying database reference (for verification/testing).
     pub fn db(&self) -> &Db {
         &self.db
+    }
+
+    /// Return the object store backing this catalog.
+    ///
+    /// The PG-Wire CDC executor uses this to resolve Parquet data file paths
+    /// relative to the same object storage root as the catalog.
+    pub fn object_store(&self) -> Arc<dyn object_store::ObjectStore> {
+        Arc::clone(&self.object_store)
     }
 
     /// Return the current catalog schema version (used for ducklake_schema_version facade).

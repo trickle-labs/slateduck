@@ -138,6 +138,17 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // Background task: sync CDC record-count mismatch counter from slateduck-sql global.
+    {
+        let m = metrics.clone();
+        tokio::spawn(async move {
+            loop {
+                m.set_cdc_record_count_mismatches(slateduck_sql::cdc_record_count_mismatch_total());
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        });
+    }
+
     let server_config = ServerConfig {
         bind_addr: config.bind_addr,
         max_sessions: config.max_sessions,

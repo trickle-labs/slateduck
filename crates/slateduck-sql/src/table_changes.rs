@@ -5,12 +5,28 @@
 //!
 //! When `start_snapshot` has been GC'd, returns SQLSTATE 55000 (snapshot too old).
 //!
-//! v0.19: Real row-level CDC implementation. Each Parquet file in
-//! `diff.added_data_files` / `diff.retired_data_files` is scanned and actual
-//! rows are emitted with full column payloads. Matching rowids in both added
-//! and retired sets produce update pre/post-image pairs.
+//! v0.27.1: Real Parquet row scanning via `object_store` + `parquet` crates.
+//! `extract_rows_from_parquet()` opens Parquet files from object storage,
+//! deserialises every record batch, and emits actual column values as JSON.
+//! A `record_count` mismatch warning is emitted and counted when the scanned
+//! row count differs from the value stored in catalog metadata.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+/// Global counter for CDC record-count mismatches (N-04).
+/// Incremented whenever scanned row count ≠ catalog `record_count` for a file.
+/// Readable via `cdc_record_count_mismatch_total()` for inclusion in metrics.
+static CDC_RECORD_COUNT_MISMATCHES: AtomicU64 = AtomicU64::new(0);
+
+/// Return the current value of the `slateduck_cdc_record_count_mismatch_total` counter.
+pub fn cdc_record_count_mismatch_total() -> u64 {
+    CDC_RECORD_COUNT_MISMATCHES.load(Ordering::Relaxed)
+}
+
+/// Default batch size for Parquet streaming reads (50 000 rows per batch).
+pub const DEFAULT_CDC_BATCH_SIZE: usize = 50_000;
 
 /// Change type enumeration for table_changes output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +85,8 @@ pub enum TableChangesError {
     SnapshotTooOld { requested: u64, retain_from: u64 },
     /// Table not found.
     TableNotFound(String),
+    /// Object storage error while reading a Parquet data file.
+    Storage(String),
     /// Generic error.
     Other(String),
 }
@@ -79,6 +97,7 @@ impl TableChangesError {
         match self {
             TableChangesError::SnapshotTooOld { .. } => "55000",
             TableChangesError::TableNotFound(_) => "42P01",
+            TableChangesError::Storage(_) => "58030",
             TableChangesError::Other(_) => "XX000",
         }
     }
@@ -95,6 +114,7 @@ impl std::fmt::Display for TableChangesError {
                 "snapshot {requested} has been garbage collected (retain_from={retain_from})"
             ),
             TableChangesError::TableNotFound(t) => write!(f, "table not found: {t}"),
+            TableChangesError::Storage(msg) => write!(f, "object storage error: {msg}"),
             TableChangesError::Other(msg) => write!(f, "{msg}"),
         }
     }
@@ -102,13 +122,247 @@ impl std::fmt::Display for TableChangesError {
 
 impl std::error::Error for TableChangesError {}
 
-/// A row extracted from a Parquet file (or simulated for the CDC pipeline).
+/// A row extracted from a Parquet file with actual column values.
 #[derive(Debug, Clone)]
 pub struct ParquetRowData {
-    /// Row ID from Parquet file metadata or sequential assignment.
+    /// Row ID — sequential within the file, starting at `base_rowid`.
     pub rowid: u64,
-    /// Column values keyed by column name, JSON-encoded.
+    /// Column values keyed by column name, JSON-encoded object string.
     pub columns_json: String,
+}
+
+/// Open a Parquet file from `object_store`, scan all record batches, and
+/// return one `ParquetRowData` per row with real column values as JSON.
+///
+/// # Record-count verification (N-04)
+/// When `expected_record_count` is `Some(n)` and the scanned row count differs
+/// from `n`, a structured `tracing::warn!` is emitted and the global
+/// `slateduck_cdc_record_count_mismatch_total` counter is incremented.
+/// The scanned count is always used — the catalog value is informational.
+///
+/// # Batching
+/// `batch_size` rows are requested per record-batch from the Parquet reader.
+/// Use `DEFAULT_CDC_BATCH_SIZE` (50 000) unless you have specific memory
+/// constraints.
+///
+/// # Errors
+/// Returns `TableChangesError::Storage` if the object store returns any error
+/// (including `NotFound` for a missing data file path).
+pub async fn extract_rows_from_parquet(
+    object_store: &Arc<dyn object_store::ObjectStore>,
+    file_path: &str,
+    base_rowid: u64,
+    expected_record_count: Option<u64>,
+    batch_size: usize,
+) -> Result<Vec<ParquetRowData>, TableChangesError> {
+    let path = object_store::path::Path::from(file_path);
+
+    // Fetch all bytes from object storage.  Using the bytes-based path avoids
+    // the object_store version conflict that arises with parquet's async reader
+    // (parquet 54 depends on object_store 0.11, workspace uses 0.12).
+    let bytes = object_store
+        .get(&path)
+        .await
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?
+        .bytes()
+        .await
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?;
+
+    // Use the synchronous reader on the in-memory bytes.
+    let reader = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(bytes)
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?
+        .with_batch_size(batch_size)
+        .build()
+        .map_err(|e| TableChangesError::Storage(e.to_string()))?;
+
+    let mut rows = Vec::new();
+    let mut rowid = base_rowid;
+
+    for batch_result in reader {
+        let batch = batch_result.map_err(|e| TableChangesError::Storage(e.to_string()))?;
+        let schema = batch.schema();
+        for row_idx in 0..batch.num_rows() {
+            let mut col_map = serde_json::Map::new();
+            for col_idx in 0..batch.num_columns() {
+                let field = schema.field(col_idx);
+                let array = batch.column(col_idx);
+                let val = arrow_to_json_value(array.as_ref(), row_idx);
+                col_map.insert(field.name().clone(), val);
+            }
+            rows.push(ParquetRowData {
+                rowid,
+                columns_json: serde_json::Value::Object(col_map).to_string(),
+            });
+            rowid += 1;
+        }
+    }
+
+    // N-04: verify record_count against actual scanned rows.
+    if let Some(expected) = expected_record_count {
+        let actual = rows.len() as u64;
+        if actual != expected {
+            CDC_RECORD_COUNT_MISMATCHES.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                file_path = file_path,
+                expected_record_count = expected,
+                actual_record_count = actual,
+                counter = "slateduck_cdc_record_count_mismatch_total",
+                "CDC record count mismatch: catalog metadata says {} rows but \
+                 scanned {}; using scanned count (partial-write recovery path)",
+                expected,
+                actual,
+            );
+        }
+    }
+
+    Ok(rows)
+}
+
+/// Convert a single value in an Arrow array to a `serde_json::Value`.
+///
+/// Complex or unrecognised types are rendered as a string `"<DataType>"`.
+fn arrow_to_json_value(array: &dyn arrow::array::Array, row_idx: usize) -> serde_json::Value {
+    use arrow::array::{
+        BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
+        Int16Array, Int32Array, Int64Array, Int8Array, LargeStringArray, StringArray, UInt16Array,
+        UInt32Array, UInt64Array, UInt8Array,
+    };
+    use arrow::datatypes::DataType;
+
+    if array.is_null(row_idx) {
+        return serde_json::Value::Null;
+    }
+
+    match array.data_type() {
+        DataType::Boolean => {
+            let arr = array.as_any().downcast_ref::<BooleanArray>().unwrap();
+            serde_json::Value::Bool(arr.value(row_idx))
+        }
+        DataType::Int8 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int8Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::Int16 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::Int32 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::Int64 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::UInt8 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt8Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::UInt16 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt16Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::UInt32 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::UInt64 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::Float32 => {
+            let v = array
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap()
+                .value(row_idx);
+            if v.is_finite() {
+                serde_json::json!(v as f64)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        DataType::Float64 => {
+            let v = array
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap()
+                .value(row_idx);
+            if v.is_finite() {
+                serde_json::json!(v)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        DataType::Utf8 => serde_json::Value::String(
+            array
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(row_idx)
+                .to_string(),
+        ),
+        DataType::LargeUtf8 => serde_json::Value::String(
+            array
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
+                .unwrap()
+                .value(row_idx)
+                .to_string(),
+        ),
+        DataType::Binary => {
+            // Encode raw bytes as hex for round-trip safety.
+            let v = array
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap()
+                .value(row_idx);
+            let hex: String = v.iter().map(|b| format!("{b:02x}")).collect();
+            serde_json::Value::String(hex)
+        }
+        DataType::Date32 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        DataType::Date64 => {
+            serde_json::json!(array
+                .as_any()
+                .downcast_ref::<Date64Array>()
+                .unwrap()
+                .value(row_idx))
+        }
+        other => {
+            // Complex or unsupported types: render type name as a string.
+            serde_json::Value::String(format!("<{other}>"))
+        }
+    }
 }
 
 /// Resolve table_changes for a snapshot range using catalog diff.
@@ -202,26 +456,6 @@ pub fn compute_table_changes(
         end_snapshot,
         records,
     })
-}
-
-/// Simulate extracting rows from a Parquet file path.
-///
-/// In a real implementation, this would open the Parquet file via object_store,
-/// read the row group metadata for rowids, and scan all columns.
-/// For now, it constructs `ParquetRowData` from the provided metadata.
-pub fn extract_rows_from_file(
-    file_path: &str,
-    row_count: u64,
-    base_rowid: u64,
-    columns_json_template: &str,
-) -> Vec<ParquetRowData> {
-    let _ = file_path; // Used in real Parquet integration
-    (0..row_count)
-        .map(|i| ParquetRowData {
-            rowid: base_rowid + i,
-            columns_json: columns_json_template.to_string(),
-        })
-        .collect()
 }
 
 /// Apply a change stream to a start-snapshot state and verify reconstruction.
@@ -481,6 +715,9 @@ mod tests {
 
         let err = TableChangesError::TableNotFound("orders".to_string());
         assert_eq!(err.sqlstate(), "42P01");
+
+        let err = TableChangesError::Storage("s3 error".to_string());
+        assert_eq!(err.sqlstate(), "58030");
     }
 
     #[test]
@@ -501,12 +738,9 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_rows_from_file() {
-        let rows = extract_rows_from_file("data/file.parquet", 3, 10, r#"{"col":"val"}"#);
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0].rowid, 10);
-        assert_eq!(rows[1].rowid, 11);
-        assert_eq!(rows[2].rowid, 12);
-        assert_eq!(rows[0].columns_json, r#"{"col":"val"}"#);
+    fn test_storage_error_display() {
+        let err = TableChangesError::Storage("connection refused".to_string());
+        assert!(err.to_string().contains("object storage error"));
+        assert!(err.to_string().contains("connection refused"));
     }
 }

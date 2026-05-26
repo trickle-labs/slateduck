@@ -69,7 +69,7 @@ binding on every roadmap release below.
 | **v0.25 — DuckLake v1.0 SQL Catalog Facade** | Full PgWire/virtual-table facade with exact spec column names and types for all 28 tables; views, macros, and inlined data tables through PgWire; scoped metadata; schema/table UUID and path fields; nested column model | Complete |
 | **v0.26 — DuckLake v1.0 Stats, Types, Partitioning & Sorting** | Full file and table column stats; variant stats and `extra_stats`; geometry stats; column mapping and name mapping parity; sort expression spec parity; partition column lifecycle; DuckLake type parser; nested and `variant` type model | Complete |
 | **v0.27 — DuckLake v1.0 External Compatibility Validation** | Real DuckDB DuckLake extension end-to-end tests; read conformance suite against `specification/queries.md`; import/export migration path; P2 fidelity gaps (`files_scheduled_for_deletion`, `file_partition_value`, `sort_info`, `tag`/`column_tag` facade) | Done |
-| **v0.27.1 — CDC Completeness & Real Parquet Row Scanning** | Implement real `extract_rows_from_parquet()` via `object_store`; replace synthetic CDC column payloads with actual file data; verify `record_count` against scanned rows; streaming/batching for large Parquet files; end-to-end CDC round-trip tests | Planning |
+| **v0.27.1 — CDC Completeness & Real Parquet Row Scanning** | Implement real `extract_rows_from_parquet()` via `object_store`; replace synthetic CDC column payloads with actual file data; verify `record_count` against scanned rows; streaming/batching for large Parquet files; end-to-end CDC round-trip tests | Done |
 | **v0.27.2 — DataFusion Completeness, Code Hardening & Security** | Auto-resolve `data_root` from catalog metadata; eliminate OS-thread-per-sync DataFusion bridge overhead; resolve or remove `slateduck-sqlite-vfs` placeholder; replace DataRowEncoder `unwrap()` calls; harden key/value decode paths; verify `checked_add` in writer; verify `SqlState` code propagation; API ergonomics for `CatalogStore` commit; warn on auth-without-TLS; address wall-clock lease concern | Planning |
 | **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Planning |
 | **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
@@ -2647,44 +2647,44 @@ SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following a
 
 ### Real Parquet Row Scanning
 
-- [ ] Replace `extract_rows_from_file()` stub in `crates/slateduck-sql/src/table_changes.rs` with a real implementation that opens Parquet files via the injected `ObjectStore` handle.
+- [x] Replace `extract_rows_from_file()` stub in `crates/slateduck-sql/src/table_changes.rs` with a real implementation that opens Parquet files via the injected `ObjectStore` handle.
   - Deserialise each Parquet row batch into column-name → JSON-value mappings using `arrow` / `parquet` crates already in the dependency graph.
   - Produce `ParquetRowData { rowid, columns_json }` with actual column values, replacing the current `"{}"` template.
   - Propagate `ObjectStore` errors as `TableChangesError::Storage`.
-- [ ] Implement streaming / batched reading for files with row counts above a configurable threshold (default 50 000 rows per batch) to avoid loading multi-GB Parquet files fully into memory.
-- [ ] Add a `data_root` parameter to `execute_table_changes()` in the PG-Wire executor so the function can resolve relative file paths to `ObjectStore` paths.
+- [x] Implement streaming / batched reading for files with row counts above a configurable threshold (default 50 000 rows per batch) to avoid loading multi-GB Parquet files fully into memory.
+- [x] Add a `data_root` parameter to `execute_table_changes()` in the PG-Wire executor so the function can resolve relative file paths to `ObjectStore` paths.
 
 ### CDC Record-Count Verification (N-04)
 
-- [ ] After scanning a Parquet file, compare the actual row count against the `record_count` field stored in catalog metadata.
+- [x] After scanning a Parquet file, compare the actual row count against the `record_count` field stored in catalog metadata.
   - If they differ, emit a structured warning via `tracing::warn!` and use the scanned count.
   - Document the discrepancy in `docs/internals/cdc.md` as a recovery path for partial-write scenarios.
-- [ ] Add a `record_count_mismatch` counter to the metrics surface (`slateduck_cdc_record_count_mismatch_total`).
+- [x] Add a `record_count_mismatch` counter to the metrics surface (`slateduck_cdc_record_count_mismatch_total`).
 
 ### End-to-End CDC Round-Trip Tests
 
-- [ ] Add `tests/cdc_parquet_roundtrip.rs` in `slateduck-sql`:
+- [x] Add `tests/cdc_parquet_roundtrip.rs` in `slateduck-sql`:
   - Write a real Parquet file to a `TempDir`-backed `LocalFileSystem` store.
   - Register the file as a `DataFileRow` in the catalog.
   - Call `table_changes()` and assert that the returned `columns_json` fields match the original row values.
-- [ ] Add a second test covering multi-file windows (insert file at snapshot N, delete file at snapshot N+2, verify CDC window `(N-1, N+2]`).
-- [ ] Extend `slateduck-pgwire` integration tests: execute `table_changes('schema', 'table', 0, 2)` through the full PG-Wire stack and assert non-empty column payloads in all change records.
-- [ ] Add a fault-injection case: `ObjectStore` returns `NotFound` for a registered data file path; verify `table_changes()` returns a typed error rather than panicking.
+- [x] Add a second test covering multi-file windows (insert file at snapshot N, delete file at snapshot N+2, verify CDC window `(N-1, N+2]`).
+- [x] Extend `slateduck-pgwire` integration tests: execute `table_changes('schema', 'table', 0, 2)` through the full PG-Wire stack and assert non-empty column payloads in all change records.
+- [x] Add a fault-injection case: `ObjectStore` returns `NotFound` for a registered data file path; verify `table_changes()` returns a typed error rather than panicking.
 
 ### DataFusion Parquet Scan Test (related gap)
 
-- [ ] Extend `crates/slateduck-datafusion/tests/integration_tests.rs` with a test that:
+- [x] Extend `crates/slateduck-datafusion/tests/integration_tests.rs` with a test that:
   - Writes a Parquet file into a temp object store.
   - Registers the file as a data file in the catalog with a valid `file_path`.
   - Executes `SELECT * FROM schema.table` through DataFusion and asserts returned rows match the written data.
-- [ ] Document the `data_root` requirement in `docs/integration/datafusion.md`.
+- [x] Document the `data_root` requirement in `docs/integration/datafusion.md`.
 
 ### Definition of Done
 
-- [ ] `table_changes()` returns real column values for all change types in the integration test suite.
-- [ ] The synthetic-row code path (`let _ = file_path`) is deleted; no test mocks the file path away.
-- [ ] Assessment finding **N-01** and **N-04** resolved and closed.
-- [ ] `slateduck-sql` test coverage does not regress below 80 %.
+- [x] `table_changes()` returns real column values for all change types in the integration test suite.
+- [x] The synthetic-row code path (`let _ = file_path`) is deleted; no test mocks the file path away.
+- [x] Assessment finding **N-01** and **N-04** resolved and closed.
+- [x] `slateduck-sql` test coverage does not regress below 80 %.
 
 ---
 

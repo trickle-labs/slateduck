@@ -4412,11 +4412,13 @@ dependencies = [
 name = "slateduck-pgwire"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "async-trait",
  "bytes",
  "chrono",
  "futures",
  "object_store 0.12.5",
+ "parquet",
  "pgwire",
  "rcgen",
  "rustls-pemfile",
@@ -4440,10 +4442,16 @@ dependencies = [
 name = "slateduck-sql"
 version = "0.1.0"
 dependencies = [
+ "arrow",
+ "bytes",
+ "futures",
+ "object_store 0.12.5",
+ "parquet",
  "serde_json",
  "sqlparser 0.55.0",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 

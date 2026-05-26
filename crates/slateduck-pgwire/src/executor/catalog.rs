@@ -982,8 +982,14 @@ pub(super) fn make_file_ids_response(file_ids: Vec<u64>) -> Response<'static> {
     Response::Query(resp)
 }
 
-// ─── v0.18: DuckLake Standard Interface Executors ──────────────────────────
+// ─── v0.27.1: CDC Completeness & Real Parquet Row Scanning ─────────────────
 
+/// Execute `table_changes(table_ref, start_snapshot, end_snapshot)`.
+///
+/// v0.27.1: Uses real Parquet scanning via the catalog's `ObjectStore`.
+/// File paths are resolved relative to the same object store root used to
+/// open the catalog. Pass `data_root` as `None` to use the catalog's own
+/// object store directly (the common case for relative file paths).
 pub(super) async fn execute_table_changes<'a>(
     table_ref: &str,
     start_snapshot: u64,
@@ -1020,31 +1026,47 @@ pub(super) async fn execute_table_changes<'a>(
         .await
         .map_err(SlateDuckError::from)?;
 
-    // v0.19: Build row-level change records using real data from files.
-    // Extract rows from added/retired data files and compute CDC records.
+    // v0.27.1: Extract rows from Parquet data files using the catalog's object store.
+    // The object store root is shared between catalog metadata and data files
+    // when data files are registered with relative paths.
+    let object_store = store_lock.object_store();
+    drop(store_lock); // release lock before async I/O
+
     let mut added_rows = Vec::new();
     let mut base_rowid = 0u64;
     for file in &diff.added_data_files {
-        let rows = slateduck_sql::table_changes::extract_rows_from_file(
+        let rows = slateduck_sql::table_changes::extract_rows_from_parquet(
+            &object_store,
             &file.path,
-            file.record_count,
             base_rowid,
-            "{}",
-        );
-        base_rowid += file.record_count;
+            Some(file.record_count),
+            slateduck_sql::DEFAULT_CDC_BATCH_SIZE,
+        )
+        .await
+        .map_err(|e| SlateDuckError::SqlState {
+            code: e.sqlstate().to_string(),
+            message: e.to_string(),
+        })?;
+        base_rowid += rows.len() as u64;
         added_rows.extend(rows);
     }
 
     let mut removed_rows = Vec::new();
     base_rowid = 0;
     for file in &diff.retired_data_files {
-        let rows = slateduck_sql::table_changes::extract_rows_from_file(
+        let rows = slateduck_sql::table_changes::extract_rows_from_parquet(
+            &object_store,
             &file.path,
-            file.record_count,
             base_rowid,
-            "{}",
-        );
-        base_rowid += file.record_count;
+            Some(file.record_count),
+            slateduck_sql::DEFAULT_CDC_BATCH_SIZE,
+        )
+        .await
+        .map_err(|e| SlateDuckError::SqlState {
+            code: e.sqlstate().to_string(),
+            message: e.to_string(),
+        })?;
+        base_rowid += rows.len() as u64;
         removed_rows.extend(rows);
     }
 

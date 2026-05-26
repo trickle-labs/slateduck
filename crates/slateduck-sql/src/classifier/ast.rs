@@ -232,6 +232,7 @@ pub(super) fn classify_table_function_from(factor: &TableFactor) -> Option<State
 }
 
 /// Parse args from `table_changes('schema.table', start_snapshot := N, end_snapshot := M)`.
+/// Also accepts positional form: `table_changes('schema.table', N, M)`.
 pub(super) fn parse_table_changes_args(args: &sqlparser::ast::TableFunctionArgs) -> StatementKind {
     let arg_list = &args.args;
     let mut table_ref = String::new();
@@ -249,10 +250,21 @@ pub(super) fn parse_table_changes_args(args: &sqlparser::ast::TableFunctionArgs)
                     _ => {}
                 }
             }
-            sqlparser::ast::FunctionArg::Unnamed(arg) if i == 0 => {
-                table_ref = extract_arg_value(arg).trim_matches('\'').to_string();
+            sqlparser::ast::FunctionArg::Unnamed(arg) => match i {
+                0 => table_ref = extract_arg_value(arg).trim_matches('\'').to_string(),
+                1 => start_snapshot = extract_arg_value(arg).parse().unwrap_or(0),
+                2 => end_snapshot = extract_arg_value(arg).parse().unwrap_or(u64::MAX),
+                _ => {}
+            },
+            sqlparser::ast::FunctionArg::ExprNamed { name, arg, .. } => {
+                let name_str = name.to_string().to_lowercase();
+                let val = extract_arg_value(arg);
+                match name_str.as_str() {
+                    "start_snapshot" => start_snapshot = val.parse().unwrap_or(0),
+                    "end_snapshot" => end_snapshot = val.parse().unwrap_or(u64::MAX),
+                    _ => {}
+                }
             }
-            _ => {}
         }
     }
 

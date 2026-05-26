@@ -30,6 +30,9 @@ pub struct CatalogMetrics {
     pub writer_epoch_age_ms: AtomicU64,
     /// Per-query scanned key count (last).
     pub last_query_keys_scanned: AtomicU64,
+    /// CDC record-count mismatches: fires when a Parquet file's scanned row
+    /// count differs from the `record_count` stored in catalog metadata (N-04).
+    pub cdc_record_count_mismatches: AtomicU64,
 }
 
 impl CatalogMetrics {
@@ -47,6 +50,7 @@ impl CatalogMetrics {
             max_sessions: AtomicU64::new(max_sessions),
             writer_epoch_age_ms: AtomicU64::new(0),
             last_query_keys_scanned: AtomicU64::new(0),
+            cdc_record_count_mismatches: AtomicU64::new(0),
         }
     }
 
@@ -90,6 +94,12 @@ impl CatalogMetrics {
 
     pub fn set_last_query_keys_scanned(&self, count: u64) {
         self.last_query_keys_scanned.store(count, Ordering::Relaxed);
+    }
+
+    /// Sync the CDC record-count mismatch counter from the global counter in
+    /// `slateduck-sql`.  Call this from a background task in the PG-Wire binary.
+    pub fn set_cdc_record_count_mismatches(&self, n: u64) {
+        self.cdc_record_count_mismatches.store(n, Ordering::Relaxed);
     }
 
     /// Render Prometheus-compatible metrics output.
@@ -177,6 +187,16 @@ impl CatalogMetrics {
         out.push_str(&format!(
             "slateduck_last_query_keys_scanned {}\n",
             self.last_query_keys_scanned.load(Ordering::Relaxed)
+        ));
+
+        out.push_str(
+            "# HELP slateduck_cdc_record_count_mismatch_total \
+             Times a Parquet file's scanned row count differed from catalog metadata (N-04).\n",
+        );
+        out.push_str("# TYPE slateduck_cdc_record_count_mismatch_total counter\n");
+        out.push_str(&format!(
+            "slateduck_cdc_record_count_mismatch_total {}\n",
+            self.cdc_record_count_mismatches.load(Ordering::Relaxed)
         ));
 
         out
