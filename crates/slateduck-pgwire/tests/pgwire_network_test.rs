@@ -9,6 +9,7 @@
 //!  - TLS-required server rejects plaintext connections.
 //!  - Process is torn down after each test regardless of outcome.
 
+use futures::TryStreamExt;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use slateduck_catalog::{CatalogStore, OpenOptions};
@@ -293,6 +294,61 @@ async fn full_ddl_dml_query_cycle_over_tcp() {
     }
 
     // Tear down the server cleanly.
+    let _ = tx.send(());
+    let _ = handle.await;
+}
+
+/// Verify binary COPY TO STDOUT streams parseable rows over the network.
+#[tokio::test]
+async fn copy_to_stdout_binary_streams_rows() {
+    let dir = TempDir::new().unwrap();
+    let (addr, tx, handle) = start_server(&dir).await;
+
+    let conn_str = format!(
+        "host=127.0.0.1 port={} user=duckdb dbname=ducklake",
+        addr.port()
+    );
+    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {e}");
+        }
+    });
+
+    let stream = client
+        .copy_out("COPY (SELECT current_database()) TO STDOUT (FORMAT binary)")
+        .await
+        .unwrap();
+    let chunks = stream.try_collect::<Vec<_>>().await.unwrap();
+
+    assert!(
+        !chunks.is_empty(),
+        "COPY stream must include at least one chunk"
+    );
+
+    // Binary COPY signature in first chunk.
+    const SIG: &[u8] = b"PGCOPY\n\xff\r\n\0";
+    assert!(
+        chunks[0].len() >= 19,
+        "first COPY chunk must contain binary header"
+    );
+    assert_eq!(
+        &chunks[0][..SIG.len()],
+        SIG,
+        "invalid binary COPY signature"
+    );
+
+    // End-of-copy marker should be int16 -1 at the end of the payload.
+    let last = &chunks[chunks.len() - 1];
+    assert!(
+        last.len() >= 2,
+        "COPY payload must contain trailer bytes at the end"
+    );
+    assert_eq!(&last[last.len() - 2..], &[0xff, 0xff]);
+
     let _ = tx.send(());
     let _ = handle.await;
 }

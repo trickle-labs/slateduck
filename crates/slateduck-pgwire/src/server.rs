@@ -72,7 +72,7 @@ impl Default for ServerConfig {
             max_active_scans: 25,
             tls: TlsConfig::default(),
             auth: AuthConfig::default(),
-            extension_schemas: vec!["pgtrickle".to_string()],
+            extension_schemas: vec!["public".to_string(), "pgtrickle".to_string()],
         }
     }
 }

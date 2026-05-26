@@ -100,7 +100,7 @@ impl CatalogWriter {
             end_snapshot: None,
             schema_uuid: Some(uuid::Uuid::new_v4().to_string()),
             path: None,
-            path_is_relative: None,
+            path_is_relative: Some(true),
         };
 
         let key = keys::key_schema(schema_id);
@@ -144,7 +144,7 @@ impl CatalogWriter {
             end_snapshot: None,
             path: data_path.map(|s| s.to_string()),
             table_uuid: Some(uuid::Uuid::new_v4().to_string()),
-            path_is_relative: None,
+            path_is_relative: Some(true),
         };
 
         let key = keys::key_table(schema_id, table_id, snapshot_id);
@@ -658,6 +658,39 @@ impl CatalogWriter {
         };
 
         let key = keys::key_inlined_insert(table_id, schema_version, row_id);
+        self.stage(key, values::encode_value(&row));
+        Ok(())
+    }
+
+    pub async fn register_inlined_data_table(
+        &mut self,
+        table_id: u64,
+        table_name: &str,
+        schema_version: u64,
+    ) -> CatalogResult<()> {
+        let row = InlinedDataTablesRow {
+            table_id,
+            schema_version,
+            sql: table_name.to_string(),
+        };
+
+        let key = keys::key_inlined_data_tables(table_id, schema_version);
+        self.stage(key, values::encode_value(&row));
+        Ok(())
+    }
+
+    pub async fn register_schema_version(
+        &mut self,
+        begin_snapshot: u64,
+        schema_version: u64,
+        table_id: u64,
+    ) -> CatalogResult<()> {
+        let row = SchemaVersionsRow {
+            table_id,
+            begin_snapshot,
+            schema_version,
+        };
+        let key = keys::key_schema_versions(table_id, begin_snapshot);
         self.stage(key, values::encode_value(&row));
         Ok(())
     }

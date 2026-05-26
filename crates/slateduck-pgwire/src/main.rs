@@ -250,7 +250,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                 .filter(|x| !x.is_empty())
                 .collect()
         })
-        .unwrap_or_else(|| vec!["pgtrickle".to_string()]);
+        .unwrap_or_else(|| vec!["public".to_string(), "pgtrickle".to_string()]);
 
     let mut i = 2;
     while i < args.len() {

@@ -3,6 +3,7 @@
 //! Implements Strategy B: a sidecar process that speaks the PostgreSQL wire protocol
 //! and translates DuckLake catalog SQL into CatalogStore operations.
 
+pub mod copy_parser;
 pub mod error;
 pub mod executor;
 pub mod handler;

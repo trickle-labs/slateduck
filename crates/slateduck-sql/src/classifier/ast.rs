@@ -65,9 +65,17 @@ pub(super) fn classify_ast(stmt: &Statement) -> StatementKind {
                 // Extension schema DDL: CREATE TABLE IF NOT EXISTS pgtrickle.table_name
                 let parts: Vec<&str> = name.splitn(2, '.').collect();
                 if parts.len() == 2 {
-                    StatementKind::CreateExtensionTable {
-                        schema_name: parts[0].to_string(),
-                        table_name: parts[1].to_string(),
+                    let schema = parts[0].trim_matches('"');
+                    let table = parts[1].trim_matches('"');
+                    // DuckDB 1.5+ sends schema-qualified "public"."ducklake_*" DDL.
+                    // These are core DuckLake tables managed by slateduck — treat as no-op.
+                    if schema == "public" && table.starts_with("ducklake_") {
+                        StatementKind::CreateInlinedTable
+                    } else {
+                        StatementKind::CreateExtensionTable {
+                            schema_name: schema.to_string(),
+                            table_name: table.to_string(),
+                        }
                     }
                 } else {
                     StatementKind::Unsupported(format!("CREATE TABLE {name}"))
@@ -91,8 +99,8 @@ pub(super) fn classify_ast(stmt: &Statement) -> StatementKind {
                     let parts: Vec<&str> = table_name.splitn(2, '.').collect();
                     if parts.len() == 2 {
                         return StatementKind::DeleteExtensionRows {
-                            schema_name: parts[0].to_string(),
-                            table_name: parts[1].to_string(),
+                            schema_name: parts[0].trim_matches('"').to_string(),
+                            table_name: parts[1].trim_matches('"').to_string(),
                         };
                     }
                 }
@@ -113,6 +121,19 @@ pub(super) fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
                 return classify_no_from_select(select);
             }
 
+            // DuckDB postgres_scanner wraps ducklake_snapshot reads in a derived subquery
+            // for projection pushdown via postgres_query():
+            //   SELECT "col" FROM (SELECT ... FROM ducklake_snapshot ...) AS __unnamed_subquery
+            // Handle these specifically, then fall through to direct table classification.
+            if let Some(kind) = classify_derived_snapshot_select(select) {
+                return kind;
+            }
+            // Also handle projection-pushdown derived subqueries for all other ducklake tables
+            // (e.g. SELECT "col1", "col2" FROM (SELECT ... FROM ducklake_X ...) AS __sub).
+            if let Some(kind) = classify_derived_ducklake_select(select) {
+                return kind;
+            }
+
             // Check FROM table
             if let Some(from) = select.from.first() {
                 // Check for table_changes() function call in FROM
@@ -121,13 +142,148 @@ pub(super) fn classify_query(query: &sqlparser::ast::Query) -> StatementKind {
                 }
                 let table_name = extract_table_name(&from.relation);
                 if let Some(name) = table_name {
-                    return classify_table_select_with_query(&name, query, select);
+                    let lower = name.to_lowercase();
+                    let normalized = strip_public_schema(&lower);
+                    return classify_table_select_with_query(normalized, query, select);
                 }
             }
 
             StatementKind::Unsupported("unrecognized SELECT".to_string())
         }
         _ => StatementKind::Unsupported("non-SELECT query body".to_string()),
+    }
+}
+
+fn classify_derived_snapshot_select(select: &sqlparser::ast::Select) -> Option<StatementKind> {
+    let from = select.from.first()?;
+    let TableFactor::Derived { subquery, .. } = &from.relation else {
+        return None;
+    };
+
+    let SetExpr::Select(inner_select) = subquery.body.as_ref() else {
+        return None;
+    };
+
+    let inner_from = inner_select.from.first()?;
+    let inner_table = extract_table_name(&inner_from.relation)?;
+    let inner_lower = inner_table.to_lowercase();
+    let inner_normalized = strip_public_schema(&inner_lower);
+    if inner_normalized == "ducklake_snapshot" {
+        if outer_projection_looks_like_max(select) {
+            Some(StatementKind::SelectMaxSnapshot)
+        } else if outer_projection_looks_like_snapshot_tuple(select) {
+            Some(StatementKind::SelectLatestSnapshotInfo)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Handle DuckDB projection-pushdown pattern for ALL ducklake tables (except snapshot,
+/// which is handled by `classify_derived_snapshot_select`):
+///   SELECT "col1", "col2" FROM (SELECT ... FROM ducklake_X WHERE ...) AS __unnamed_subquery
+///
+/// Classifies as the same StatementKind as a direct SELECT from `ducklake_X`.
+fn classify_derived_ducklake_select(select: &sqlparser::ast::Select) -> Option<StatementKind> {
+    let from = select.from.first()?;
+    let TableFactor::Derived { subquery, .. } = &from.relation else {
+        return None;
+    };
+    let SetExpr::Select(inner_select) = subquery.body.as_ref() else {
+        return None;
+    };
+    let inner_from = inner_select.from.first()?;
+    // Handle multi-level nesting by walking to the innermost Table reference.
+    let table_name = extract_innermost_table_name(&inner_from.relation)?;
+    let lower = table_name.to_lowercase();
+    let normalized = strip_public_schema(&lower);
+    // Skip ducklake_snapshot — handled by classify_derived_snapshot_select.
+    if normalized == "ducklake_snapshot" {
+        return None;
+    }
+    if !normalized.starts_with("ducklake_") {
+        return None;
+    }
+    Some(classify_table_select_with_query(
+        normalized,
+        subquery.as_ref(),
+        inner_select,
+    ))
+}
+
+/// Walk TableFactor levels (including nested Derived subqueries) to find the
+/// innermost concrete Table reference and return its name.
+fn extract_innermost_table_name(factor: &TableFactor) -> Option<String> {
+    match factor {
+        TableFactor::Table { name, .. } => Some(name.to_string()),
+        TableFactor::Derived { subquery, .. } => {
+            let SetExpr::Select(inner_select) = subquery.body.as_ref() else {
+                return None;
+            };
+            let inner_from = inner_select.from.first()?;
+            extract_innermost_table_name(&inner_from.relation)
+        }
+        _ => None,
+    }
+}
+
+fn outer_projection_looks_like_snapshot_tuple(select: &sqlparser::ast::Select) -> bool {
+    [
+        "snapshot_id",
+        "schema_version",
+        "next_catalog_id",
+        "next_file_id",
+    ]
+    .iter()
+    .all(|name| {
+        select
+            .projection
+            .iter()
+            .any(|item| projection_item_name(item) == *name)
+    })
+}
+
+fn projection_item_name(item: &SelectItem) -> String {
+    match item {
+        SelectItem::UnnamedExpr(expr) => expr_last_identifier(expr),
+        SelectItem::ExprWithAlias { alias, .. } => alias.value.to_lowercase(),
+        SelectItem::QualifiedWildcard(_, _) | SelectItem::Wildcard(_) => "*".to_string(),
+    }
+}
+
+fn expr_last_identifier(expr: &Expr) -> String {
+    match expr {
+        Expr::Identifier(id) => id.value.to_lowercase(),
+        Expr::CompoundIdentifier(parts) => parts
+            .last()
+            .map(|id| id.value.to_lowercase())
+            .unwrap_or_default(),
+        _ => expr.to_string().to_lowercase(),
+    }
+}
+
+fn outer_projection_looks_like_max(select: &sqlparser::ast::Select) -> bool {
+    let Some(item) = select.projection.first() else {
+        return false;
+    };
+
+    match item {
+        SelectItem::UnnamedExpr(Expr::Identifier(id)) => id.value.eq_ignore_ascii_case("max"),
+        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(parts)) => parts
+            .last()
+            .map(|id| id.value.eq_ignore_ascii_case("max"))
+            .unwrap_or(false),
+        SelectItem::ExprWithAlias { expr, .. } => match expr {
+            Expr::Identifier(id) => id.value.eq_ignore_ascii_case("max"),
+            Expr::CompoundIdentifier(parts) => parts
+                .last()
+                .map(|id| id.value.eq_ignore_ascii_case("max"))
+                .unwrap_or(false),
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -208,9 +364,23 @@ pub(super) fn classify_no_from_select(select: &sqlparser::ast::Select) -> Statem
     StatementKind::Unsupported("SELECT without FROM".to_string())
 }
 
+/// Strip a `"public".` or `public.` schema prefix.
+/// DuckDB 1.5+ sends schema-qualified names (e.g. `"public"."ducklake_metadata"`);
+/// slateduck matches against unqualified names, so we normalize here.
+fn strip_public_schema(s: &str) -> &str {
+    if let Some(rest) = s.strip_prefix("\"public\".") {
+        rest.trim_matches('"')
+    } else if let Some(rest) = s.strip_prefix("public.") {
+        rest
+    } else {
+        s
+    }
+}
+
 pub(super) fn classify_insert(table_name: &ObjectName, columns: &[String]) -> StatementKind {
-    let name = table_name.to_string().to_lowercase();
-    match name.as_str() {
+    let raw = table_name.to_string().to_lowercase();
+    let name = strip_public_schema(&raw);
+    match name {
         "ducklake_snapshot" => StatementKind::InsertSnapshot,
         "ducklake_snapshot_changes" => StatementKind::InsertSnapshotChanges,
         "ducklake_schema" => StatementKind::InsertSchema,
@@ -219,43 +389,50 @@ pub(super) fn classify_insert(table_name: &ObjectName, columns: &[String]) -> St
         "ducklake_data_file" => StatementKind::InsertDataFile,
         "ducklake_delete_file" => StatementKind::InsertDeleteFile,
         "ducklake_table_stats" => StatementKind::InsertTableStats,
+        "ducklake_table_column_stats" => StatementKind::InsertTableColumnStats,
         "ducklake_file_column_stats" => StatementKind::InsertFileColumnStats,
         "ducklake_metadata" => StatementKind::InsertMetadata,
         "ducklake_inlined_data_tables" => StatementKind::InsertInlinedDataTables,
+        "ducklake_schema_versions" => StatementKind::InsertSchemaVersions,
         "ducklake_view" => StatementKind::InsertView,
         "ducklake_macro" => StatementKind::InsertMacro,
         "ducklake_macro_impl" => StatementKind::InsertMacroImpl,
         "ducklake_macro_parameters" => StatementKind::InsertMacroParameters,
         s if s.starts_with("ducklake_inlined_") => StatementKind::InsertInlinedRow,
+        // Catch-all for any unrecognized ducklake_* table (future-proofing)
+        s if s.starts_with("ducklake_") => StatementKind::InsertInlinedRow,
         s if s.contains('.') => {
             // Extension schema INSERT: pgtrickle.pgt_ducklake_provenance
             let parts: Vec<&str> = s.splitn(2, '.').collect();
             if parts.len() == 2 {
                 StatementKind::InsertExtensionRow {
-                    schema_name: parts[0].to_string(),
-                    table_name: parts[1].to_string(),
+                    schema_name: parts[0].trim_matches('"').to_string(),
+                    table_name: parts[1].trim_matches('"').to_string(),
                     columns: columns.to_vec(),
                     values_json: String::new(),
                 }
             } else {
-                StatementKind::Unsupported(format!("INSERT INTO {name}"))
+                StatementKind::Unsupported(format!("INSERT INTO {raw}"))
             }
         }
-        _ => StatementKind::Unsupported(format!("INSERT INTO {name}")),
+        _ => StatementKind::Unsupported(format!("INSERT INTO {raw}")),
     }
 }
 
 pub(super) fn classify_update(table: &sqlparser::ast::TableWithJoins) -> StatementKind {
-    let table_name = extract_table_name(&table.relation)
+    let raw = extract_table_name(&table.relation)
         .unwrap_or_default()
         .to_lowercase();
-    match table_name.as_str() {
+    let table_name = strip_public_schema(&raw);
+    match table_name {
         "ducklake_table_stats" => StatementKind::UpdateTableStats,
         "ducklake_table" | "ducklake_column" | "ducklake_data_file" | "ducklake_view"
         | "ducklake_macro" | "ducklake_schema" => {
-            StatementKind::UpdateEndSnapshot(table_name.clone())
+            StatementKind::UpdateEndSnapshot(table_name.to_string())
         }
         s if s.starts_with("ducklake_inlined_") => StatementKind::UpdateInlinedRowEndSnapshot,
+        // Catch-all for any unrecognized ducklake_* table (future-proofing)
+        s if s.starts_with("ducklake_") => StatementKind::UpdateEndSnapshot(table_name.to_string()),
         _ => StatementKind::Unsupported(format!("UPDATE {table_name}")),
     }
 }

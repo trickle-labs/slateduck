@@ -103,6 +103,42 @@ impl CatalogWriter {
         Ok(())
     }
 
+    pub async fn set_table_stats(
+        &mut self,
+        table_id: u64,
+        record_count: u64,
+        file_size_bytes: u64,
+        next_row_id: u64,
+    ) -> CatalogResult<()> {
+        let existing_file_count = {
+            let key = keys::key_table_stats(table_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    let existing: TableStatsRow = slateduck_core::values::decode_value(&data)
+                        .unwrap_or(TableStatsRow {
+                            table_id,
+                            record_count: 0,
+                            file_count: 0,
+                            file_size_bytes: 0,
+                            next_row_id: None,
+                        });
+                    existing.file_count
+                }
+                None => 0,
+            }
+        };
+        let row = TableStatsRow {
+            table_id,
+            record_count,
+            file_count: existing_file_count,
+            file_size_bytes,
+            next_row_id: Some(next_row_id),
+        };
+        let key = keys::key_table_stats(table_id);
+        self.db.put(&key, values::encode_value(&row)).await?;
+        Ok(())
+    }
+
     /// v0.26: Write or update table-level column stats.
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_table_column_stats(

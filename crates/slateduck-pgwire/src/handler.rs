@@ -7,13 +7,16 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::sink::{Sink, SinkExt};
+use futures::StreamExt;
 use pgwire::api::auth::{
     finish_authentication, save_startup_parameters_to_metadata, DefaultServerParameterProvider,
 };
-use pgwire::api::copy::NoopCopyHandler;
+use pgwire::api::copy::CopyHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::results::FieldInfo;
 use pgwire::api::results::{DescribePortalResponse, DescribeStatementResponse, Response};
 use pgwire::api::stmt::{QueryParser, StoredStatement};
 use pgwire::api::store::PortalStore;
@@ -24,16 +27,132 @@ use pgwire::api::{
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::response::ErrorResponse;
 use pgwire::messages::startup::Authentication;
-use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use pgwire::messages::{copy::CopyOutResponse, PgWireBackendMessage, PgWireFrontendMessage};
+use sqlparser::ast::{Expr, SelectItem, SetExpr, Statement};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
 use tokio::sync::Mutex;
 
 use slateduck_catalog::CatalogStore;
-use slateduck_sql::ParamValues;
+use slateduck_sql::{classify_statement, ParamValues, StatementKind};
 
+use crate::copy_parser;
 use crate::executor;
 use crate::notify::NotifyManager;
 use crate::server::AuthConfig;
-use crate::session::SessionState;
+use crate::session::{BootstrapSchemaRow, SessionState};
+
+/// SlateDuck COPY handler: parses binary COPY FROM STDIN data for ducklake_*
+/// tables and stores the bootstrap rows in the session for later commit.
+#[derive(Clone)]
+pub struct SlateDuckCopyHandler {
+    session: Arc<Mutex<SessionState>>,
+}
+
+impl SlateDuckCopyHandler {
+    pub fn new(session: Arc<Mutex<SessionState>>) -> Self {
+        Self { session }
+    }
+}
+
+#[async_trait]
+impl CopyHandler for SlateDuckCopyHandler {
+    async fn on_copy_data<C>(
+        &self,
+        _client: &mut C,
+        copy_data: pgwire::messages::copy::CopyData,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        // Append incoming bytes to the accumulator for the active COPY table.
+        let mut session = self.session.lock().await;
+        if let Some(acc) = &mut session.pending_copy {
+            acc.data.extend_from_slice(&copy_data.data);
+        }
+        Ok(())
+    }
+
+    async fn on_copy_done<C>(
+        &self,
+        client: &mut C,
+        _done: pgwire::messages::copy::CopyDone,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        // Drain the accumulator outside the lock to avoid holding it during parsing.
+        let (table, data) = {
+            let mut session = self.session.lock().await;
+            match session.pending_copy.take() {
+                Some(acc) => (acc.table, acc.data),
+                None => {
+                    // No active COPY — still send CommandComplete.
+                    return send_copy_done(client, 0).await;
+                }
+            }
+        };
+
+        // Parse the binary COPY stream and extract bootstrap rows.
+        let rows = copy_parser::parse_binary_copy_rows(&data);
+        let row_count = rows.len();
+
+        {
+            let mut session = self.session.lock().await;
+            match table.as_str() {
+                "ducklake_snapshot" => {
+                    // Any row means DuckDB has initialised a snapshot.
+                    if !rows.is_empty() {
+                        session.bootstrap.has_snapshot = true;
+                    }
+                }
+                "ducklake_schema" => {
+                    for row in &rows {
+                        // ducklake_schema column order:
+                        //   0: schema_id (BIGINT)
+                        //   1: schema_uuid (UUID)
+                        //   2: begin_snapshot (BIGINT)
+                        //   3: end_snapshot (BIGINT, nullable)
+                        //   4: schema_name (VARCHAR)  ← what we need
+                        //   5: path (VARCHAR, nullable)
+                        //   6: path_is_relative (BOOLEAN, nullable)
+                        if let Some(name) = copy_parser::extract_varchar(row, 4) {
+                            session
+                                .bootstrap
+                                .schemas
+                                .push(BootstrapSchemaRow { schema_name: name });
+                        }
+                    }
+                }
+                // ducklake_snapshot_changes and ducklake_metadata are accepted
+                // but not persisted; they don't affect catalog bootstrap state.
+                _ => {}
+            }
+        }
+
+        send_copy_done(client, row_count).await
+    }
+}
+
+/// Send `CommandComplete "COPY N"` to the client.
+async fn send_copy_done<C>(client: &mut C, rows: usize) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    use pgwire::messages::response::CommandComplete;
+    client
+        .send(PgWireBackendMessage::CommandComplete(CommandComplete::new(
+            format!("COPY {rows}"),
+        )))
+        .await?;
+    Ok(())
+}
 
 /// The main SlateDuck query handler.
 pub struct SlateDuckHandler {
@@ -85,6 +204,314 @@ impl SlateDuckHandler {
             extension_schemas,
         }
     }
+
+    /// If `sql` is a `COPY (SELECT ...) TO STDOUT`, execute the inner SELECT
+    /// and stream PostgreSQL binary COPY frames directly to the client.
+    async fn try_stream_copy_to_stdout<C>(
+        &self,
+        client: &mut C,
+        sql: &str,
+    ) -> PgWireResult<Option<usize>>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let StatementKind::CopyToStdout { query } =
+            classify_statement(sql).unwrap_or(StatementKind::Unsupported(String::new()))
+        else {
+            return Ok(None);
+        };
+
+        eprintln!("[TRACE COPY] inner query: {query}");
+
+        let params = ParamValues::default();
+        let mut session = self.session.lock().await;
+        let mut responses = executor::execute_sql(
+            &query,
+            &params,
+            &self.catalog,
+            &mut session,
+            &self.notify_manager,
+            &self.extension_schemas,
+        )
+        .await
+        .map_err(|e| -> PgWireError { e.into() })?;
+
+        let response = responses.pop().ok_or_else(|| {
+            PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_string(),
+                "XX000".to_string(),
+                "COPY TO STDOUT inner query returned no response".to_string(),
+            )))
+        })?;
+
+        let pgwire::api::results::Response::Query(query_response) = response else {
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_string(),
+                "XX000".to_string(),
+                "COPY TO STDOUT inner statement must return rows".to_string(),
+            ))));
+        };
+
+        let row_schema = query_response.row_schema();
+        let projected_indices = projected_copy_indices(&query, row_schema.as_ref());
+        let columns = projected_indices.len();
+        client
+            .send(PgWireBackendMessage::CopyOutResponse(CopyOutResponse::new(
+                1,
+                columns as i16,
+                vec![1; columns],
+            )))
+            .await?;
+
+        // Build one contiguous binary COPY payload (header + rows + trailer).
+        // Some clients are strict about frame boundaries during binary COPY reads.
+        let mut payload = BytesMut::new();
+        payload.extend_from_slice(binary_copy_header().as_ref());
+
+        let mut row_count = 0usize;
+        let mut rows = query_response.data_rows();
+        while let Some(row_result) = rows.next().await {
+            let row = row_result?;
+            let projected_row = project_copy_row_data(
+                &row.data,
+                row.field_count as usize,
+                &projected_indices,
+                row_schema.as_ref(),
+            )?;
+            payload.put_i16(columns as i16);
+            payload.put_slice(&projected_row);
+            row_count += 1;
+        }
+
+        // End-of-copy marker: int16 -1.
+        payload.put_i16(-1);
+
+        client
+            .send(PgWireBackendMessage::CopyData(
+                pgwire::messages::copy::CopyData::new(payload.freeze()),
+            ))
+            .await?;
+
+        client
+            .send(PgWireBackendMessage::CopyDone(
+                pgwire::messages::copy::CopyDone::new(),
+            ))
+            .await?;
+
+        Ok(Some(row_count))
+    }
+}
+
+fn binary_copy_header() -> Bytes {
+    // Signature + flags (0) + header extension length (0).
+    const SIGNATURE: &[u8] = b"PGCOPY\n\xff\r\n\0";
+    let mut buf = BytesMut::with_capacity(SIGNATURE.len() + 8);
+    buf.put_slice(SIGNATURE);
+    buf.put_i32(0);
+    buf.put_i32(0);
+    buf.freeze()
+}
+
+fn projected_copy_indices(sql: &str, schema: &[FieldInfo]) -> Vec<usize> {
+    projection_names(sql)
+        .and_then(|names| {
+            let schema_names = schema
+                .iter()
+                .map(|field| field.name().to_lowercase())
+                .collect::<Vec<_>>();
+            names
+                .iter()
+                .map(|name| schema_names.iter().position(|field| field == name))
+                .collect::<Option<Vec<_>>>()
+        })
+        .filter(|indices| !indices.is_empty())
+        .unwrap_or_else(|| (0..schema.len()).collect())
+}
+
+fn projection_names(sql: &str) -> Option<Vec<String>> {
+    let dialect = PostgreSqlDialect {};
+    let mut statements = Parser::parse_sql(&dialect, sql).ok()?;
+    let statement = statements.pop()?;
+    let Statement::Query(query) = statement else {
+        return None;
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return None;
+    };
+
+    let mut names = Vec::new();
+    for item in &select.projection {
+        let name = projection_item_name(item)?;
+        if name == "*" {
+            return None;
+        }
+        names.push(name);
+    }
+    Some(names)
+}
+
+fn projection_item_name(item: &SelectItem) -> Option<String> {
+    match item {
+        SelectItem::UnnamedExpr(expr) => Some(expr_last_identifier(expr)),
+        SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.to_lowercase()),
+        SelectItem::QualifiedWildcard(_, _) | SelectItem::Wildcard(_) => Some("*".to_string()),
+    }
+}
+
+fn expr_last_identifier(expr: &Expr) -> String {
+    match expr {
+        Expr::Identifier(id) => id.value.to_lowercase(),
+        Expr::CompoundIdentifier(parts) => parts
+            .last()
+            .map(|id| id.value.to_lowercase())
+            .unwrap_or_default(),
+        _ => expr.to_string().to_lowercase(),
+    }
+}
+
+fn project_copy_row_data(
+    row_data: &BytesMut,
+    field_count: usize,
+    projected_indices: &[usize],
+    schema: &[FieldInfo],
+) -> PgWireResult<BytesMut> {
+    let fields = split_copy_row_fields(row_data, field_count)?;
+    let mut projected = BytesMut::new();
+    for &index in projected_indices {
+        let Some(field) = fields.get(index) else {
+            return Err(copy_out_error(
+                "COPY TO STDOUT projection index out of range",
+            ));
+        };
+        match field {
+            Some(value) => {
+                let datatype = schema
+                    .get(index)
+                    .map(|field| field.datatype())
+                    .ok_or_else(|| copy_out_error("COPY TO STDOUT schema index out of range"))?;
+                let value = encode_binary_copy_field(value, datatype)?;
+                projected.put_i32(value.len() as i32);
+                projected.put_slice(&value);
+            }
+            None => projected.put_i32(-1),
+        }
+    }
+    Ok(projected)
+}
+
+fn encode_binary_copy_field(value: &[u8], datatype: &Type) -> PgWireResult<Vec<u8>> {
+    if datatype == &Type::UUID {
+        if value.len() == 16 {
+            return Ok(value.to_vec());
+        }
+        let uuid_text = std::str::from_utf8(value)
+            .map_err(|_| copy_out_error("COPY TO STDOUT UUID field is not valid UTF-8"))?;
+        let uuid = uuid::Uuid::parse_str(uuid_text)
+            .map_err(|_| copy_out_error("COPY TO STDOUT UUID field is invalid"))?;
+        return Ok(uuid.as_bytes().to_vec());
+    }
+
+    if datatype == &Type::INT8 {
+        if value.len() == 8 {
+            return Ok(value.to_vec());
+        }
+        let int_text = std::str::from_utf8(value)
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT8 field is not valid UTF-8"))?;
+        let value = int_text
+            .parse::<i64>()
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT8 field is invalid"))?;
+        return Ok(value.to_be_bytes().to_vec());
+    }
+
+    if datatype == &Type::INT4 {
+        if value.len() == 4 {
+            return Ok(value.to_vec());
+        }
+        let int_text = std::str::from_utf8(value)
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT4 field is not valid UTF-8"))?;
+        let value = int_text
+            .parse::<i32>()
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT4 field is invalid"))?;
+        return Ok(value.to_be_bytes().to_vec());
+    }
+
+    if datatype == &Type::INT2 {
+        if value.len() == 2 {
+            return Ok(value.to_vec());
+        }
+        let int_text = std::str::from_utf8(value)
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT2 field is not valid UTF-8"))?;
+        let value = int_text
+            .parse::<i16>()
+            .map_err(|_| copy_out_error("COPY TO STDOUT INT2 field is invalid"))?;
+        return Ok(value.to_be_bytes().to_vec());
+    }
+
+    if datatype == &Type::BOOL {
+        if value.len() == 1 && (value[0] == 0 || value[0] == 1) {
+            return Ok(value.to_vec());
+        }
+        let bool_text = std::str::from_utf8(value)
+            .map_err(|_| copy_out_error("COPY TO STDOUT boolean field is not valid UTF-8"))?
+            .to_ascii_lowercase();
+        return match bool_text.as_str() {
+            "true" | "t" | "1" => Ok(vec![1]),
+            "false" | "f" | "0" => Ok(vec![0]),
+            _ => Err(copy_out_error("COPY TO STDOUT boolean field is invalid")),
+        };
+    }
+
+    Ok(value.to_vec())
+}
+
+fn split_copy_row_fields(
+    row_data: &BytesMut,
+    field_count: usize,
+) -> PgWireResult<Vec<Option<Vec<u8>>>> {
+    let mut offset = 0usize;
+    let mut fields = Vec::with_capacity(field_count);
+    for _ in 0..field_count {
+        if row_data.len().saturating_sub(offset) < 4 {
+            return Err(copy_out_error(
+                "COPY TO STDOUT row field length is truncated",
+            ));
+        }
+        let len = i32::from_be_bytes(
+            row_data[offset..offset + 4]
+                .try_into()
+                .expect("slice length checked"),
+        );
+        offset += 4;
+        if len == -1 {
+            fields.push(None);
+            continue;
+        }
+        if len < 0 {
+            return Err(copy_out_error(
+                "COPY TO STDOUT row contains invalid field length",
+            ));
+        }
+        let len = len as usize;
+        if row_data.len().saturating_sub(offset) < len {
+            return Err(copy_out_error("COPY TO STDOUT row field data is truncated"));
+        }
+        fields.push(Some(row_data[offset..offset + len].to_vec()));
+        offset += len;
+    }
+    if offset != row_data.len() {
+        return Err(copy_out_error("COPY TO STDOUT row has trailing bytes"));
+    }
+    Ok(fields)
+}
+
+fn copy_out_error(message: &str) -> PgWireError {
+    PgWireError::UserError(Box::new(ErrorInfo::new(
+        "ERROR".to_string(),
+        "XX000".to_string(),
+        message.to_string(),
+    )))
 }
 
 /// Constant-time byte slice equality comparison to resist timing attacks.
@@ -226,6 +653,13 @@ impl SimpleQueryHandler for SlateDuckHandler {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        eprintln!("[TRACE SimpleQuery] {query}");
+        if let Some(rows) = self.try_stream_copy_to_stdout(_client, query).await? {
+            return Ok(vec![Response::Execution(
+                pgwire::api::results::Tag::new("COPY").with_rows(rows),
+            )]);
+        }
+
         let params = ParamValues::default();
         let mut session = self.session.lock().await;
         match executor::execute_sql(
@@ -279,6 +713,12 @@ impl ExtendedQueryHandler for SlateDuckHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let sql = &portal.statement.statement;
+
+        if let Some(rows) = self.try_stream_copy_to_stdout(_client, sql).await? {
+            return Ok(Response::Execution(
+                pgwire::api::results::Tag::new("COPY").with_rows(rows),
+            ));
+        }
 
         // Extract parameters from portal, handling binary-encoded integers.
         // tokio-postgres (and DuckDB) always send parameters in binary format;
@@ -400,26 +840,30 @@ impl ExtendedQueryHandler for SlateDuckHandler {
 pub struct SlateDuckServerHandlers {
     pub handler: Arc<SlateDuckHandler>,
     pub startup: Arc<SlateDuckStartupHandler>,
-    pub copy_handler: Arc<NoopCopyHandler>,
+    pub copy_handler: Arc<SlateDuckCopyHandler>,
     pub error_handler: Arc<NoopErrorHandler>,
 }
 
 impl SlateDuckServerHandlers {
     pub fn new(catalog: Arc<Mutex<CatalogStore>>) -> Self {
         let auth = Arc::new(AuthConfig::default());
+        let handler = Arc::new(SlateDuckHandler::new(catalog));
+        let copy_handler = Arc::new(SlateDuckCopyHandler::new(handler.session.clone()));
         Self {
-            handler: Arc::new(SlateDuckHandler::new(catalog)),
+            handler,
             startup: Arc::new(SlateDuckStartupHandler::new(auth)),
-            copy_handler: Arc::new(NoopCopyHandler),
+            copy_handler,
             error_handler: Arc::new(NoopErrorHandler),
         }
     }
 
     pub fn new_with_auth(catalog: Arc<Mutex<CatalogStore>>, auth: Arc<AuthConfig>) -> Self {
+        let handler = Arc::new(SlateDuckHandler::new_with_auth(catalog, auth.clone()));
+        let copy_handler = Arc::new(SlateDuckCopyHandler::new(handler.session.clone()));
         Self {
-            handler: Arc::new(SlateDuckHandler::new_with_auth(catalog, auth.clone())),
+            handler,
             startup: Arc::new(SlateDuckStartupHandler::new(auth)),
-            copy_handler: Arc::new(NoopCopyHandler),
+            copy_handler,
             error_handler: Arc::new(NoopErrorHandler),
         }
     }
@@ -431,18 +875,20 @@ impl SlateDuckServerHandlers {
         notify_manager: Arc<NotifyManager>,
         extension_schemas: Arc<Vec<String>>,
     ) -> Self {
+        let handler = Arc::new(SlateDuckHandler::new_with_config(
+            catalog,
+            auth.clone(),
+            notify_manager,
+            extension_schemas,
+        ));
+        let copy_handler = Arc::new(SlateDuckCopyHandler::new(handler.session.clone()));
         Self {
-            handler: Arc::new(SlateDuckHandler::new_with_config(
-                catalog,
-                auth.clone(),
-                notify_manager,
-                extension_schemas,
-            )),
+            handler,
             startup: Arc::new(SlateDuckStartupHandler::new_with_tls_required(
                 auth,
                 tls_required,
             )),
-            copy_handler: Arc::new(NoopCopyHandler),
+            copy_handler,
             error_handler: Arc::new(NoopErrorHandler),
         }
     }
@@ -452,7 +898,7 @@ impl PgWireServerHandlers for SlateDuckServerHandlers {
     type StartupHandler = SlateDuckStartupHandler;
     type SimpleQueryHandler = SlateDuckHandler;
     type ExtendedQueryHandler = SlateDuckHandler;
-    type CopyHandler = NoopCopyHandler;
+    type CopyHandler = SlateDuckCopyHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -577,6 +1023,12 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
         | slateduck_sql::StatementKind::SelectMaxSnapshotAfter => {
             vec![int8_col!("max")]
         }
+        slateduck_sql::StatementKind::SelectLatestSnapshotInfo => vec![
+            int8_col!("snapshot_id"),
+            int8_col!("schema_version"),
+            int8_col!("next_catalog_id"),
+            int8_col!("next_file_id"),
+        ],
         slateduck_sql::StatementKind::ShowVariable(ref var) => {
             vec![text_col!(var.as_str())]
         }

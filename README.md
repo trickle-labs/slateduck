@@ -113,14 +113,14 @@ INSTALL ducklake;
 LOAD ducklake;
 
 -- Attach SlateDuck as your catalog backend
-ATTACH 'ducklake:postgres:host=localhost port=5432 dbname=slateduck' AS my_lake;
+ATTACH 'ducklake:postgres:host=localhost port=5432 dbname=slateduck' AS my_lake (DATA_PATH '/tmp/ducklake');
 USE my_lake;
 
 -- Create a base table
 CREATE TABLE events (id BIGINT, name VARCHAR, ts TIMESTAMP);
 INSERT INTO events VALUES (1, 'launch', NOW());
 
-SELECT * FROM events_by_day;
+SELECT * FROM events;
 ```
 
 ---

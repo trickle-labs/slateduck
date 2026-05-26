@@ -1,1 +1,483 @@
-{"client":"duckdb-postgres-scanner","version":"1.5.x","description":"DuckDB 1.5.x postgres scanner initialization sequence when attaching via ATTACH 'ducklake:postgres:...' AS lake","statements":[{"seq":1,"sql":"SELECT version(), (SELECT COUNT(*) FROM pg_settings WHERE name LIKE 'rds%')","expected_kind":"SelectVersionWithRdsCheck","expected_columns":["version","count"]},{"seq":2,"sql":"DISCARD ALL","expected_kind":"DiscardAll","expected_tag":"DISCARD"},{"seq":3,"sql":"SELECT to_regclass('duckdb_secrets')","expected_kind":"SelectToRegclass","expected_columns":["to_regclass"],"expected_null":true},{"seq":4,"sql":"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'duckdb_secrets')","expected_kind":"SelectExistsInfoSchema","expected_columns":["exists"],"expected_value":"false"},{"seq":5,"sql":"SELECT pg_database_size(current_database())","expected_kind":"SelectPgDatabaseSize","expected_columns":["pg_database_size"]},{"seq":6,"sql":"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nSELECT oid, nspname FROM pg_namespace ORDER BY oid;\nSELECT pg_namespace.oid AS namespace_id, relname, relpages, attname, pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim, attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id, NULL constraint_type, NULL constraint_key FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid JOIN pg_type ON atttypid=pg_type.oid WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') UNION ALL SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name, NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull, pg_constraint.oid AS constraint_id, contype AS constraint_type, conkey AS constraint_key FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid) WHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND contype IN ('p', 'u') ORDER BY namespace_id, relname, attnum, constraint_id;\nSELECT n.oid, enumtypid, typname, enumlabel FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid JOIN pg_namespace AS n ON (typnamespace=n.oid) ORDER BY n.oid, enumtypid, enumsortorder;\nSELECT n.oid, t.typrelid AS id, t.typname as type, pg_attribute.attname, sub_type.typname FROM pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace JOIN pg_class ON pg_class.oid = t.typrelid JOIN pg_attribute ON attrelid=t.typrelid JOIN pg_type sub_type ON (pg_attribute.atttypid=sub_type.oid) WHERE pg_class.relkind = 'c' AND t.typtype='c' ORDER BY n.oid, t.oid, attrelid, attnum;\nSELECT pg_namespace.oid, tablename, indexname FROM pg_indexes JOIN pg_namespace ON (schemaname=nspname) ORDER BY pg_namespace.oid;\nROLLBACK;","expected_kind":"PgCatalogScan","expected_result_sets":5,"expected_namespaces":["public","main"]}]}
+{
+  "client": "duckdb-postgres-scanner",
+  "ducklake_version": "1.0",
+  "captured": "2026-05-26",
+  "description": "Wire corpus of SQL statements sent by DuckDB 1.5.3 with the ducklake extension during ATTACH initialization",
+  "statements": [
+    {
+      "kind": "SelectVersionWithRdsCheck",
+      "sql": "SELECT version(), (SELECT COUNT(*) FROM pg_settings WHERE name LIKE 'rds%')",
+      "seq": 1,
+      "expected_kind": "SelectVersionWithRdsCheck"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 2,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "DiscardAll",
+      "sql": "DISCARD ALL",
+      "seq": 3,
+      "expected_kind": "DiscardAll"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 4,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "SelectToRegclass",
+      "sql": "SELECT to_regclass('duckdb_secrets')",
+      "seq": 5,
+      "expected_kind": "SelectToRegclass"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 6,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "DiscardAll",
+      "sql": "DISCARD ALL",
+      "seq": 7,
+      "expected_kind": "DiscardAll"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 8,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "PgCatalogScan",
+      "sql": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n\nSELECT oid, nspname\nFROM pg_namespace\n\nORDER BY oid;\n\nSELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,\n    pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,\n    attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,\n    NULL constraint_type, NULL constraint_key\nFROM pg_class\nJOIN pg_namespace ON relnamespace = pg_namespace.oid\nJOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid\nJOIN pg_type ON atttypid=pg_type.oid\nWHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') \nUNION ALL\nSELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,\n    NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,\n    pg_constraint.oid AS constraint_id, contype AS constraint_type,\n    conkey AS constraint_key\nFROM pg_class\nJOIN pg_namespace ON relnamespace = pg_namespace.oid\nJOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)\nWHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND contype IN ('p', 'u') \nORDER BY namespace_id, relname, attnum, constraint_id;\n\nSELECT n.oid, enumtypid, typname, enumlabel\nFROM pg_enum e\nJOIN pg_type t ON e.enumtypid = t.oid\nJOIN pg_namespace AS n ON (typnamespace=n.oid)\n\nORDER BY n.oid, enumtypid, enumsortorder;\n\nSELECT n.oid, t.typrelid AS id, t.typname as type, pg_attribute.attname, sub_type.typname\nFROM pg_type t\nJOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace\nJOIN pg_class ON pg_class.oid = t.typrelid\nJOIN pg_attribute ON attrelid=t.typrelid\nJOIN pg_type sub_type ON (pg_attribute.atttypid=sub_type.oid)\nWHERE pg_class.relkind = 'c'\nAND t.typtype='c'\n\nORDER BY n.oid, t.oid, attrelid, attnum;\n\nSELECT pg_namespace.oid, tablename, indexname\nFROM pg_indexes\nJOIN pg_namespace ON (schemaname=nspname)\n\nORDER BY pg_namespace.oid;\n",
+      "seq": 9,
+      "expected_kind": "PgCatalogScan"
+    },
+    {
+      "kind": "PgCatalogScan",
+      "sql": "\nSELECT pg_namespace.oid AS namespace_id, relname, relpages, attname,\n    pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim,\n    attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id,\n    NULL constraint_type, NULL constraint_key\nFROM pg_class\nJOIN pg_namespace ON relnamespace = pg_namespace.oid\nJOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid\nJOIN pg_type ON atttypid=pg_type.oid\nWHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') AND pg_namespace.nspname='public'AND relname='ducklake_metadata'\nUNION ALL\nSELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name,\n    NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull,\n    pg_constraint.oid AS constraint_id, contype AS constraint_type,\n    conkey AS constraint_key\nFROM pg_class\nJOIN pg_namespace ON relnamespace = pg_namespace.oid\nJOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid)\nWHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND contype IN ('p', 'u') AND pg_namespace.nspname='public'AND relname='ducklake_metadata'\nORDER BY namespace_id, relname, attnum, constraint_id;\n",
+      "seq": 10,
+      "expected_kind": "PgCatalogScan"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_metadata\"(\"key\" VARCHAR NOT NULL, \"value\" VARCHAR NOT NULL, \"scope\" VARCHAR, \"scope_id\" BIGINT);",
+      "seq": 11,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_snapshot\"(\"snapshot_id\" BIGINT PRIMARY KEY, \"snapshot_time\" TIMESTAMP WITH TIME ZONE, \"schema_version\" BIGINT, \"next_catalog_id\" BIGINT, \"next_file_id\" BIGINT);",
+      "seq": 12,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_snapshot_changes\"(\"snapshot_id\" BIGINT PRIMARY KEY, \"changes_made\" VARCHAR, \"author\" VARCHAR, \"commit_message\" VARCHAR, \"commit_extra_info\" VARCHAR);",
+      "seq": 13,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_schema\"(\"schema_id\" BIGINT PRIMARY KEY, \"schema_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_name\" VARCHAR, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN);",
+      "seq": 14,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table\"(\"table_id\" BIGINT, \"table_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_id\" BIGINT, \"table_name\" VARCHAR, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN);",
+      "seq": 15,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_view\"(\"view_id\" BIGINT, \"view_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_id\" BIGINT, \"view_name\" VARCHAR, \"dialect\" VARCHAR, \"sql\" VARCHAR, \"column_aliases\" VARCHAR);",
+      "seq": 16,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_tag\"(\"object_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"key\" VARCHAR, \"value\" VARCHAR);",
+      "seq": 17,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column_tag\"(\"table_id\" BIGINT, \"column_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"key\" VARCHAR, \"value\" VARCHAR);",
+      "seq": 18,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_data_file\"(\"data_file_id\" BIGINT PRIMARY KEY, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"file_order\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"file_format\" VARCHAR, \"record_count\" BIGINT, \"file_size_bytes\" BIGINT, \"footer_size\" BIGINT, \"row_id_start\" BIGINT, \"partition_id\" BIGINT, \"encryption_key\" VARCHAR, \"mapping_id\" BIGINT, \"partial_max\" BIGINT);",
+      "seq": 19,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_column_stats\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"column_id\" BIGINT, \"column_size_bytes\" BIGINT, \"value_count\" BIGINT, \"null_count\" BIGINT, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"contains_nan\" BOOLEAN, \"extra_stats\" VARCHAR);",
+      "seq": 20,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_variant_stats\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"column_id\" BIGINT, \"variant_path\" VARCHAR, \"shredded_type\" VARCHAR, \"column_size_bytes\" BIGINT, \"value_count\" BIGINT, \"null_count\" BIGINT, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"contains_nan\" BOOLEAN, \"extra_stats\" VARCHAR);",
+      "seq": 21,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_delete_file\"(\"delete_file_id\" BIGINT PRIMARY KEY, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"data_file_id\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"format\" VARCHAR, \"delete_count\" BIGINT, \"file_size_bytes\" BIGINT, \"footer_size\" BIGINT, \"encryption_key\" VARCHAR, \"partial_max\" BIGINT);",
+      "seq": 22,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column\"(\"column_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"table_id\" BIGINT, \"column_order\" BIGINT, \"column_name\" VARCHAR, \"column_type\" VARCHAR, \"initial_default\" VARCHAR, \"default_value\" VARCHAR, \"nulls_allowed\" BOOLEAN, \"parent_column\" BIGINT, \"default_value_type\" VARCHAR, \"default_value_dialect\" VARCHAR);",
+      "seq": 23,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table_stats\"(\"table_id\" BIGINT, \"record_count\" BIGINT, \"next_row_id\" BIGINT, \"file_size_bytes\" BIGINT);",
+      "seq": 24,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table_column_stats\"(\"table_id\" BIGINT, \"column_id\" BIGINT, \"contains_null\" BOOLEAN, \"contains_nan\" BOOLEAN, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"extra_stats\" VARCHAR);",
+      "seq": 25,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_partition_info\"(\"partition_id\" BIGINT, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 26,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_partition_column\"(\"partition_id\" BIGINT, \"table_id\" BIGINT, \"partition_key_index\" BIGINT, \"column_id\" BIGINT, \"transform\" VARCHAR);",
+      "seq": 27,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_partition_value\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"partition_key_index\" BIGINT, \"partition_value\" VARCHAR);",
+      "seq": 28,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_files_scheduled_for_deletion\"(\"data_file_id\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"schedule_start\" TIMESTAMP WITH TIME ZONE);",
+      "seq": 29,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_inlined_data_tables\"(\"table_id\" BIGINT, \"table_name\" VARCHAR, \"schema_version\" BIGINT);",
+      "seq": 30,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column_mapping\"(\"mapping_id\" BIGINT, \"table_id\" BIGINT, \"type\" VARCHAR);",
+      "seq": 31,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_name_mapping\"(\"mapping_id\" BIGINT, \"column_id\" BIGINT, \"source_name\" VARCHAR, \"target_field_id\" BIGINT, \"parent_column\" BIGINT, \"is_partition\" BOOLEAN);",
+      "seq": 32,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_schema_versions\"(\"begin_snapshot\" BIGINT, \"schema_version\" BIGINT, \"table_id\" BIGINT);",
+      "seq": 33,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro\"(\"schema_id\" BIGINT, \"macro_id\" BIGINT, \"macro_name\" VARCHAR, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 34,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro_impl\"(\"macro_id\" BIGINT, \"impl_id\" BIGINT, \"dialect\" VARCHAR, \"sql\" VARCHAR, \"type\" VARCHAR);",
+      "seq": 35,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro_parameters\"(\"macro_id\" BIGINT, \"impl_id\" BIGINT, \"column_id\" BIGINT, \"parameter_name\" VARCHAR, \"parameter_type\" VARCHAR, \"default_value\" VARCHAR, \"default_value_type\" VARCHAR);",
+      "seq": 36,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_sort_info\"(\"sort_id\" BIGINT, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 37,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_sort_expression\"(\"sort_id\" BIGINT, \"table_id\" BIGINT, \"sort_key_index\" BIGINT, \"expression\" VARCHAR, \"dialect\" VARCHAR, \"sort_direction\" VARCHAR, \"null_order\" VARCHAR);",
+      "seq": 38,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "Rollback",
+      "sql": "ROLLBACK",
+      "seq": 39,
+      "expected_kind": "Rollback"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 40,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "DiscardAll",
+      "sql": "DISCARD ALL",
+      "seq": 41,
+      "expected_kind": "DiscardAll"
+    },
+    {
+      "kind": "SelectVersionWithRdsCheck",
+      "sql": "SELECT version(), (SELECT COUNT(*) FROM pg_settings WHERE name LIKE 'rds%')",
+      "seq": 42,
+      "expected_kind": "SelectVersionWithRdsCheck"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 43,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "DiscardAll",
+      "sql": "DISCARD ALL",
+      "seq": 44,
+      "expected_kind": "DiscardAll"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 45,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "SelectToRegclass",
+      "sql": "SELECT to_regclass('duckdb_secrets')",
+      "seq": 46,
+      "expected_kind": "SelectToRegclass"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 47,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "DiscardAll",
+      "sql": "DISCARD ALL",
+      "seq": 48,
+      "expected_kind": "DiscardAll"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 49,
+      "expected_kind": "SelectOne"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_metadata\"(\"key\" VARCHAR NOT NULL, \"value\" VARCHAR NOT NULL, \"scope\" VARCHAR, \"scope_id\" BIGINT);",
+      "seq": 50,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_snapshot\"(\"snapshot_id\" BIGINT PRIMARY KEY, \"snapshot_time\" TIMESTAMP WITH TIME ZONE, \"schema_version\" BIGINT, \"next_catalog_id\" BIGINT, \"next_file_id\" BIGINT);",
+      "seq": 51,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_snapshot_changes\"(\"snapshot_id\" BIGINT PRIMARY KEY, \"changes_made\" VARCHAR, \"author\" VARCHAR, \"commit_message\" VARCHAR, \"commit_extra_info\" VARCHAR);",
+      "seq": 52,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_schema\"(\"schema_id\" BIGINT PRIMARY KEY, \"schema_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_name\" VARCHAR, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN);",
+      "seq": 53,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table\"(\"table_id\" BIGINT, \"table_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_id\" BIGINT, \"table_name\" VARCHAR, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN);",
+      "seq": 54,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_view\"(\"view_id\" BIGINT, \"view_uuid\" UUID, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"schema_id\" BIGINT, \"view_name\" VARCHAR, \"dialect\" VARCHAR, \"sql\" VARCHAR, \"column_aliases\" VARCHAR);",
+      "seq": 55,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_tag\"(\"object_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"key\" VARCHAR, \"value\" VARCHAR);",
+      "seq": 56,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column_tag\"(\"table_id\" BIGINT, \"column_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"key\" VARCHAR, \"value\" VARCHAR);",
+      "seq": 57,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_data_file\"(\"data_file_id\" BIGINT PRIMARY KEY, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"file_order\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"file_format\" VARCHAR, \"record_count\" BIGINT, \"file_size_bytes\" BIGINT, \"footer_size\" BIGINT, \"row_id_start\" BIGINT, \"partition_id\" BIGINT, \"encryption_key\" VARCHAR, \"mapping_id\" BIGINT, \"partial_max\" BIGINT);",
+      "seq": 58,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_column_stats\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"column_id\" BIGINT, \"column_size_bytes\" BIGINT, \"value_count\" BIGINT, \"null_count\" BIGINT, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"contains_nan\" BOOLEAN, \"extra_stats\" VARCHAR);",
+      "seq": 59,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_variant_stats\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"column_id\" BIGINT, \"variant_path\" VARCHAR, \"shredded_type\" VARCHAR, \"column_size_bytes\" BIGINT, \"value_count\" BIGINT, \"null_count\" BIGINT, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"contains_nan\" BOOLEAN, \"extra_stats\" VARCHAR);",
+      "seq": 60,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_delete_file\"(\"delete_file_id\" BIGINT PRIMARY KEY, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"data_file_id\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"format\" VARCHAR, \"delete_count\" BIGINT, \"file_size_bytes\" BIGINT, \"footer_size\" BIGINT, \"encryption_key\" VARCHAR, \"partial_max\" BIGINT);",
+      "seq": 61,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column\"(\"column_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT, \"table_id\" BIGINT, \"column_order\" BIGINT, \"column_name\" VARCHAR, \"column_type\" VARCHAR, \"initial_default\" VARCHAR, \"default_value\" VARCHAR, \"nulls_allowed\" BOOLEAN, \"parent_column\" BIGINT, \"default_value_type\" VARCHAR, \"default_value_dialect\" VARCHAR);",
+      "seq": 62,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table_stats\"(\"table_id\" BIGINT, \"record_count\" BIGINT, \"next_row_id\" BIGINT, \"file_size_bytes\" BIGINT);",
+      "seq": 63,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_table_column_stats\"(\"table_id\" BIGINT, \"column_id\" BIGINT, \"contains_null\" BOOLEAN, \"contains_nan\" BOOLEAN, \"min_value\" VARCHAR, \"max_value\" VARCHAR, \"extra_stats\" VARCHAR);",
+      "seq": 64,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_partition_info\"(\"partition_id\" BIGINT, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 65,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_partition_column\"(\"partition_id\" BIGINT, \"table_id\" BIGINT, \"partition_key_index\" BIGINT, \"column_id\" BIGINT, \"transform\" VARCHAR);",
+      "seq": 66,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_file_partition_value\"(\"data_file_id\" BIGINT, \"table_id\" BIGINT, \"partition_key_index\" BIGINT, \"partition_value\" VARCHAR);",
+      "seq": 67,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_files_scheduled_for_deletion\"(\"data_file_id\" BIGINT, \"path\" VARCHAR, \"path_is_relative\" BOOLEAN, \"schedule_start\" TIMESTAMP WITH TIME ZONE);",
+      "seq": 68,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_inlined_data_tables\"(\"table_id\" BIGINT, \"table_name\" VARCHAR, \"schema_version\" BIGINT);",
+      "seq": 69,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_column_mapping\"(\"mapping_id\" BIGINT, \"table_id\" BIGINT, \"type\" VARCHAR);",
+      "seq": 70,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_name_mapping\"(\"mapping_id\" BIGINT, \"column_id\" BIGINT, \"source_name\" VARCHAR, \"target_field_id\" BIGINT, \"parent_column\" BIGINT, \"is_partition\" BOOLEAN);",
+      "seq": 71,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_schema_versions\"(\"begin_snapshot\" BIGINT, \"schema_version\" BIGINT, \"table_id\" BIGINT);",
+      "seq": 72,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro\"(\"schema_id\" BIGINT, \"macro_id\" BIGINT, \"macro_name\" VARCHAR, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 73,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro_impl\"(\"macro_id\" BIGINT, \"impl_id\" BIGINT, \"dialect\" VARCHAR, \"sql\" VARCHAR, \"type\" VARCHAR);",
+      "seq": 74,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_macro_parameters\"(\"macro_id\" BIGINT, \"impl_id\" BIGINT, \"column_id\" BIGINT, \"parameter_name\" VARCHAR, \"parameter_type\" VARCHAR, \"default_value\" VARCHAR, \"default_value_type\" VARCHAR);",
+      "seq": 75,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_sort_info\"(\"sort_id\" BIGINT, \"table_id\" BIGINT, \"begin_snapshot\" BIGINT, \"end_snapshot\" BIGINT);",
+      "seq": 76,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "CreateInlinedTable",
+      "sql": "CREATE TABLE \"public\".\"ducklake_sort_expression\"(\"sort_id\" BIGINT, \"table_id\" BIGINT, \"sort_key_index\" BIGINT, \"expression\" VARCHAR, \"dialect\" VARCHAR, \"sort_direction\" VARCHAR, \"null_order\" VARCHAR);",
+      "seq": 77,
+      "expected_kind": "CreateInlinedTable"
+    },
+    {
+      "kind": "Rollback",
+      "sql": "ROLLBACK",
+      "seq": 78,
+      "expected_kind": "Rollback"
+    },
+    {
+      "kind": "SelectOne",
+      "sql": "SELECT 1",
+      "seq": 79,
+      "expected_kind": "SelectOne"
+    }
+  ],
+  "version": "1.5.x"
+}

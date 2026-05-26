@@ -1,5 +1,7 @@
 //! Table select classifiers and string identifier helpers.
 
+use sqlparser::ast::{Expr, SelectItem};
+
 use super::StatementKind;
 
 /// Split "schema.name" or just "name" from a name fragment.
@@ -73,17 +75,23 @@ pub(super) fn classify_table_select_with_query(
         "ducklake_delete_file" => StatementKind::SelectDeleteFiles,
         "ducklake_file_column_stats" => StatementKind::SelectFileColumnStats,
         "ducklake_table_stats" => StatementKind::SelectTableStats,
+        "ducklake_table_column_stats" => StatementKind::SelectTableColumnStats,
         "ducklake_metadata" => StatementKind::SelectMetadata,
         "ducklake_inlined_data_tables" => StatementKind::SelectInlinedData,
         "ducklake_view" => StatementKind::SelectViews,
         "ducklake_macro" => StatementKind::SelectMacros,
+        "ducklake_macro_impl" => StatementKind::SelectMacroImpls,
+        "ducklake_macro_parameters" => StatementKind::SelectMacroParameters,
         // ─── v0.27: P2 fidelity gaps ───────────────────────────────────
         "ducklake_tag" => StatementKind::SelectTags,
         "ducklake_column_tag" => StatementKind::SelectColumnTags,
         "ducklake_sort_info" => StatementKind::SelectSortInfo,
         "ducklake_schema_version" => StatementKind::SelectSchemaVersion,
-        s if s.starts_with("pg_catalog.pg_type") || s == "pg_type" => StatementKind::SelectPgType,
         s if s.starts_with("ducklake_inlined_") => StatementKind::SelectInlinedRows,
+        s if s.starts_with("ducklake_") => StatementKind::SelectDuckLakeMetadataTable {
+            table_name: s.to_string(),
+        },
+        s if s.starts_with("pg_catalog.pg_type") || s == "pg_type" => StatementKind::SelectPgType,
         // Virtual catalog schema: slateduck_catalog.{table}
         s if s.starts_with("slateduck_catalog.") => {
             let table_name = s
@@ -109,7 +117,7 @@ pub(super) fn classify_table_select_with_query(
     }
 }
 
-/// Classify SELECT on ducklake_snapshot — detect ASC LIMIT 1 and WHERE snapshot_id > $1 patterns.
+/// Classify SELECT on ducklake_snapshot — distinguish max probes from full snapshot tuple reads.
 pub(super) fn classify_snapshot_select(
     query: &sqlparser::ast::Query,
     select: &sqlparser::ast::Select,
@@ -124,7 +132,47 @@ pub(super) fn classify_snapshot_select(
         return StatementKind::SelectMaxSnapshotAfter;
     }
 
+    if selects_latest_snapshot_tuple(select) {
+        return StatementKind::SelectLatestSnapshotInfo;
+    }
+
     StatementKind::SelectMaxSnapshot
+}
+
+fn selects_latest_snapshot_tuple(select: &sqlparser::ast::Select) -> bool {
+    let projection = select
+        .projection
+        .iter()
+        .map(projection_item_name)
+        .collect::<Vec<_>>();
+
+    [
+        "snapshot_id",
+        "schema_version",
+        "next_catalog_id",
+        "next_file_id",
+    ]
+    .iter()
+    .all(|name| projection.iter().any(|item| item == name))
+}
+
+fn projection_item_name(item: &SelectItem) -> String {
+    match item {
+        SelectItem::UnnamedExpr(expr) => expr_last_identifier(expr),
+        SelectItem::ExprWithAlias { alias, .. } => alias.value.to_lowercase(),
+        SelectItem::QualifiedWildcard(_, _) | SelectItem::Wildcard(_) => "*".to_string(),
+    }
+}
+
+fn expr_last_identifier(expr: &Expr) -> String {
+    match expr {
+        Expr::Identifier(id) => id.value.to_lowercase(),
+        Expr::CompoundIdentifier(parts) => parts
+            .last()
+            .map(|id| id.value.to_lowercase())
+            .unwrap_or_default(),
+        _ => expr.to_string().to_lowercase(),
+    }
 }
 
 /// Classify SELECT on ducklake_data_file — detect parameterized LIMIT.

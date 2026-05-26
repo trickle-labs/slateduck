@@ -28,6 +28,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 tokio-rustls = "0.26"
 rustls-pemfile = "2"
+sqlparser = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

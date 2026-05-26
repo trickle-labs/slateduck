@@ -148,3 +148,177 @@ fn classify_pg_catalog_scan_detects_pg_namespace_alone() {
     let kind = classify_statement(sql).unwrap();
     assert_eq!(kind, StatementKind::PgCatalogScan);
 }
+
+// ─── v0.27.5: COPY FROM STDIN (binary) support ───────────────────────────────
+
+#[test]
+fn classify_copy_from_stdin_ducklake_metadata() {
+    let sql = r#"COPY "public"."ducklake_metadata" FROM STDIN (FORMAT binary)"#;
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_metadata");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_ducklake_snapshot() {
+    let sql = r#"COPY "public"."ducklake_snapshot" FROM STDIN (FORMAT binary)"#;
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_snapshot");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_ducklake_inlined() {
+    let sql = r#"COPY "public"."ducklake_inlined_data_tables" FROM STDIN (FORMAT binary)"#;
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_inlined_data_tables");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_unquoted_schema() {
+    let sql = "COPY public.ducklake_table FROM STDIN (FORMAT binary)";
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_table");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_case_insensitive() {
+    let sql = r#"copy "public"."ducklake_schema" from stdin (format binary)"#;
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_schema");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_with_column_list() {
+    // DuckDB sends COPY with column list for some tables
+    let sql = r#"COPY "public"."ducklake_metadata" ("key", "value") FROM STDIN (FORMAT BINARY)"#;
+    let kind = classify_statement(sql).unwrap();
+    match kind {
+        StatementKind::CopyFromStdin { table } => {
+            assert_eq!(table, "ducklake_metadata");
+        }
+        _ => panic!("Expected CopyFromStdin, got {:?}", kind),
+    }
+}
+
+#[test]
+fn classify_copy_from_stdin_non_ducklake_table_is_unsupported() {
+    // Non-ducklake tables should not be handled by the fast-path classifier.
+    // The classifier returns None for non-ducklake tables, letting sqlparser
+    // handle them. sqlparser will fail to parse COPY...FROM STDIN, resulting
+    // in a parse error (which is correct for unsupported operations).
+    let sql = r#"COPY "public"."my_regular_table" FROM STDIN (FORMAT binary)"#;
+    let result = classify_statement(sql);
+    // Either it parses to Unsupported OR fails to parse (both acceptable)
+    match result {
+        Ok(StatementKind::Unsupported(_)) => {} // expected
+        Err(_) => {}                            // also acceptable (parse error)
+        other => panic!("Expected Unsupported or parse error, got {:?}", other),
+    }
+}
+
+#[test]
+fn classify_duckdb_derived_snapshot_max_select() {
+    let sql = r#"SELECT "max" FROM (
+        SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
+        FROM "public".ducklake_snapshot
+        WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM "public".ducklake_snapshot)
+    ) AS __unnamed_subquery"#;
+
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectMaxSnapshot,
+        "DuckDB derived snapshot max query must classify as SelectMaxSnapshot"
+    );
+}
+
+#[test]
+fn classify_full_latest_snapshot_tuple_select() {
+    let sql = r#"SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
+        FROM "public".ducklake_snapshot
+        WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM "public".ducklake_snapshot)"#;
+
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectLatestSnapshotInfo,
+        "Full DuckLake latest snapshot tuple must classify as SelectLatestSnapshotInfo"
+    );
+}
+
+#[test]
+fn classify_derived_latest_snapshot_tuple_select() {
+    let sql = r#"SELECT "snapshot_id", "schema_version", "next_catalog_id", "next_file_id"
+        FROM (SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
+              FROM "public".ducklake_snapshot
+              WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM "public".ducklake_snapshot))
+        AS __unnamed_subquery"#;
+
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectLatestSnapshotInfo,
+        "Derived DuckDB latest snapshot tuple must classify as SelectLatestSnapshotInfo"
+    );
+}
+
+// ─── ducklake_macro_impl SELECT (as extracted from COPY TO STDOUT) ───────────
+
+#[test]
+fn classify_macro_impl_inner_select() {
+    let sql = r#"SELECT "macro_id", "dialect", "sql", "type", "impl_id" FROM "public"."ducklake_macro_impl""#;
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectMacroImpls,
+        "SELECT from ducklake_macro_impl must classify as SelectMacroImpls"
+    );
+}
+
+// ─── derived subquery pattern for non-snapshot ducklake tables ───────────────
+
+#[test]
+fn classify_derived_ducklake_table_select() {
+    let sql = r#"SELECT "table_id", "begin_snapshot", "end_snapshot", "schema_id", "table_uuid", "table_name", "data_path" FROM (SELECT table_id, begin_snapshot, end_snapshot, schema_id, table_uuid, table_name, data_path FROM "public"."ducklake_table" WHERE "begin_snapshot" <= '1') AS __unnamed_subquery"#;
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectTables,
+        "Derived subquery select from ducklake_table must classify as SelectTables"
+    );
+}
+
+#[test]
+fn classify_derived_ducklake_column_select() {
+    let sql = r#"SELECT "column_id", "table_id", "column_name" FROM (SELECT column_id, table_id, column_name FROM "public"."ducklake_column" WHERE "begin_snapshot" <= '1') AS __unnamed_subquery"#;
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectColumns,
+        "Derived subquery select from ducklake_column must classify as SelectColumns"
+    );
+}

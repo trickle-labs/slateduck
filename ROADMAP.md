@@ -73,6 +73,7 @@ binding on every roadmap release below.
 | **v0.27.2 — DataFusion Completeness, Code Hardening & Security** | Auto-resolve `data_root` from catalog metadata; eliminate OS-thread-per-sync DataFusion bridge overhead; resolve or remove `slateduck-sqlite-vfs` placeholder; replace DataRowEncoder `unwrap()` calls; harden key/value decode paths; verify `checked_add` in writer; verify `SqlState` code propagation; API ergonomics for `CatalogStore` commit; warn on auth-without-TLS; address wall-clock lease concern | Done |
 | **v0.27.3 — Testing Completeness, CI Production Gates & Documentation** | Make coverage threshold a hard gate; add doc-tests for all public APIs in `slateduck-core` and `slateduck-catalog`; add network-level PG-Wire integration test; add concurrent writer fencing test; verify checkpoint-restore snapshot-ID safety; verify `rebuild_catalog` behaviour; align `docs/operations/monitoring.md` with CLI flags; close all open partial findings from Assessments 1 & 2 | Done |
 | **v0.27.4 — DuckDB 1.5.x PostgreSQL Scanner Compatibility** | Handle all DuckDB 1.5.x postgres scanner initialization queries: `DISCARD ALL`; `SELECT to_regclass('duckdb_secrets')`; `SELECT EXISTS(... information_schema.tables ...)`; multi-statement catalog scan (`pg_namespace`, `pg_class`/`pg_attribute`/`pg_constraint`, `pg_enum`, `pg_type` composites, `pg_indexes`); `SELECT pg_database_size(current_database())`; capture DuckDB 1.5.x wire-corpus fixture; update compatibility matrix to DuckDB 1.5.x only | Done |
+| **v0.27.5 — DuckLake v1.0 Spec Gap Closure** | Close P0/P1/P2 gaps from `plans/ducklake-1.0-spec-gaps.md`: exact SQL catalog facades for all 28 tables; fix snapshot/snapshot_changes schema; implement spec-complete delete-file semantics; DROP TABLE cascade; inlined data SQL support; data file spec fields; metadata facades; column stats completeness; field naming alignment | Planning |
 | **v0.28.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, Lambda/edge integration, checkpoint-pinned readers, additional performance optimizations | Future |
@@ -2954,6 +2955,218 @@ DuckDB expects five result sets (one per SELECT) in sequence before the final `R
 - [x] A new `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` fixture is captured and replayed by CI.
 - [x] `docs/compatibility.md` states DuckDB 1.5.x as supported with CI evidence.
 - [x] DuckDB 1.2.2 is downgraded to `legacy` in the compatibility matrix.
+
+---
+
+## v0.27.5 — DuckLake v1.0 Spec Gap Closure
+
+> Close all P0 and P1 gaps from `plans/ducklake-1.0-spec-gaps.md`. These gaps block DuckLake v1.0 interoperability: missing SQL catalog facades, incorrect snapshot/delete-file schema, incomplete DROP TABLE cascade, and the absence of inlined data execution. SlateDuck's internal catalog storage is robust; the work here is projecting exact DuckLake spec tables and semantics through PgWire and implementing the execution paths that v0.2–v0.27 stubbed as no-ops.
+
+### P0 (Critical) — Interoperability Blockers
+
+#### 1. Exact DuckLake SQL Catalog Facade for All 28 Tables
+
+SlateDuck stores protobuf rows in SlateDB; PgWire currently returns custom response schemas for many tables. This must be inverted: return exact DuckLake spec columns, types, and order for all 28 tables.
+
+**Affected tables with current status:**
+
+- `ducklake_snapshot` — currently exposes `author`, `message`; spec requires `next_catalog_id`, `next_file_id`
+- `ducklake_schema` — missing `schema_uuid`, `path`, `path_is_relative`
+- `ducklake_table` — uses `data_path`, missing `table_uuid`, `path_is_relative`
+- `ducklake_column` — uses non-spec column names (`data_type`, `column_index`, `is_nullable`)
+- `ducklake_view` — `SelectViews` returns empty; spec requires exact `view_name`, `dialect`, `column_aliases`
+- `ducklake_metadata` — `SelectMetadata` returns empty; `InsertMetadata` is ignored
+- `ducklake_table_stats` — `SelectTableStats` returns empty; missing `next_row_id`
+- `ducklake_delete_file` — returns empty; missing all MVCC and spec fields
+- `ducklake_inlined_data_tables` — `SelectInlinedRows` returns empty (see below)
+- `ducklake_macro`, `ducklake_macro_impl`, `ducklake_macro_parameters` — all stubs returning empty
+
+**Tasks:**
+
+- [ ] For each of the 28 spec tables, create a mapping from internal protobuf `Row` to exact spec SQL columns.
+- [ ] Update all `SELECT` handlers in `crates/slateduck-pgwire/src/executor/mod.rs` to project spec schemas instead of custom response builders.
+- [ ] Add response builders for tables currently returning empty: `SelectTableStats`, `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParam`, `SelectDeleteFiles`.
+- [ ] Write conformance tests for all 28 table SELECTs using queries from `specification/queries.md`.
+
+#### 2. Fix Snapshot and Snapshot Change Schema
+
+Current schema diverges from spec in two ways: `next_catalog_id` / `next_file_id` are stored in counters, not snapshot rows; and `author` / `message` are in the wrong table.
+
+**Spec required:**
+
+- `ducklake_snapshot(snapshot_id, snapshot_time, schema_version, next_catalog_id, next_file_id)`
+- `ducklake_snapshot_changes(snapshot_id, changes_made, author, commit_message, commit_extra_info)`
+
+**Tasks:**
+
+- [ ] Denormalize `next_catalog_id` and `next_file_id` into `SnapshotRow` at commit time in `CatalogWriter::create_snapshot`.
+- [ ] Move `author` and `message` semantics from `SnapshotRow` to `SnapshotChangesRow` as `author` and `commit_message`.
+- [ ] Build a spec-compatible `changes_made` string per snapshot (format: `created_schema:schema_name`, `created_table:table_id`, `dropped_table:table_id`, etc.).
+- [ ] Update PgWire response projections to expose the new schema.
+- [ ] Add tests: verify denormalized counter values match counter state; verify snapshot changes capture all mutations.
+
+#### 3. Implement Spec-Complete Delete File Semantics
+
+Delete files are currently stubbed. They must support full lifecycle, MVCC visibility, and spec fields.
+
+**Spec required fields:**
+
+- `data_file_id`, `table_id`, `begin_snapshot`, `end_snapshot`, `file_format`, `record_count`, `file_size_bytes`
+
+**Tasks:**
+
+- [ ] Add full MVCC support to delete-file reads: apply `is_visible(begin_snapshot, end_snapshot, dl_snapshot_id)` filtering.
+- [ ] Implement `list_delete_files(table_id, snapshot_id)` in `CatalogReader` with visibility filtering.
+- [ ] Update PgWire `SelectDeleteFiles` handler to return visible delete files for the requested table.
+- [ ] Add tests: verify delete files are visible only within their snapshot range; verify DELETE statement creates delete-file entries; verify cascade retirement of delete files on DROP TABLE.
+
+#### 4. DROP TABLE Cascade Retirement
+
+Dropped tables currently leave related metadata visible. All related rows must have `end_snapshot` set at the drop snapshot.
+
+**Affected tables:**
+
+- `ducklake_table` — main table row (already done)
+- `ducklake_column` — all columns for the table
+- `ducklake_data_file` / `ducklake_delete_file` — all files for the table
+- `ducklake_file_column_stats` — all stats for files
+- `ducklake_tag` / `ducklake_column_tag` — all tags for table and columns
+- `ducklake_partition_info`, `ducklake_partition_column` — all partition metadata
+- `ducklake_sort_info`, `ducklake_sort_expression` — all sort metadata
+- Inlined data rows (tag `0xFD`) — all inlined inserts and deletes for the table
+
+**Tasks:**
+
+- [ ] Implement cascading `end_snapshot` updates in `CatalogWriter::drop_table`.
+- [ ] Verify all affected table types are retired: write a test that drops a table and checks every related spec table for `end_snapshot` set correctly.
+- [ ] Update the typed drop path in the SQL dispatcher to call the cascading drop writer.
+
+### P1 (Important) — Feature Gaps
+
+#### 5. Inlined Data SQL Execution
+
+Currently `INSERT INTO ducklake_inlined_*`, `SELECT FROM ducklake_inlined_*`, and `UPDATE ... SET end_snapshot` are accepted as no-ops. They must actually execute.
+
+**Tasks:**
+
+- [ ] Parse `INSERT INTO ducklake_inlined_*` statements: extract table_id, schema_version, row_id, and row-data columns.
+- [ ] Call `CatalogWriter::register_inlined_insert()` with the extracted row data.
+- [ ] Parse `SELECT FROM ducklake_inlined_*` statements: call `CatalogReader::list_inlined_inserts()` and project results.
+- [ ] Parse `UPDATE ducklake_inlined_* SET end_snapshot=X` statements: call `CatalogWriter::mark_inlined_insert_deleted()`.
+- [ ] Add tests: verify inlined inserts are queryable; verify UPDATE marks them deleted; verify deletes respect MVCC visibility.
+
+#### 6. Data File Spec Field Completeness
+
+Current `DataFileRow` is missing several spec fields.
+
+**Spec required fields missing:**
+
+- `file_order` — ordering within the table
+- `row_id_start` — starting row ID for the file
+- `partition_id` — partition reference
+- `mapping_id` — column mapping reference
+- `partial_max` — max value for partial files
+
+**Tasks:**
+
+- [ ] Add missing fields to `DataFileRow` protobuf definition.
+- [ ] Populate these fields in `CatalogWriter::register_data_file()` (use sensible defaults if not supplied by caller).
+- [ ] Update PgWire `SelectDataFile` response to include new fields.
+- [ ] Add tests: verify all fields are persisted and retrieved correctly.
+
+#### 7. Schema, Table, and Column Metadata Facades
+
+These tables have partial spec implementations or non-spec column names.
+
+**Tasks:**
+
+- [ ] `ducklake_schema` — add `schema_uuid`, `path`, `path_is_relative` fields; update response builder.
+- [ ] `ducklake_table` — rename internal `data_path` to spec `path`; add `table_uuid`, `path_is_relative`; update response builder.
+- [ ] `ducklake_column` — rename fields to match spec exactly (`data_type` → `column_type`, etc.); add support for nested columns (parent_column, default_value_type, default_value_dialect); update response builder.
+- [ ] Add conformance tests for all three tables.
+
+#### 8. Metadata, Views, Macros, and Macro Implementation
+
+These tables are currently stubbed and return empty.
+
+**Tasks:**
+
+- [ ] Implement `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParameters` handlers in executor.
+- [ ] Wire `InsertMetadata` to `CatalogWriter::upsert_metadata()`.
+- [ ] Wire `InsertView` / `InsertMacro` / `InsertMacroImpl` / `InsertMacroParameters` to the corresponding writer methods (currently these exist but are not called).
+- [ ] Add tests: verify metadata is persisted and visible; verify views/macros are created and queryable; verify lifecycle is correct.
+
+#### 9. Column Stats Completeness
+
+File and table column stats are missing several spec fields.
+
+**Missing fields:**
+
+- `null_count` (instead of boolean `has_null`)
+- `contains_nan` (for floating-point columns)
+- `extra_stats` (for complex data types)
+- `column_size_bytes` and `value_count`
+
+**Tasks:**
+
+- [ ] Add missing fields to `FileColumnStatsRow` and `TableColumnStatsRow` protobuf definitions.
+- [ ] Update stats writers to populate these fields.
+- [ ] Update stats readers and PgWire response builders.
+- [ ] Add tests: verify all stats fields are persisted and visible.
+
+### P2 (Cleanup) — Field Naming and Facade Issues
+
+#### 10. Field Naming Consistency
+
+Several tables use internal naming instead of spec column names.
+
+**Affected tables:**
+
+- `ducklake_file_partition_value` — uses `value` instead of spec `partition_value`
+- `ducklake_tag` / `ducklake_column_tag` — internally `tag_key` / `tag_value`, spec requires `key` / `value`
+- `ducklake_sort_expression` — uses boolean fields instead of spec string format
+- `ducklake_files_scheduled_for_deletion` — missing `path_is_relative`; timestamp semantics differ (spec is `TIMESTAMPTZ`)
+
+**Tasks:**
+
+- [ ] Rename internal fields to match spec exactly in all response builders.
+- [ ] For `sort_expression`, convert internal boolean representation to spec string format.
+- [ ] Fix timestamp semantics in `files_scheduled_for_deletion`.
+- [ ] Add conformance tests for each table.
+
+#### 11. Partition Info and Sort Info SQL Facades
+
+These tables are internally complete but lack SQL facades and lifecycle coverage.
+
+**Tasks:**
+
+- [ ] Ensure `ducklake_partition_info`, `ducklake_partition_column`, `ducklake_sort_info`, `ducklake_sort_expression` are exposed with exact spec schema via PgWire.
+- [ ] Verify DROP TABLE cascade retires all partition and sort metadata.
+- [ ] Add tests: verify partition/sort info is queryable; verify cascade retirement is correct.
+
+#### 12. Inlined Data Table Registry Facade
+
+`ducklake_inlined_data_tables` currently uses non-spec field name `sql` instead of `table_name`.
+
+**Tasks:**
+
+- [ ] Rename internal field to match spec.
+- [ ] Ensure `InsertInlinedDataTables` and `SelectInlinedData` handlers project correct schema.
+- [ ] Add tests: verify inlined data table registry is readable.
+
+### Definition of Done
+
+- [ ] All 28 spec tables return exact DuckLake schema columns in correct order through PgWire.
+- [ ] All spec queries from `specification/queries.md` return correct results with correct MVCC visibility.
+- [ ] Snapshot rows denormalize `next_catalog_id` and `next_file_id`.
+- [ ] Snapshot changes persist `changes_made` in spec format with `author` and `commit_message`.
+- [ ] Delete files support full MVCC visibility and are visible through `SELECT ducklake_delete_file`.
+- [ ] DROP TABLE cascades `end_snapshot` to all related metadata rows.
+- [ ] `INSERT INTO ducklake_inlined_*`, `SELECT FROM ducklake_inlined_*`, and `UPDATE ... SET end_snapshot` execute correctly (not no-ops).
+- [ ] All P1 field gaps are closed: spec-complete data files, schema/table/column/metadata/view/macro facades, column stats completeness.
+- [ ] All P2 field naming is aligned with spec: `value` → `partition_value`, `tag_key`/`tag_value` → `key`/`value`, etc.
+- [ ] Conformance test suite passes all queries from `specification/queries.md` with spec-correct results.
+- [ ] No `SelectXXX` handler returns an empty result set unless the spec explicitly permits it (e.g., no metadata rows, no views, no macros).
 
 ---
 

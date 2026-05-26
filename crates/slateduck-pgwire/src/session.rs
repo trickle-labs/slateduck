@@ -65,6 +65,12 @@ pub enum BufferedOp {
         table_id: u64,
         row_count_delta: i64,
     },
+    SetTableStats {
+        table_id: u64,
+        record_count: u64,
+        file_size_bytes: u64,
+        next_row_id: u64,
+    },
     InsertFileColumnStats {
         table_id: u64,
         column_id: u64,
@@ -74,6 +80,15 @@ pub enum BufferedOp {
         max_value: Option<String>,
         contains_nan: bool,
     },
+    InsertTableColumnStats {
+        table_id: u64,
+        column_id: u64,
+        contains_null: bool,
+        contains_nan: Option<bool>,
+        min_value: Option<String>,
+        max_value: Option<String>,
+        extra_stats: Option<String>,
+    },
     InsertMetadata {
         key: String,
         value: String,
@@ -82,8 +97,17 @@ pub enum BufferedOp {
     },
     InsertInlinedDataTables {
         table_id: u64,
+        table_name: String,
         schema_version: u64,
-        sql: String,
+    },
+    InsertSchemaVersions {
+        begin_snapshot: u64,
+        schema_version: u64,
+        table_id: u64,
+    },
+    InsertInlinedRow {
+        table_name: String,
+        rows: Vec<Vec<Option<String>>>,
     },
     InsertView {
         schema_id: u64,
@@ -166,6 +190,36 @@ impl PendingCatalogTxn {
     }
 }
 
+// ─── COPY FROM STDIN accumulator ─────────────────────────────────────────────
+
+/// Accumulates raw bytes for an in-progress binary COPY FROM STDIN stream.
+#[derive(Debug, Default)]
+pub struct CopyAccumulator {
+    /// Normalised table name (e.g. `"ducklake_snapshot"`).
+    pub table: String,
+    /// Raw binary COPY bytes buffered across one or more `CopyData` messages.
+    pub data: Vec<u8>,
+}
+
+/// A schema row parsed from a `ducklake_schema` binary COPY FROM STDIN stream.
+#[derive(Debug, Clone)]
+pub struct BootstrapSchemaRow {
+    pub schema_name: String,
+}
+
+/// Bootstrap state collected during the DuckDB `ATTACH` initialisation phase.
+///
+/// DuckDB bootstraps the catalog by issuing binary `COPY … FROM STDIN` for
+/// each `ducklake_*` table, then `COMMIT`.  We accumulate the relevant rows
+/// here so that the `COMMIT` handler can persist them to the catalog store.
+#[derive(Debug, Default)]
+pub struct BootstrapState {
+    /// `true` if at least one row was received for `ducklake_snapshot`.
+    pub has_snapshot: bool,
+    /// Schema rows received from `ducklake_schema`.
+    pub schemas: Vec<BootstrapSchemaRow>,
+}
+
 /// Per-session state.
 #[derive(Debug)]
 pub struct SessionState {
@@ -174,6 +228,10 @@ pub struct SessionState {
     pub settings: SessionSettings,
     /// Per-connection LISTEN/NOTIFY subscription state.
     pub subscriptions: ConnectionSubscriptions,
+    /// Accumulator for the currently active COPY FROM STDIN binary stream.
+    pub pending_copy: Option<CopyAccumulator>,
+    /// Bootstrap rows received via COPY FROM STDIN during DuckDB ATTACH.
+    pub bootstrap: BootstrapState,
 }
 
 /// Session-level settings (SET/SHOW).
@@ -203,6 +261,8 @@ impl Default for SessionState {
             pending_txn: PendingCatalogTxn::new(),
             settings: SessionSettings::default(),
             subscriptions: ConnectionSubscriptions::new(),
+            pending_copy: None,
+            bootstrap: BootstrapState::default(),
         }
     }
 }

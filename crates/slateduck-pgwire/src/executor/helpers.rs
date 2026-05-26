@@ -5,6 +5,7 @@ use std::sync::Arc;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::Type;
 
+use slateduck_core::rows::ColumnRow;
 use slateduck_sql::ParamValues;
 
 use crate::error::SlateDuckError;
@@ -359,6 +360,87 @@ fn make_pg_class_schema() -> Arc<Vec<FieldInfo>> {
             FieldFormat::Text,
         ),
     ])
+}
+
+pub(super) fn make_pg_catalog_inlined_table_response<'a>(
+    table_name: &str,
+    columns: Vec<ColumnRow>,
+) -> Response<'a> {
+    let schema = make_pg_class_schema();
+    let mut rows = Vec::new();
+    let mut attnum = 1i64;
+
+    for (name, type_name) in [
+        ("row_id".to_string(), "int8".to_string()),
+        ("begin_snapshot".to_string(), "int8".to_string()),
+        ("end_snapshot".to_string(), "int8".to_string()),
+    ] {
+        rows.push(make_pg_class_attribute_row(
+            schema.clone(),
+            table_name,
+            &name,
+            &type_name,
+            attnum,
+        ));
+        attnum += 1;
+    }
+
+    for column in columns {
+        rows.push(make_pg_class_attribute_row(
+            schema.clone(),
+            table_name,
+            &column.column_name,
+            &pg_type_name_for_inlined_column(&column.data_type),
+            attnum,
+        ));
+        attnum += 1;
+    }
+
+    let count = rows.len();
+    let mut resp = QueryResponse::new(schema, futures::stream::iter(rows));
+    resp.set_command_tag(&format!("SELECT {count}"));
+    Response::Query(resp)
+}
+
+fn make_pg_class_attribute_row(
+    schema: Arc<Vec<FieldInfo>>,
+    table_name: &str,
+    attname: &str,
+    type_name: &str,
+    attnum: i64,
+) -> pgwire::error::PgWireResult<pgwire::messages::data::DataRow> {
+    let mut enc = DataRowEncoder::new(schema);
+    let values = [
+        Some("1".to_string()),
+        Some(table_name.to_string()),
+        None,
+        Some(attname.to_string()),
+        Some(type_name.to_string()),
+        None,
+        Some("0".to_string()),
+        Some(attnum.to_string()),
+        Some("false".to_string()),
+        None,
+        None,
+        None,
+    ];
+    for value in values {
+        enc.encode_field_with_type_and_format(&value, &Type::TEXT, FieldFormat::Text)
+            .expect("infallible");
+    }
+    enc.finish()
+}
+
+fn pg_type_name_for_inlined_column(logical_type: &str) -> String {
+    match logical_type.to_ascii_lowercase().as_str() {
+        "boolean" | "bool" => "bool".to_string(),
+        "tinyint" | "int8" => "int2".to_string(),
+        "smallint" | "int16" => "int2".to_string(),
+        "integer" | "int" | "int4" | "int32" => "int4".to_string(),
+        "bigint" | "int64" => "int8".to_string(),
+        "varchar" | "text" | "string" | "blob" | "bytea" => "bytea".to_string(),
+        _ => "text".to_string(),
+    }
 }
 
 /// Build the `pg_enum` result-set schema.

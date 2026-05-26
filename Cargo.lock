@@ -4429,6 +4429,7 @@ dependencies = [
  "slateduck-catalog",
  "slateduck-core",
  "slateduck-sql",
+ "sqlparser 0.55.0",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
