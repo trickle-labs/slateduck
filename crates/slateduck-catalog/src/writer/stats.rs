@@ -13,6 +13,66 @@ use crate::error::CatalogResult;
 use super::hash_tag_key;
 use super::CatalogWriter;
 
+fn apply_i64_delta(value: u64, delta: i64) -> u64 {
+    if delta >= 0 {
+        value.saturating_add(delta as u64)
+    } else {
+        value.saturating_sub(delta.unsigned_abs())
+    }
+}
+
+fn merge_min(existing: Option<&str>, incoming: Option<&str>) -> Option<String> {
+    match (existing, incoming) {
+        (Some(left), Some(right)) => Some(stats_min(left, right).to_string()),
+        (Some(value), None) | (None, Some(value)) => Some(value.to_string()),
+        (None, None) => None,
+    }
+}
+
+fn merge_max(existing: Option<&str>, incoming: Option<&str>) -> Option<String> {
+    match (existing, incoming) {
+        (Some(left), Some(right)) => Some(stats_max(left, right).to_string()),
+        (Some(value), None) | (None, Some(value)) => Some(value.to_string()),
+        (None, None) => None,
+    }
+}
+
+fn stats_min<'a>(left: &'a str, right: &'a str) -> &'a str {
+    if stats_value_less_or_equal(left, right) {
+        left
+    } else {
+        right
+    }
+}
+
+fn stats_max<'a>(left: &'a str, right: &'a str) -> &'a str {
+    if stats_value_less_or_equal(left, right) {
+        right
+    } else {
+        left
+    }
+}
+
+fn stats_value_less_or_equal(left: &str, right: &str) -> bool {
+    if let (Ok(left), Ok(right)) = (left.parse::<i128>(), right.parse::<i128>()) {
+        return left <= right;
+    }
+    if let (Ok(left), Ok(right)) = (left.parse::<f64>(), right.parse::<f64>()) {
+        if left.is_finite() && right.is_finite() {
+            return left <= right;
+        }
+    }
+    left <= right
+}
+
+fn merge_optional_bool_or(existing: Option<bool>, incoming: Option<bool>) -> Option<bool> {
+    match (existing, incoming) {
+        (Some(left), Some(right)) => Some(left || right),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
 /// Input parameters for `upsert_file_column_stats`.
 ///
 /// Introduced in v0.21 to replace the 7-argument positional API and bring the
@@ -72,32 +132,28 @@ impl CatalogWriter {
         file_count: u64,
         file_size_bytes: u64,
     ) -> CatalogResult<()> {
-        // v0.24: read existing stats to accumulate next_row_id.
-        let existing_next_row_id = {
-            let key = keys::key_table_stats(table_id);
-            match self.db.get(&key).await? {
-                Some(data) => {
-                    let existing: TableStatsRow = slateduck_core::values::decode_value(&data)
-                        .unwrap_or(TableStatsRow {
-                            table_id,
-                            record_count: 0,
-                            file_count: 0,
-                            file_size_bytes: 0,
-                            next_row_id: None,
-                        });
-                    existing.next_row_id.unwrap_or(0)
-                }
-                None => 0,
-            }
-        };
+        let existing = self.read_table_stats_or_default(table_id).await?;
+        let existing_next_row_id = existing.next_row_id.unwrap_or(0);
         let next_row_id = existing_next_row_id.saturating_add(record_count);
         let row = TableStatsRow {
             table_id,
-            record_count,
-            file_count,
-            file_size_bytes,
+            record_count: existing.record_count.saturating_add(record_count),
+            file_count: existing.file_count.saturating_add(file_count),
+            file_size_bytes: existing.file_size_bytes.saturating_add(file_size_bytes),
             next_row_id: Some(next_row_id),
         };
+        let key = keys::key_table_stats(table_id);
+        self.db.put(&key, values::encode_value(&row)).await?;
+        Ok(())
+    }
+
+    pub async fn adjust_table_record_count(
+        &mut self,
+        table_id: u64,
+        delta: i64,
+    ) -> CatalogResult<()> {
+        let mut row = self.read_table_stats_or_default(table_id).await?;
+        row.record_count = apply_i64_delta(row.record_count, delta);
         let key = keys::key_table_stats(table_id);
         self.db.put(&key, values::encode_value(&row)).await?;
         Ok(())
@@ -151,18 +207,61 @@ impl CatalogWriter {
         contains_nan: Option<bool>,
         extra_stats: Option<&str>,
     ) -> CatalogResult<()> {
+        let existing = {
+            let key = keys::key_table_column_stats(table_id, column_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    slateduck_core::values::decode_value::<TableColumnStatsRow>(&data).ok()
+                }
+                None => None,
+            }
+        };
         let row = TableColumnStatsRow {
             table_id,
             column_id,
-            contains_null,
-            min_value: min_value.map(|s| s.to_string()),
-            max_value: max_value.map(|s| s.to_string()),
-            contains_nan,
-            extra_stats: extra_stats.map(|s| s.to_string()),
+            contains_null: existing
+                .as_ref()
+                .map(|row| row.contains_null || contains_null)
+                .unwrap_or(contains_null),
+            min_value: merge_min(
+                existing.as_ref().and_then(|row| row.min_value.as_deref()),
+                min_value,
+            ),
+            max_value: merge_max(
+                existing.as_ref().and_then(|row| row.max_value.as_deref()),
+                max_value,
+            ),
+            contains_nan: merge_optional_bool_or(
+                existing.as_ref().and_then(|row| row.contains_nan),
+                contains_nan,
+            ),
+            extra_stats: extra_stats
+                .map(|s| s.to_string())
+                .or_else(|| existing.and_then(|row| row.extra_stats)),
         };
         let key = keys::key_table_column_stats(table_id, column_id);
         self.db.put(&key, values::encode_value(&row)).await?;
         Ok(())
+    }
+
+    async fn read_table_stats_or_default(&self, table_id: u64) -> CatalogResult<TableStatsRow> {
+        let key = keys::key_table_stats(table_id);
+        Ok(match self.db.get(&key).await? {
+            Some(data) => slateduck_core::values::decode_value(&data).unwrap_or(TableStatsRow {
+                table_id,
+                record_count: 0,
+                file_count: 0,
+                file_size_bytes: 0,
+                next_row_id: None,
+            }),
+            None => TableStatsRow {
+                table_id,
+                record_count: 0,
+                file_count: 0,
+                file_size_bytes: 0,
+                next_row_id: None,
+            },
+        })
     }
 
     pub async fn upsert_file_column_stats(

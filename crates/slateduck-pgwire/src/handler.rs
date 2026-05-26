@@ -34,6 +34,7 @@ use sqlparser::parser::Parser;
 use tokio::sync::Mutex;
 
 use slateduck_catalog::CatalogStore;
+use slateduck_core::rows::ColumnRow;
 use slateduck_sql::{classify_statement, ParamValues, StatementKind};
 
 use crate::copy_parser;
@@ -363,6 +364,7 @@ fn expr_last_identifier(expr: &Expr) -> String {
             .last()
             .map(|id| id.value.to_lowercase())
             .unwrap_or_default(),
+        Expr::Cast { expr, .. } | Expr::Nested(expr) => expr_last_identifier(expr),
         _ => expr.to_string().to_lowercase(),
     }
 }
@@ -797,7 +799,7 @@ impl ExtendedQueryHandler for SlateDuckHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let sql = &stmt.statement;
-        let fields = describe_fields_for_sql(sql);
+        let fields = describe_fields_for_sql_with_catalog(sql, &self.catalog).await;
 
         // Return precise parameter types so the client can correctly serialize
         // typed values (e.g. i64 → INT8). When the client provided type hints in
@@ -826,7 +828,7 @@ impl ExtendedQueryHandler for SlateDuckHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let sql = &portal.statement.statement;
-        let fields = describe_fields_for_sql(sql);
+        let fields = describe_fields_for_sql_with_catalog(sql, &self.catalog).await;
         Ok(DescribePortalResponse::new(fields))
     }
 }
@@ -980,6 +982,23 @@ fn describe_params_for_sql(sql: &str) -> Vec<Type> {
 
 /// Return the result-set field descriptions for a SQL statement.
 /// Used by both `do_describe_statement` and `do_describe_portal`.
+async fn describe_fields_for_sql_with_catalog(
+    sql: &str,
+    catalog: &Arc<Mutex<CatalogStore>>,
+) -> Vec<pgwire::api::results::FieldInfo> {
+    let kind = slateduck_sql::classify_statement(sql)
+        .unwrap_or(slateduck_sql::StatementKind::Unsupported(String::new()));
+    if matches!(kind, slateduck_sql::StatementKind::SelectInlinedRows) {
+        if let Some((table_id, _schema_version)) = parse_inlined_table_ids_from_sql(sql) {
+            let reader = { catalog.lock().await.read_latest() };
+            if let Ok(Some((_, columns))) = reader.describe_table(table_id).await {
+                return describe_inlined_row_fields(sql, &columns);
+            }
+        }
+    }
+    describe_fields_for_sql(sql)
+}
+
 fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
     use pgwire::api::results::{FieldFormat, FieldInfo};
 
@@ -1163,6 +1182,103 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
             ],
         ),
         _ => vec![],
+    }
+}
+
+fn parse_inlined_table_ids_from_sql(sql: &str) -> Option<(u64, u64)> {
+    let lower = sql.to_ascii_lowercase();
+    let start = lower.find("ducklake_inlined_data_")?;
+    let rest = &lower[start + "ducklake_inlined_data_".len()..];
+    let mut parts = rest
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .next()?
+        .split('_');
+    let table_id = parts.next()?.parse().ok()?;
+    let schema_version = parts.next()?.parse().ok()?;
+    Some((table_id, schema_version))
+}
+
+fn describe_inlined_row_fields(
+    sql: &str,
+    columns: &[ColumnRow],
+) -> Vec<pgwire::api::results::FieldInfo> {
+    use pgwire::api::results::{FieldFormat, FieldInfo};
+
+    let field_for_name = |name: &str| {
+        let lower = name.trim_matches('"').to_ascii_lowercase();
+        match lower.as_str() {
+            "row_id" => Some(FieldInfo::new(
+                name.to_string(),
+                None,
+                None,
+                Type::INT8,
+                FieldFormat::Binary,
+            )),
+            "begin_snapshot" => Some(FieldInfo::new(
+                name.to_string(),
+                None,
+                None,
+                Type::INT8,
+                FieldFormat::Binary,
+            )),
+            "end_snapshot" => Some(FieldInfo::new(
+                name.to_string(),
+                None,
+                None,
+                Type::INT8,
+                FieldFormat::Binary,
+            )),
+            _ => columns
+                .iter()
+                .find(|column| column.column_name.eq_ignore_ascii_case(&lower))
+                .map(|column| {
+                    FieldInfo::new(
+                        name.to_string(),
+                        None,
+                        None,
+                        inlined_storage_type(&column.data_type),
+                        FieldFormat::Binary,
+                    )
+                }),
+        }
+    };
+
+    let Some(names) = projection_names(sql) else {
+        return columns
+            .iter()
+            .map(|column| {
+                FieldInfo::new(
+                    column.column_name.clone(),
+                    None,
+                    None,
+                    inlined_storage_type(&column.data_type),
+                    FieldFormat::Binary,
+                )
+            })
+            .collect();
+    };
+    let fields = names
+        .iter()
+        .filter_map(|name| field_for_name(name))
+        .collect::<Vec<_>>();
+    if fields.is_empty() {
+        describe_fields_for_sql(sql)
+    } else {
+        fields
+    }
+}
+
+fn inlined_storage_type(logical_type: &str) -> Type {
+    match logical_type.to_ascii_uppercase().as_str() {
+        "BOOLEAN" | "BOOL" => Type::BOOL,
+        "TINYINT" | "SMALLINT" | "INT2" | "INT16" => Type::INT2,
+        "INTEGER" | "INT" | "INT4" | "INT32" => Type::INT4,
+        "BIGINT" | "INT8" | "INT64" => Type::INT8,
+        "VARCHAR" | "TEXT" | "STRING" | "BLOB" | "BYTEA" => Type::BYTEA,
+        "TIMESTAMP" | "TIMESTAMP WITHOUT TIME ZONE" => Type::TIMESTAMP,
+        "TIMESTAMP WITH TIME ZONE" | "TIMESTAMPTZ" => Type::TIMESTAMPTZ,
+        "DATE" => Type::DATE,
+        _ => Type::TEXT,
     }
 }
 

@@ -1176,7 +1176,7 @@ async fn execute_classified<'a>(
                     .ok()
                     .or_else(|| literal_u64(&literals, 3))
                     .unwrap_or(0),
-                };
+            };
             if session.in_transaction {
                 session.pending_txn.push(op)?;
             } else {

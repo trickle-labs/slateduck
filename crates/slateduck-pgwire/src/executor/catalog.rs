@@ -372,11 +372,7 @@ pub(super) async fn execute_commit(
                                 effective_row_id = effective_row_id.saturating_add(1);
                             }
                         }
-                        reserved_inlined_rows.insert((
-                            table_id,
-                            schema_version,
-                            effective_row_id,
-                        ));
+                        reserved_inlined_rows.insert((table_id, schema_version, effective_row_id));
                         let payload =
                             serde_json::to_vec(&values.iter().skip(3).cloned().collect::<Vec<_>>())
                                 .map_err(|err| SlateDuckError::Internal(err.to_string()))?;
@@ -398,6 +394,7 @@ pub(super) async fn execute_commit(
             } => {
                 needs_snapshot = true;
                 if let Some((table_id, schema_version)) = parse_inlined_table_ids(&table_name) {
+                    let deleted_count = row_ids.len() as i64;
                     for row_id in row_ids {
                         if replaced_inlined_rows.contains(&(table_id, schema_version, row_id)) {
                             continue;
@@ -407,6 +404,10 @@ pub(super) async fn execute_commit(
                             .await
                             .map_err(SlateDuckError::from)?;
                     }
+                    writer
+                        .adjust_table_record_count(table_id, -deleted_count)
+                        .await
+                        .map_err(SlateDuckError::from)?;
                 }
             }
             BufferedOp::InsertView {
@@ -1370,13 +1371,7 @@ fn encode_text_value(encoder: &mut DataRowEncoder, value: &Option<String>) {
 }
 
 fn text_field(name: &str) -> FieldInfo {
-    FieldInfo::new(
-        name.to_string(),
-        None,
-        None,
-        Type::TEXT,
-        FieldFormat::Text,
-    )
+    FieldInfo::new(name.to_string(), None, None, Type::TEXT, FieldFormat::Text)
 }
 
 fn file_column_stats_projections(sql: &str) -> Vec<FileColumnStatsProjection> {
@@ -1423,14 +1418,16 @@ fn table_stats_projections(sql: &str) -> Vec<TableStatsProjection> {
             }
             SelectItem::UnnamedExpr(expr) => {
                 let source_name = expr_last_identifier(&expr);
-                if let Some(projection) = table_stats_projection_for_name(&source_name, &source_name)
+                if let Some(projection) =
+                    table_stats_projection_for_name(&source_name, &source_name)
                 {
                     projections.push(projection);
                 }
             }
             SelectItem::ExprWithAlias { expr, alias } => {
                 let source_name = expr_last_identifier(&expr);
-                if let Some(projection) = table_stats_projection_for_name(&source_name, &alias.value)
+                if let Some(projection) =
+                    table_stats_projection_for_name(&source_name, &alias.value)
                 {
                     projections.push(projection);
                 }
@@ -1481,10 +1478,7 @@ fn table_stats_projection_for_name(
     }
 }
 
-fn table_stats_projection(
-    name: &str,
-    source: TableStatsProjectionSource,
-) -> TableStatsProjection {
+fn table_stats_projection(name: &str, source: TableStatsProjectionSource) -> TableStatsProjection {
     TableStatsProjection {
         name: name.to_string(),
         datatype: Type::INT8,
@@ -2071,10 +2065,8 @@ pub(super) fn make_snapshot_stats_changes_response(
         .into_iter()
         .map(|stats| (stats.table_id, stats))
         .collect();
-    let mut column_stats_by_table: BTreeMap<
-        u64,
-        Vec<slateduck_core::rows::TableColumnStatsRow>,
-    > = BTreeMap::new();
+    let mut column_stats_by_table: BTreeMap<u64, Vec<slateduck_core::rows::TableColumnStatsRow>> =
+        BTreeMap::new();
     for row in column_stats_rows {
         column_stats_by_table
             .entry(row.table_id)

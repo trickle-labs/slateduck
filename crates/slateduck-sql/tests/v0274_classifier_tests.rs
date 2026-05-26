@@ -286,6 +286,62 @@ fn classify_derived_latest_snapshot_tuple_select() {
     );
 }
 
+#[test]
+fn classify_ducklake_snapshot_stats_changes_union() {
+    let sql = r#"
+SELECT
+    snapshot_id,
+    schema_version,
+    next_catalog_id,
+    next_file_id,
+    COALESCE((
+            SELECT STRING_AGG(changes_made, ',')
+            FROM "public".ducklake_snapshot_changes c
+            WHERE c.snapshot_id > 0
+            ),'') AS changes,
+    NULL AS table_id,
+    NULL AS column_id,
+    NULL AS record_count,
+    NULL AS next_row_id,
+    NULL AS file_size_bytes,
+    NULL AS contains_null,
+    NULL AS contains_nan,
+    NULL AS min_value,
+    NULL AS max_value,
+    NULL AS extra_stats
+    FROM "public".ducklake_snapshot
+    WHERE snapshot_id = (
+        SELECT MAX(snapshot_id)
+        FROM "public".ducklake_snapshot)
+UNION ALL
+SELECT
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    table_id,
+    column_id,
+    record_count,
+    next_row_id,
+    file_size_bytes,
+    contains_null,
+    contains_nan,
+    min_value,
+    max_value,
+    extra_stats
+FROM "public".ducklake_table_stats
+LEFT JOIN "public".ducklake_table_column_stats
+    USING (table_id)
+WHERE record_count IS NOT NULL
+    AND file_size_bytes IS NOT NULL
+ORDER BY table_id NULLS FIRST;
+"#;
+
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(kind, StatementKind::SelectSnapshotStatsAndChanges);
+}
+
 // ─── ducklake_macro_impl SELECT (as extracted from COPY TO STDOUT) ───────────
 
 #[test]
@@ -321,4 +377,20 @@ fn classify_derived_ducklake_column_select() {
         StatementKind::SelectColumns,
         "Derived subquery select from ducklake_column must classify as SelectColumns"
     );
+}
+
+#[test]
+fn classify_dynamic_inlined_row_update() {
+    let sql = r#"
+WITH deleted_row_list(deleted_row_id) AS (
+VALUES (2)
+)
+UPDATE "public".ducklake_inlined_data_3_3
+SET end_snapshot = 7
+FROM deleted_row_list
+WHERE row_id=deleted_row_id AND end_snapshot IS NULL AND begin_snapshot != 7;
+"#;
+
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(kind, StatementKind::UpdateInlinedRowEndSnapshot);
 }

@@ -80,6 +80,27 @@ async fn row_count(resp: Response<'static>) -> usize {
     }
 }
 
+async fn query_names_and_count(resp: Response<'static>) -> (Vec<String>, usize) {
+    match resp {
+        Response::Query(qr) => {
+            let names = qr
+                .row_schema()
+                .iter()
+                .map(|field| field.name().to_string())
+                .collect::<Vec<_>>();
+            let stream = qr.data_rows();
+            futures::pin_mut!(stream);
+            let mut count = 0usize;
+            while let Some(row) = stream.next().await {
+                row.expect("query row must encode successfully");
+                count += 1;
+            }
+            (names, count)
+        }
+        _ => panic!("expected Query response"),
+    }
+}
+
 // ─── Step 1: DISCARD ALL ─────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -256,6 +277,189 @@ async fn pg_catalog_scan_empty_result_sets_have_correct_schema() {
             "result set {i} (pg_class/pg_enum/pg_type/pg_indexes) must be empty, got {count} rows"
         );
     }
+}
+
+#[tokio::test]
+async fn ducklake_table_stats_preserves_requested_projection_order() {
+    let dir = TempDir::new().unwrap();
+    let store = setup_store(&dir).await;
+
+    let resp = exec_one(
+        r#"SELECT "table_id", "record_count", "file_size_bytes", "next_row_id" FROM "public"."ducklake_table_stats""#,
+        &store,
+    )
+    .await;
+    let (names, count) = query_names_and_count(resp).await;
+
+    assert_eq!(
+        names,
+        vec!["table_id", "record_count", "file_size_bytes", "next_row_id"],
+        "DuckLake v1.0 table_stats scans must keep DuckDB's requested column order"
+    );
+    assert_eq!(count, 0, "fresh catalog should not have table stats rows");
+}
+
+#[tokio::test]
+async fn ducklake_snapshot_stats_changes_union_has_expected_shape() {
+    let dir = TempDir::new().unwrap();
+    let store = setup_store(&dir).await;
+
+    let sql = r#"
+SELECT
+    snapshot_id,
+    schema_version,
+    next_catalog_id,
+    next_file_id,
+    COALESCE((
+            SELECT STRING_AGG(changes_made, ',')
+            FROM "public".ducklake_snapshot_changes c
+            WHERE c.snapshot_id > 0
+            ),'') AS changes,
+    NULL AS table_id,
+    NULL AS column_id,
+    NULL AS record_count,
+    NULL AS next_row_id,
+    NULL AS file_size_bytes,
+    NULL AS contains_null,
+    NULL AS contains_nan,
+    NULL AS min_value,
+    NULL AS max_value,
+    NULL AS extra_stats
+    FROM "public".ducklake_snapshot
+    WHERE snapshot_id = (
+        SELECT MAX(snapshot_id)
+        FROM "public".ducklake_snapshot)
+UNION ALL
+SELECT
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    table_id,
+    column_id,
+    record_count,
+    next_row_id,
+    file_size_bytes,
+    contains_null,
+    contains_nan,
+    min_value,
+    max_value,
+    extra_stats
+FROM "public".ducklake_table_stats
+LEFT JOIN "public".ducklake_table_column_stats
+    USING (table_id)
+WHERE record_count IS NOT NULL
+    AND file_size_bytes IS NOT NULL
+ORDER BY table_id NULLS FIRST;
+"#;
+
+    let resp = exec_one(sql, &store).await;
+    let (names, count) = query_names_and_count(resp).await;
+
+    assert_eq!(
+        names,
+        vec![
+            "snapshot_id",
+            "schema_version",
+            "next_catalog_id",
+            "next_file_id",
+            "changes",
+            "table_id",
+            "column_id",
+            "record_count",
+            "next_row_id",
+            "file_size_bytes",
+            "contains_null",
+            "contains_nan",
+            "min_value",
+            "max_value",
+            "extra_stats",
+        ]
+    );
+    assert_eq!(count, 1, "fresh catalog should return the snapshot row");
+}
+
+#[tokio::test]
+async fn inlined_append_with_stale_row_id_is_remapped_to_free_key() {
+    let dir = TempDir::new().unwrap();
+    let store = setup_store(&dir).await;
+
+    exec_one(
+        r#"INSERT INTO "public".ducklake_inlined_data_3_3 VALUES (0, 4, NULL, 1, '\x6f6e65'), (1, 4, NULL, 2, '\x74776f'), (2, 4, NULL, 3, '\x7468726565')"#,
+        &store,
+    )
+    .await;
+    exec_one(
+        r#"INSERT INTO "public".ducklake_inlined_data_3_3 VALUES (0, 6, NULL, 4, '\x666f7572')"#,
+        &store,
+    )
+    .await;
+
+    let reader = { store.lock().await.read_latest() };
+    let mut rows = reader.list_inlined_inserts(3).await.unwrap();
+    rows.sort_by_key(|row| row.row_id);
+    let row_ids = rows.iter().map(|row| row.row_id).collect::<Vec<_>>();
+
+    assert_eq!(row_ids, vec![0, 1, 2, 3]);
+    let appended = rows.iter().find(|row| row.row_id == 3).unwrap();
+    let values = serde_json::from_slice::<Vec<Option<String>>>(&appended.payload).unwrap();
+    assert_eq!(values.first().and_then(|value| value.as_deref()), Some("4"));
+}
+
+#[tokio::test]
+async fn table_stats_merge_incremental_inlined_batches() {
+    let dir = TempDir::new().unwrap();
+    let store = setup_store(&dir).await;
+
+    {
+        let mut lock = store.lock().await;
+        let mut writer = lock.begin_write();
+        writer.update_table_stats(3, 3, 3, 0).await.unwrap();
+        writer
+            .upsert_table_column_stats(3, 4, false, Some("1"), Some("3"), None, None)
+            .await
+            .unwrap();
+        writer.adjust_table_record_count(3, -1).await.unwrap();
+        writer.update_table_stats(3, 1, 1, 0).await.unwrap();
+        writer
+            .upsert_table_column_stats(3, 4, false, Some("4"), Some("4"), None, None)
+            .await
+            .unwrap();
+        writer.update_table_stats(3, 1, 0, 0).await.unwrap();
+        writer
+            .upsert_table_column_stats(3, 4, false, Some("3"), Some("3"), None, None)
+            .await
+            .unwrap();
+        writer
+            .upsert_table_column_stats(3, 6, false, Some("10"), Some("10"), None, None)
+            .await
+            .unwrap();
+        writer
+            .upsert_table_column_stats(3, 6, false, Some("2"), Some("2"), None, None)
+            .await
+            .unwrap();
+        writer.adjust_table_record_count(3, -1).await.unwrap();
+    }
+
+    let reader = { store.lock().await.read_latest() };
+    let stats = reader.get_table_stats(3).await.unwrap().unwrap();
+    let column_stats = reader.list_all_table_column_stats().await.unwrap();
+    let id_stats = column_stats
+        .iter()
+        .find(|row| row.table_id == 3 && row.column_id == 4)
+        .unwrap();
+    let numeric_stats = column_stats
+        .iter()
+        .find(|row| row.table_id == 3 && row.column_id == 6)
+        .unwrap();
+
+    assert_eq!(stats.record_count, 3);
+    assert_eq!(stats.next_row_id, Some(5));
+    assert_eq!(id_stats.min_value.as_deref(), Some("1"));
+    assert_eq!(id_stats.max_value.as_deref(), Some("4"));
+    assert_eq!(numeric_stats.min_value.as_deref(), Some("2"));
+    assert_eq!(numeric_stats.max_value.as_deref(), Some("10"));
 }
 
 // ─── Step 6: Wire corpus fixture ─────────────────────────────────────────────
