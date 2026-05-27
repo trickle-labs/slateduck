@@ -3914,7 +3914,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-catalog"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -3945,7 +3945,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-core"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "bytes",
  "chrono",
@@ -3966,7 +3966,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-datafusion"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "arrow",
  "async-trait",
@@ -3984,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-ffi"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "object_store 0.12.5",
  "rocklake-catalog",
@@ -3995,13 +3995,15 @@ dependencies = [
 
 [[package]]
 name = "rocklake-pgwire"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "arrow",
  "async-trait",
+ "base64",
  "bytes",
  "chrono",
  "futures",
+ "hmac",
  "object_store 0.12.5",
  "parquet",
  "pgwire",
@@ -4009,9 +4011,11 @@ dependencies = [
  "rocklake-catalog",
  "rocklake-core",
  "rocklake-sql",
+ "rustls",
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "slatedb",
  "sqlparser 0.55.0",
  "tempfile",
@@ -4026,7 +4030,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-sql"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "arrow",
  "bytes",
@@ -4043,7 +4047,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-testkit"
-version = "0.27.13"
+version = "0.27.14"
 dependencies = [
  "chrono",
  "object_store 0.12.5",

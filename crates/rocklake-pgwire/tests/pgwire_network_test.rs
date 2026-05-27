@@ -443,6 +443,7 @@ async fn auth_required_rejects_wrong_password() {
         auth: AuthConfig {
             username: Some("admin".to_string()),
             password: Some("secret".to_string()),
+            scram_sha256: false,
         },
         ..Default::default()
     };

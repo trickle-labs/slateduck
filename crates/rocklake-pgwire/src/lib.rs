@@ -9,6 +9,7 @@ pub mod executor;
 pub mod handler;
 pub mod notify;
 pub mod schema_registry;
+pub mod scram;
 pub mod server;
 pub mod session;
 pub mod types;

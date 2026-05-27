@@ -39,6 +39,12 @@ pub struct AuthConfig {
     pub username: Option<String>,
     /// Password for password authentication.
     pub password: Option<String>,
+    /// Use SCRAM-SHA-256 instead of cleartext password authentication.
+    ///
+    /// When `true` the server initiates a SASL/SCRAM-SHA-256 exchange so
+    /// that the plaintext credential is never transmitted over the wire.
+    /// Requires `username` and `password` to be set.
+    pub scram_sha256: bool,
 }
 
 impl AuthConfig {

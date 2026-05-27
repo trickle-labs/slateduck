@@ -512,30 +512,22 @@ fn copy_out_error(message: &str) -> PgWireError {
     )))
 }
 
-/// Constant-time byte slice equality comparison to resist timing attacks.
-fn ct_bytes_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (&x, &y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
 /// Startup handler that enforces authentication when configured.
 ///
 /// When `AuthConfig::is_enabled()` returns false, connections are accepted
-/// without any credential check (noop). When it returns true, cleartext
-/// password auth is required; username is verified before issuing the
-/// password challenge, and the password is compared in constant time.
+/// without any credential check (noop). When it returns true the handler
+/// uses either cleartext password auth (constant-time comparison) or
+/// SCRAM-SHA-256 (when `AuthConfig::scram_sha256` is set), ensuring
+/// credentials are never transmitted in plaintext over the wire.
 ///
 /// When `tls_required` is true and the client connects without TLS, the
 /// connection is rejected immediately with a fatal error.
 pub struct RockLakeStartupHandler {
     auth: Arc<AuthConfig>,
     tls_required: bool,
+    /// Per-connection SCRAM state (None until the client-first-message
+    /// is received; Some during the challenge-response phase).
+    scram_state: Mutex<Option<crate::scram::ScramState>>,
 }
 
 impl RockLakeStartupHandler {
@@ -543,11 +535,16 @@ impl RockLakeStartupHandler {
         Self {
             auth,
             tls_required: false,
+            scram_state: Mutex::new(None),
         }
     }
 
     pub fn new_with_tls_required(auth: Arc<AuthConfig>, tls_required: bool) -> Self {
-        Self { auth, tls_required }
+        Self {
+            auth,
+            tls_required,
+            scram_state: Mutex::new(None),
+        }
     }
 }
 
@@ -584,7 +581,16 @@ impl pgwire::api::auth::StartupHandler for RockLakeStartupHandler {
                 if !self.auth.is_enabled() {
                     finish_authentication(client, &DefaultServerParameterProvider::default())
                         .await?;
+                } else if self.auth.scram_sha256 {
+                    // Initiate SCRAM-SHA-256 SASL exchange.
+                    client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                    client
+                        .send(PgWireBackendMessage::Authentication(Authentication::SASL(
+                            vec!["SCRAM-SHA-256".to_string()],
+                        )))
+                        .await?;
                 } else {
+                    // Cleartext password path: verify username first.
                     let expected_user = self.auth.username.as_deref().unwrap_or("").to_owned();
                     let provided_user = client
                         .metadata()
@@ -613,30 +619,105 @@ impl pgwire::api::auth::StartupHandler for RockLakeStartupHandler {
                         .await?;
                 }
             }
+
             PgWireFrontendMessage::PasswordMessageFamily(pwd) if self.auth.is_enabled() => {
-                let pwd = pwd.into_password()?;
-                let expected = self.auth.password.as_deref().unwrap_or("").as_bytes();
-                if ct_bytes_eq(pwd.password.as_bytes(), expected) {
-                    finish_authentication(client, &DefaultServerParameterProvider::default())
-                        .await?;
+                if self.auth.scram_sha256 {
+                    // Determine whether we are in SCRAM phase 1 (waiting for
+                    // SASLInitialResponse) or phase 2 (waiting for SASLResponse).
+                    let in_phase1 = self.scram_state.lock().await.is_none();
+
+                    if in_phase1 {
+                        // Phase 1 — client-first-message.
+                        let initial = match pwd.into_sasl_initial_response() {
+                            Ok(r) => r,
+                            Err(_) => {
+                                return send_auth_error(client, "SCRAM handshake error").await;
+                            }
+                        };
+                        let password = self.auth.password.as_deref().unwrap_or("");
+                        let nonce_suffix = crate::scram::random_server_nonce();
+                        let client_first = initial.data.as_deref().unwrap_or_default();
+                        match crate::scram::ScramState::from_client_first(
+                            client_first,
+                            password,
+                            &nonce_suffix,
+                        ) {
+                            Some(state) => {
+                                let server_first =
+                                    Bytes::from(state.server_first.clone().into_bytes());
+                                *self.scram_state.lock().await = Some(state);
+                                client
+                                    .send(PgWireBackendMessage::Authentication(
+                                        Authentication::SASLContinue(server_first),
+                                    ))
+                                    .await?;
+                            }
+                            None => {
+                                return send_auth_error(client, "SCRAM client-first parse error")
+                                    .await;
+                            }
+                        }
+                    } else {
+                        // Phase 2 — client-final-message.
+                        let state = self.scram_state.lock().await.take().unwrap();
+                        let response = match pwd.into_sasl_response() {
+                            Ok(r) => r,
+                            Err(_) => {
+                                return send_auth_error(client, "SCRAM handshake error").await;
+                            }
+                        };
+                        match state.validate_client_final(&response.data) {
+                            Some(server_final) => {
+                                client
+                                    .send(PgWireBackendMessage::Authentication(
+                                        Authentication::SASLFinal(Bytes::from(server_final)),
+                                    ))
+                                    .await?;
+                                finish_authentication(
+                                    client,
+                                    &DefaultServerParameterProvider::default(),
+                                )
+                                .await?;
+                            }
+                            None => {
+                                return send_auth_error(client, "SCRAM authentication failed")
+                                    .await;
+                            }
+                        }
+                    }
                 } else {
-                    let error_info = ErrorInfo::new(
-                        "FATAL".to_owned(),
-                        "28P01".to_owned(),
-                        "Password authentication failed".to_owned(),
-                    );
-                    client
-                        .feed(PgWireBackendMessage::ErrorResponse(ErrorResponse::from(
-                            error_info,
-                        )))
-                        .await?;
-                    client.close().await?;
+                    // Cleartext password path.
+                    let pwd = pwd.into_password()?;
+                    let expected = self.auth.password.as_deref().unwrap_or("").as_bytes();
+                    if crate::scram::ct_bytes_eq(pwd.password.as_bytes(), expected) {
+                        finish_authentication(client, &DefaultServerParameterProvider::default())
+                            .await?;
+                    } else {
+                        return send_auth_error(client, "Password authentication failed").await;
+                    }
                 }
             }
             _ => {}
         }
         Ok(())
     }
+}
+
+/// Send a `FATAL 28P01` authentication-failure error and close the connection.
+async fn send_auth_error<C>(client: &mut C, message: &str) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let error_info = ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), message.to_owned());
+    client
+        .feed(PgWireBackendMessage::ErrorResponse(ErrorResponse::from(
+            error_info,
+        )))
+        .await?;
+    client.close().await?;
+    Ok(())
 }
 
 #[async_trait]

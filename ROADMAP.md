@@ -82,7 +82,7 @@ binding on every roadmap release below.
 | **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for CDC startup | Planning |
 | **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Done |
 | **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; archive planning docs as generic DuckLake CDC contract reference | Done |
-| **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Planning |
+| **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Done |
 | **v0.35.0 — Strategy C: Native DuckDB Extension** | Complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; eliminates all Postgres-scanner compatibility burden for local/embedded use; `rocklake-ffi` C ABI already done; C++ catalog registration is the remaining gap | Planning |
 | **v0.40.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
@@ -3636,30 +3636,30 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 ### Tasks
 
 #### Timing Attack Verification
-- [ ] Implement automated timing attack verification in `crates/rocklake-pgwire/tests/security_tests.rs`.
-- [ ] Assert that credential evaluations (e.g. password checks) complete in constant-time using statistical timing analysis.
+- [x] Implement automated timing attack verification in `crates/rocklake-pgwire/tests/security_tests.rs`.
+- [x] Assert that credential evaluations (e.g. password checks) complete in constant-time using statistical timing analysis.
 
 #### Modern SCRAM Authentication
-- [ ] Implement and test `SCRAM-SHA-256` authentication exchange in the PgWire server.
-- [ ] Verify SCRAM-SHA-256 handshakes succeed against standard PG drivers and ORMs.
+- [x] Implement and test `SCRAM-SHA-256` authentication exchange in the PgWire server.
+- [x] Verify SCRAM-SHA-256 handshakes succeed against standard PG drivers and ORMs.
 
 #### Protocol-Level TLS Version Gates
-- [ ] Add explicit TLS protocol validation tests.
-- [ ] Verify that loopback clients attempting TLS 1.2 and TLS 1.3 connections are accepted.
-- [ ] Verify that loopback clients attempting insecure handshakes (TLS 1.1 or older) are strictly rejected at the socket layer.
+- [x] Add explicit TLS protocol validation tests.
+- [x] Verify that loopback clients attempting TLS 1.2 and TLS 1.3 connections are accepted.
+- [x] Verify that loopback clients attempting insecure handshakes (TLS 1.1 or older) are strictly rejected at the socket layer.
 
 #### Atomic Commit Batching & Transaction Isolation
-- [ ] Group multi-statement metadata inserts/updates from a single commit transaction into atomic commit blocks.
-- [ ] Consolidate stats deltas before performing `ducklake_table_stats` updates to guarantee accurate record counts.
-- [ ] Enforce repeatable-read transaction isolation barriers on the catalog writer, rejecting stale snapshot commits with SQLSTATE `40001` (serialization failure) to drive retry loops.
-- [ ] Verify cascading dropping logic retires table, columns, column tags, data/delete files, tags, and partitions under test.
-- [ ] Validate that atomic commit batching and transaction isolation are strictly tested against DuckDB v1.5.3 and DuckLake 1.0 (Catalog Version 7) workflows, with all newer v1.1 protocol aspects treated as explicitly unsupported.
+- [x] Group multi-statement metadata inserts/updates from a single commit transaction into atomic commit blocks.
+- [x] Consolidate stats deltas before performing `ducklake_table_stats` updates to guarantee accurate record counts.
+- [x] Enforce repeatable-read transaction isolation barriers on the catalog writer, rejecting stale snapshot commits with SQLSTATE `40001` (serialization failure) to drive retry loops.
+- [x] Verify cascading dropping logic retires table, columns, column tags, data/delete files, tags, and partitions under test.
+- [x] Validate that atomic commit batching and transaction isolation are strictly tested against DuckDB v1.5.3 and DuckLake 1.0 (Catalog Version 7) workflows, with all newer v1.1 protocol aspects treated as explicitly unsupported.
 
 ### Definition of Done
-- [ ] Timing analysis test proves constant-time password verification within tight statistical deviation boundaries.
-- [ ] SCRAM-SHA-256 authentication tests run and pass.
-- [ ] Insecure TLS handshakes (TLS 1.1 and below) are rejected under test, and TLS 1.2/1.3 are verified as accepted.
-- [ ] Multi-statement catalog writes are verified as atomic, stats deltas consolidate accurately, repeatable-read writer fencing (SQLSTATE `40001`) operates correctly under conflicts, and cascading drops cascade properly.
+- [x] Timing analysis test proves constant-time password verification within tight statistical deviation boundaries.
+- [x] SCRAM-SHA-256 authentication tests run and pass.
+- [x] Insecure TLS handshakes (TLS 1.1 and below) are rejected under test, and TLS 1.2/1.3 are verified as accepted.
+- [x] Multi-statement catalog writes are verified as atomic, stats deltas consolidate accurately, repeatable-read writer fencing (SQLSTATE `40001`) operates correctly under conflicts, and cascading drops cascade properly.
 
 ---
 

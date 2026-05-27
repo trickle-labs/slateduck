@@ -1124,12 +1124,14 @@ fn test_auth_config() {
     let enabled = AuthConfig {
         username: Some("admin".to_string()),
         password: Some("secret".to_string()),
+        scram_sha256: false,
     };
     assert!(enabled.is_enabled());
 
     let partial = AuthConfig {
         username: Some("admin".to_string()),
         password: None,
+        scram_sha256: false,
     };
     assert!(!partial.is_enabled());
 }
@@ -1621,6 +1623,7 @@ async fn test_auth_correct_credentials_succeeds() {
     let auth = rocklake_pgwire::server::AuthConfig {
         username: Some("admin".to_string()),
         password: Some("secret".to_string()),
+        scram_sha256: false,
     };
     let (addr, tx, handle) = start_server_with_auth(&dir, auth).await;
 
@@ -1650,6 +1653,7 @@ async fn test_auth_wrong_password_rejected() {
     let auth = rocklake_pgwire::server::AuthConfig {
         username: Some("admin".to_string()),
         password: Some("secret".to_string()),
+        scram_sha256: false,
     };
     let (addr, tx, handle) = start_server_with_auth(&dir, auth).await;
 
@@ -1670,6 +1674,7 @@ async fn test_auth_wrong_username_rejected() {
     let auth = rocklake_pgwire::server::AuthConfig {
         username: Some("admin".to_string()),
         password: Some("secret".to_string()),
+        scram_sha256: false,
     };
     let (addr, tx, handle) = start_server_with_auth(&dir, auth).await;
 

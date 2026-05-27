@@ -161,6 +161,7 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         auth: rocklake_pgwire::server::AuthConfig {
             username: config.auth_username,
             password: config.auth_password,
+            scram_sha256: false,
         },
         extension_schemas: config.extension_schemas.clone(),
     };
