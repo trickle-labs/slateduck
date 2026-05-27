@@ -710,11 +710,17 @@ async fn execute_classified<'a>(
             Ok(vec![make_delete_files_response(files)])
         }
         StatementKind::SelectSnapshot => {
-            let snap_id = params.get_u64(0).unwrap_or(u64::MAX);
+            let snap_id = params.get_u64(0).ok();
             let reader = {
                 let s = store.lock().await;
-                s.read_at(slateduck_core::mvcc::SnapshotId::new(snap_id))
-                    .map_err(SlateDuckError::from)?
+                if let Some(id) = snap_id {
+                    s.read_at(slateduck_core::mvcc::SnapshotId::new(id))
+                        .map_err(SlateDuckError::from)?
+                } else {
+                    // No snapshot ID provided (e.g. SELECT * FROM ducklake_snapshot):
+                    // return the latest committed snapshot.
+                    s.read_latest()
+                }
             };
             let snap = reader.get_snapshot().await.map_err(SlateDuckError::from)?;
             if let Some(snap) = snap {
@@ -1180,7 +1186,8 @@ async fn execute_classified<'a>(
                     .ok()
                     .or_else(|| literal_u64(&literals, 1))
                     .unwrap_or(0),
-                file_count: params
+                // DuckLake v1.0 position 2 is next_row_id, not file_count.
+                next_row_id: params
                     .get_u64(2)
                     .ok()
                     .or_else(|| literal_u64(&literals, 2))

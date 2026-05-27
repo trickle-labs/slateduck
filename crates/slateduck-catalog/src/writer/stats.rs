@@ -153,22 +153,34 @@ pub struct FileVariantStatsInput<'a> {
 }
 
 impl CatalogWriter {
+    /// Update table stats from a DuckLake v1.0 `INSERT INTO ducklake_table_stats` statement.
+    /// Parameters match the DuckLake v1.0 column order: table_id, record_count,
+    /// next_row_id (position 2 — NOT file_count), file_size_bytes.
     pub async fn update_table_stats(
         &mut self,
         table_id: u64,
         record_count: u64,
-        file_count: u64,
+        next_row_id: u64,
         file_size_bytes: u64,
     ) -> CatalogResult<()> {
         let existing = self.read_table_stats_or_default(table_id).await?;
-        let existing_next_row_id = existing.next_row_id.unwrap_or(0);
-        let next_row_id = existing_next_row_id.saturating_add(record_count);
+        // Advance next_row_id by at least the number of new rows inserted in this
+        // batch (additive), but also honour any larger absolute value that DuckDB
+        // may provide directly.  This handles both "absolute" and "batch-relative"
+        // next_row_id values sent during incremental inlined-data inserts.
+        let merged_next_row_id = std::cmp::max(
+            existing
+                .next_row_id
+                .unwrap_or(0)
+                .saturating_add(record_count),
+            next_row_id,
+        );
         let row = TableStatsRow {
             table_id,
             record_count: existing.record_count.saturating_add(record_count),
-            file_count: existing.file_count.saturating_add(file_count),
+            internal_file_count: existing.internal_file_count,
             file_size_bytes: existing.file_size_bytes.saturating_add(file_size_bytes),
-            next_row_id: Some(next_row_id),
+            next_row_id: Some(merged_next_row_id),
         };
         let key = keys::key_table_stats(table_id);
         self.db.put(&key, values::encode_value(&row)).await?;
@@ -194,7 +206,7 @@ impl CatalogWriter {
         file_size_bytes: u64,
         next_row_id: u64,
     ) -> CatalogResult<()> {
-        let existing_file_count = {
+        let existing_internal_file_count = {
             let key = keys::key_table_stats(table_id);
             match self.db.get(&key).await? {
                 Some(data) => {
@@ -202,11 +214,11 @@ impl CatalogWriter {
                         .unwrap_or(TableStatsRow {
                             table_id,
                             record_count: 0,
-                            file_count: 0,
+                            internal_file_count: 0,
                             file_size_bytes: 0,
                             next_row_id: None,
                         });
-                    existing.file_count
+                    existing.internal_file_count
                 }
                 None => 0,
             }
@@ -214,7 +226,7 @@ impl CatalogWriter {
         let row = TableStatsRow {
             table_id,
             record_count,
-            file_count: existing_file_count,
+            internal_file_count: existing_internal_file_count,
             file_size_bytes,
             next_row_id: Some(next_row_id),
         };
@@ -278,14 +290,14 @@ impl CatalogWriter {
             Some(data) => slateduck_core::values::decode_value(&data).unwrap_or(TableStatsRow {
                 table_id,
                 record_count: 0,
-                file_count: 0,
+                internal_file_count: 0,
                 file_size_bytes: 0,
                 next_row_id: None,
             }),
             None => TableStatsRow {
                 table_id,
                 record_count: 0,
-                file_count: 0,
+                internal_file_count: 0,
                 file_size_bytes: 0,
                 next_row_id: None,
             },

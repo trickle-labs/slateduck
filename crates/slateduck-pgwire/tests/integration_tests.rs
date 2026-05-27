@@ -32,6 +32,31 @@ fn default_extension_schemas() -> Arc<Vec<String>> {
     Arc::new(vec!["pgtrickle".to_string()])
 }
 
+/// Drain a query Response: return (column_names, row_count).
+async fn inspect_response(resp: pgwire::api::results::Response<'static>) -> (Vec<String>, usize) {
+    use futures::StreamExt;
+    use pgwire::api::results::Response;
+    match resp {
+        Response::Query(qr) => {
+            let cols = qr
+                .row_schema()
+                .iter()
+                .map(|f| f.name().to_lowercase())
+                .collect::<Vec<_>>();
+            let stream = qr.data_rows();
+            futures::pin_mut!(stream);
+            let mut count = 0usize;
+            while let Some(item) = stream.next().await {
+                if item.is_ok() {
+                    count += 1;
+                }
+            }
+            (cols, count)
+        }
+        _ => (vec![], 0),
+    }
+}
+
 #[tokio::test]
 async fn test_select_version() {
     let dir = tempfile::tempdir().unwrap();
@@ -535,7 +560,7 @@ async fn test_create_inlined_table() {
 #[tokio::test]
 async fn test_wire_handshake_replay() {
     // Test that all queries in the Phase 0 handshake fixture can be classified
-    let fixture = include_str!("../../../tests/fixtures/handshake/duckdb-1.2.2.jsonl");
+    let fixture = include_str!("../../../tests/fixtures/handshake/duckdb-1.5.x.jsonl");
     for line in fixture.lines() {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         if v["direction"] == "client_to_server" && v["type"] == "Query" {
@@ -1294,7 +1319,7 @@ fn test_wire_corpus_fixture_exists() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("tests/fixtures/wire-corpus/duckdb-1.2.2.jsonl");
+        .join("tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl");
     assert!(duckdb_corpus.exists(), "DuckDB wire corpus fixture missing");
 }
 
@@ -1870,5 +1895,133 @@ async fn test_virtual_catalog_data_file_classifiable() {
     assert!(
         matches!(kind, StatementKind::VirtualCatalogScan { ref table_name } if table_name == "ducklake_data_file"),
         "expected VirtualCatalogScan{{ducklake_data_file}}, got {kind:?}"
+    );
+}
+
+/// Task 13 regression: all four DuckLake v1.0 `ducklake_table_stats` column
+/// positions must round-trip correctly through `InsertTableStats`.
+///
+/// DuckLake v1.0 column order: table_id, record_count, next_row_id, file_size_bytes.
+/// Previously position-2 was incorrectly treated as `file_count` instead of `next_row_id`.
+#[tokio::test]
+async fn insert_table_stats_four_columns_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+
+    // Mimic a DuckLake v1.0 INSERT with all four positional literals:
+    //   (table_id=1, record_count=500, next_row_id=500, file_size_bytes=1048576)
+    executor::execute_sql(
+        "INSERT INTO ducklake_table_stats VALUES (1, 500, 500, 1048576)",
+        &ParamValues::default(),
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
+
+    // Read back directly via the catalog reader API to verify stored values.
+    let catalog = store.lock().await;
+    let reader = catalog.read_latest();
+    let stats = reader
+        .get_table_stats(1)
+        .await
+        .expect("catalog read must not fail")
+        .expect("stats row must exist after INSERT");
+
+    assert_eq!(stats.record_count, 500, "record_count must round-trip");
+    // Key regression: position-2 is next_row_id, not file_count.
+    assert_eq!(
+        stats.next_row_id,
+        Some(500),
+        "next_row_id (position 2) must round-trip; regression: was stored as file_count=0"
+    );
+    assert_eq!(
+        stats.file_size_bytes, 1048576,
+        "file_size_bytes must round-trip"
+    );
+}
+
+/// Task 14 rollback: a ROLLBACK after DML must leave catalog state unchanged.
+///
+/// Verifies that `pending_txn` is discarded on ROLLBACK and no schema rows
+/// appear in the catalog after the batch is dropped.
+#[tokio::test]
+async fn rollback_mid_batch_leaves_catalog_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = setup_store(&dir).await;
+    let mut session = SessionState::new();
+    let params = ParamValues::default();
+
+    // BEGIN a transaction, buffer some DML, then ROLLBACK.
+    executor::execute_sql(
+        "BEGIN",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        session.in_transaction,
+        "session must be in transaction after BEGIN"
+    );
+
+    // Buffer an INSERT INTO ducklake_schema inside the transaction.
+    executor::execute_sql(
+        "INSERT INTO ducklake_schema VALUES (1, 1, NULL, gen_random_uuid(), 'rollback_test', NULL, false)",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !session.pending_txn.is_empty(),
+        "pending_txn must hold buffered ops after DML in transaction"
+    );
+
+    // ROLLBACK must clear the buffer and end the transaction.
+    executor::execute_sql(
+        "ROLLBACK",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !session.in_transaction,
+        "session must not be in transaction after ROLLBACK"
+    );
+    assert!(
+        session.pending_txn.is_empty(),
+        "pending_txn must be empty after ROLLBACK"
+    );
+
+    // The catalog must have no new schemas — rollback discarded the INSERT.
+    let mut schema_responses = executor::execute_sql(
+        "SELECT schema_id, schema_name FROM ducklake_schema",
+        &params,
+        &store,
+        &mut session,
+        &default_notify_manager(),
+        &default_extension_schemas(),
+    )
+    .await
+    .unwrap();
+    let resp = schema_responses.pop().unwrap();
+    let (_, count) = inspect_response(resp).await;
+    assert_eq!(
+        count, 0,
+        "rollback must leave catalog with no schemas, but got {count} rows"
     );
 }

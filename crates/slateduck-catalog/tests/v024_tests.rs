@@ -307,7 +307,7 @@ fn table_stats_row_has_v024_fields() {
     let row = TableStatsRow {
         table_id: 1,
         record_count: 200,
-        file_count: 2,
+        internal_file_count: 2,
         file_size_bytes: 3_000_000,
         next_row_id: Some(200),
     };

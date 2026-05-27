@@ -486,11 +486,11 @@ pub(super) async fn execute_commit(
             BufferedOp::InsertTableStats {
                 table_id,
                 record_count,
-                file_count,
+                next_row_id,
                 file_size_bytes,
             } => {
                 writer
-                    .update_table_stats(table_id, record_count, file_count, file_size_bytes)
+                    .update_table_stats(table_id, record_count, next_row_id, file_size_bytes)
                     .await
                     .map_err(SlateDuckError::from)?;
             }
@@ -531,43 +531,8 @@ pub(super) async fn execute_commit(
 pub(super) fn make_snapshot_row_response(
     snap: slateduck_core::rows::SnapshotRow,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "snapshot_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "snapshot_time".to_string(),
-            None,
-            None,
-            Type::TIMESTAMPTZ,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "schema_version".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "next_catalog_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "next_file_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    // Schema derived from the shared schema registry.
+    let schema = crate::schema_registry::snapshot_schema();
     let mut encoder = DataRowEncoder::new(schema.clone());
     encoder
         .encode_field_with_type_and_format(
@@ -617,43 +582,7 @@ pub(super) fn make_snapshot_changes_response(
     rows: Vec<slateduck_core::rows::SnapshotChangesRow>,
 ) -> Response<'static> {
     use std::collections::BTreeMap;
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "snapshot_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "changes_made".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "author".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "commit_message".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "commit_extra_info".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::snapshot_changes_schema();
 
     // Aggregate per snapshot_id in snapshot order.
     struct Aggregated {
@@ -739,36 +668,7 @@ pub(super) fn make_snapshot_changes_response(
 pub(super) fn make_latest_snapshot_info_response(
     snap: Option<slateduck_core::rows::SnapshotRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "snapshot_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "schema_version".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "next_catalog_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "next_file_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-    ]);
+    let schema = crate::schema_registry::latest_snapshot_info_schema();
 
     let (snapshot_id, schema_version, next_catalog_id, next_file_id) = match snap {
         Some(s) => (
@@ -810,57 +710,7 @@ pub(super) fn make_latest_snapshot_info_response(
 pub(super) fn make_schemas_response(
     schemas: Vec<slateduck_core::rows::SchemaRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "schema_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "schema_uuid".to_string(),
-            None,
-            None,
-            Type::UUID,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "schema_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path_is_relative".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::schema_schema();
     let mut data_rows = Vec::new();
     for s in &schemas {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -910,64 +760,7 @@ pub(super) fn make_schemas_response(
 pub(super) fn make_tables_response(
     tables: Vec<slateduck_core::rows::TableRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "schema_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Binary,
-        ),
-        FieldInfo::new(
-            "table_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_uuid".to_string(),
-            None,
-            None,
-            Type::UUID,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path_is_relative".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::table_schema();
     let mut data_rows = Vec::new();
     for t in &tables {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -1024,99 +817,7 @@ pub(super) fn make_tables_response(
 pub(super) fn make_columns_response(
     columns: Vec<slateduck_core::rows::ColumnRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_order".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_type".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "initial_default".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "default_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "nulls_allowed".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "parent_column".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "default_value_type".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "default_value_dialect".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::column_schema();
     let mut data_rows = Vec::new();
     for c in &columns {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -1208,85 +909,7 @@ pub(super) fn make_columns_response(
 pub(super) fn make_data_files_response(
     files: Vec<slateduck_core::rows::DataFileRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "data_file_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "file_order".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path_is_relative".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "file_format".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "record_count".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "file_size_bytes".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "row_id_start".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::data_file_schema();
     let mut data_rows = Vec::new();
     for f in &files {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -1988,78 +1611,7 @@ pub(super) fn make_global_table_stats_response(
     stats_rows: Vec<slateduck_core::rows::TableStatsRow>,
     column_stats_rows: Vec<slateduck_core::rows::TableColumnStatsRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "record_count".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "next_row_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "file_size_bytes".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "contains_null".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "contains_nan".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "min_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "max_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "extra_stats".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::global_table_stats_schema();
     let mut data_rows = Vec::new();
     for stats in &stats_rows {
         let matching_column_stats = column_stats_rows
@@ -2259,57 +1811,7 @@ fn encode_optional_text_row(
 pub(super) fn make_table_column_stats_response(
     rows: Vec<slateduck_core::rows::TableColumnStatsRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "contains_null".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "contains_nan".to_string(),
-            None,
-            None,
-            Type::BOOL,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "min_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "max_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "extra_stats".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::table_column_stats_schema();
     let mut data_rows = Vec::new();
     for row in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2359,57 +1861,7 @@ pub(super) fn make_table_column_stats_response(
 pub(super) fn make_delete_files_response(
     files: Vec<slateduck_core::rows::DeleteFileRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "delete_file_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "path".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "delete_count".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "file_size_bytes".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::delete_file_schema();
     let mut data_rows = Vec::new();
     for f in &files {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2465,36 +1917,7 @@ pub(super) fn make_delete_files_response(
 pub(super) fn make_metadata_response(
     rows: Vec<slateduck_core::rows::MetadataRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "metadata_key".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "metadata_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "scope".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "scope_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::metadata_schema();
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2526,71 +1949,7 @@ pub(super) fn make_metadata_response(
 
 /// v0.25: Build a PgWire response for `SELECT * FROM ducklake_view`.
 pub(super) fn make_views_response(views: Vec<slateduck_core::rows::ViewRow>) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "view_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "schema_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "view_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "view_uuid".to_string(),
-            None,
-            None,
-            Type::UUID,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "view_definition".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "dialect".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_aliases".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::view_schema();
     let mut data_rows = Vec::new();
     for v in &views {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2650,50 +2009,7 @@ pub(super) fn make_views_response(views: Vec<slateduck_core::rows::ViewRow>) -> 
 pub(super) fn make_macros_response(
     macros: Vec<slateduck_core::rows::MacroRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "macro_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "schema_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "macro_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "macro_uuid".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::macro_schema();
     let mut data_rows = Vec::new();
     for m in &macros {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2743,37 +2059,7 @@ pub(super) fn make_macros_response(
 pub(super) fn make_macro_impls_response(
     rows: Vec<slateduck_core::rows::MacroImplRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "macro_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "impl_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "dialect".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new("sql".to_string(), None, None, Type::TEXT, FieldFormat::Text),
-        FieldInfo::new(
-            "type".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::macro_impl_schema();
     let mut data_rows = Vec::new();
     for row in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2815,57 +2101,7 @@ pub(super) fn make_macro_impls_response(
 pub(super) fn make_macro_parameters_response(
     rows: Vec<slateduck_core::rows::MacroParametersRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "macro_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "impl_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "parameter_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "parameter_type".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "default_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "default_value_type".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::macro_parameters_schema();
     let mut data_rows = Vec::new();
     for row in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -2940,29 +2176,7 @@ struct InlinedProjection {
 pub(super) fn make_inlined_data_tables_response(
     rows: Vec<InlinedDataTablesRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "schema_version".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::inlined_data_tables_schema();
     let mut data_rows = Vec::new();
     for row in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -3481,50 +2695,7 @@ pub(super) fn make_metadata_table_empty_response(table_name: &str) -> Response<'
 /// tag_name, tag_value.  The internal `TagRow.tag_key` is exposed as `tag_name`.
 /// `tag_id` is synthesized as `object_id`.
 pub(super) fn make_tags_response(rows: Vec<slateduck_core::rows::TagRow>) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "tag_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "object_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "tag_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "tag_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::tag_schema();
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -3585,50 +2756,7 @@ pub(super) fn make_tags_response(rows: Vec<slateduck_core::rows::TagRow>) -> Res
 pub(super) fn make_column_tags_response(
     rows: Vec<slateduck_core::rows::ColumnTagRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "tag_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "tag_name".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "tag_value".to_string(),
-            None,
-            None,
-            Type::TEXT,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::column_tag_schema();
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
@@ -3691,50 +2819,7 @@ pub(super) fn make_column_tags_response(
 pub(super) fn make_sort_info_response(
     rows: Vec<slateduck_core::rows::SortInfoRow>,
 ) -> Response<'static> {
-    let schema = Arc::new(vec![
-        FieldInfo::new(
-            "sort_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "begin_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "end_snapshot".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "table_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "sort_order".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-        FieldInfo::new(
-            "column_id".to_string(),
-            None,
-            None,
-            Type::INT8,
-            FieldFormat::Text,
-        ),
-    ]);
+    let schema = crate::schema_registry::sort_info_schema();
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());

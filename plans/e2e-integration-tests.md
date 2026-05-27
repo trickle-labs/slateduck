@@ -428,7 +428,6 @@ The existing corpus replay infrastructure replays captured JSONL fixtures agains
 
 | Test name | Fixture | Assertion |
 |-----------|---------|-----------|
-| `duckdb_1_2_2_corpus_replay` | `wire-corpus/duckdb-1.2.2.jsonl` | All responses match expected |
 | `duckdb_1_5_2_corpus_replay` | `wire-corpus/duckdb-1.5.2.jsonl` | All responses match expected |
 | `spark_3_5_corpus_replay` | `wire-corpus/spark-3.5.jsonl` | All responses match expected |
 | `trino_432_corpus_replay` | `wire-corpus/trino-432.jsonl` | All responses match expected |

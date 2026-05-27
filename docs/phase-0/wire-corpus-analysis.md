@@ -1,7 +1,7 @@
 # DuckDB Wire Corpus — Phase 0
 
 > Captured behavioral expectations for DuckDB ↔ PostgreSQL-wire DuckLake interaction.
-> Version: DuckDB 1.2.2 (baseline)
+> Version: DuckDB 1.5.2 (baseline)
 
 ## Capture Methodology
 

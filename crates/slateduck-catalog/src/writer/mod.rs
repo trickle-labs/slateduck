@@ -1320,7 +1320,7 @@ impl CatalogWriter {
                 TableStatsRow {
                     table_id,
                     record_count: 0,
-                    file_count: 0,
+                    internal_file_count: 0,
                     file_size_bytes: 0,
                     next_row_id: None,
                 },
@@ -1328,7 +1328,7 @@ impl CatalogWriter {
             None => TableStatsRow {
                 table_id,
                 record_count: 0,
-                file_count: 0,
+                internal_file_count: 0,
                 file_size_bytes: 0,
                 next_row_id: None,
             },
@@ -1343,7 +1343,7 @@ impl CatalogWriter {
         let updated = TableStatsRow {
             table_id,
             record_count: new_count,
-            file_count: existing.file_count,
+            internal_file_count: existing.internal_file_count,
             file_size_bytes: existing.file_size_bytes,
             next_row_id: existing.next_row_id,
         };

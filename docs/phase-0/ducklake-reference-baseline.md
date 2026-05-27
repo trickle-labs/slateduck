@@ -1,7 +1,7 @@
 # DuckLake Reference Baseline — Golden Fixtures
 
 > SQLite-backed DuckLake tutorial output captured as the spec-conformance oracle.
-> Version: DuckDB 1.2.2
+> Version: DuckDB 1.5.2
 
 ## Capture Method
 
@@ -66,10 +66,10 @@ Each operation's expected output is stored as a JSON object:
 
 ## File Index
 
-- `tests/golden/duckdb-1.2.2/create_schema.json`
-- `tests/golden/duckdb-1.2.2/create_table.json`
-- `tests/golden/duckdb-1.2.2/insert_data.json`
-- `tests/golden/duckdb-1.2.2/select_all.json`
-- `tests/golden/duckdb-1.2.2/time_travel.json`
-- `tests/golden/duckdb-1.2.2/alter_table.json`
-- `tests/golden/duckdb-1.2.2/drop_table.json`
+- `tests/golden/duckdb-1.5.x/create_schema.json`
+- `tests/golden/duckdb-1.5.x/create_table.json`
+- `tests/golden/duckdb-1.5.x/insert_data.json`
+- `tests/golden/duckdb-1.5.x/select_all.json`
+- `tests/golden/duckdb-1.5.x/time_travel.json`
+- `tests/golden/duckdb-1.5.x/alter_table.json`
+- `tests/golden/duckdb-1.5.x/drop_table.json`

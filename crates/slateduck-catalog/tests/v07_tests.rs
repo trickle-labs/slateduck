@@ -233,7 +233,7 @@ async fn packed_metadata_write_and_read() {
         table_stats: Some(TableStatsRow {
             table_id: 42,
             record_count: 1000,
-            file_count: 5,
+            internal_file_count: 5,
             file_size_bytes: 50000,
             next_row_id: None,
         }),

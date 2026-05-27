@@ -342,6 +342,17 @@ ORDER BY table_id NULLS FIRST;
     assert_eq!(kind, StatementKind::SelectSnapshotStatsAndChanges);
 }
 
+#[test]
+fn classify_select_star_from_ducklake_snapshot() {
+    let sql = r#"SELECT * FROM ducklake_snapshot"#;
+    let kind = classify_statement(sql).unwrap();
+    assert_eq!(
+        kind,
+        StatementKind::SelectSnapshot,
+        "SELECT * FROM ducklake_snapshot must classify as SelectSnapshot, not SelectMaxSnapshot"
+    );
+}
+
 // ─── ducklake_macro_impl SELECT (as extracted from COPY TO STDOUT) ───────────
 
 #[test]

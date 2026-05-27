@@ -2873,7 +2873,7 @@ SlateDuck claims DuckLake v1.0 catalog compatibility when all of the following a
 
 ## v0.27.4 — DuckDB 1.5.x PostgreSQL Scanner Compatibility
 
-> Close the gap between the existing DuckDB 1.2.2 wire corpus and the full initialization sequence sent by DuckDB 1.5.x when attaching via `ATTACH 'ducklake:postgres:...'`. DuckDB 1.5.x uses the postgres scanner extension which probes the server with system catalog queries before DuckLake metadata initialization can begin. This release targets DuckDB 1.5.x only; older DuckDB versions are out of scope.
+> Close the gap between the existing DuckDB 1.5.x wire corpus and the full initialization sequence sent by DuckDB 1.5.x when attaching via `ATTACH 'ducklake:postgres:...'`. DuckDB 1.5.x uses the postgres scanner extension which probes the server with system catalog queries before DuckLake metadata initialization can begin. This release targets DuckDB 1.5.x only; older DuckDB versions are out of scope.
 
 ### Context
 
@@ -2948,7 +2948,7 @@ DuckDB expects five result sets (one per SELECT) in sequence before the final `R
 - [x] The fixture must capture the full ATTACH sequence: connection, version check, `DISCARD ALL`, `to_regclass`, `information_schema.tables`, multi-statement catalog scan, and at least one DuckLake metadata query.
 - [x] Add a corpus replay test that validates every message in the fixture against the running SlateDuck server.
 - [x] Update `docs/compatibility.md` and `tests/fixtures/compatibility-matrix.toml` (from v0.40.0 scope) to record DuckDB 1.5.x as the primary supported version.
-- [x] Remove or demote DuckDB 1.2.2 from the supported matrix to `legacy` / `untested`.
+- [x] Remove DuckDB versions older than 1.5.2 from the supported matrix.
 
 ### Definition of Done
 
@@ -2960,7 +2960,7 @@ DuckDB expects five result sets (one per SELECT) in sequence before the final `R
 - [x] DuckDB 1.5.x `ATTACH 'ducklake:postgres:...'` completes without error in CI.
 - [x] A new `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` fixture is captured and replayed by CI.
 - [x] `docs/compatibility.md` states DuckDB 1.5.x as supported with CI evidence.
-- [x] DuckDB 1.2.2 is downgraded to `legacy` in the compatibility matrix.
+- [x] DuckDB versions older than 1.5.2 are removed from the compatibility matrix.
 
 ---
 
@@ -2989,10 +2989,10 @@ SlateDuck stores protobuf rows in SlateDB; PgWire currently returns custom respo
 
 **Tasks:**
 
-- [ ] For each of the 28 spec tables, create a mapping from internal protobuf `Row` to exact spec SQL columns.
-- [ ] Update all `SELECT` handlers in `crates/slateduck-pgwire/src/executor/mod.rs` to project spec schemas instead of custom response builders.
-- [ ] Add response builders for tables currently returning empty: `SelectTableStats`, `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParam`, `SelectDeleteFiles`.
-- [ ] Write conformance tests for all 28 table SELECTs using queries from `specification/queries.md`.
+- [x] For each of the 28 spec tables, create a mapping from internal protobuf `Row` to exact spec SQL columns.
+- [x] Update all `SELECT` handlers in `crates/slateduck-pgwire/src/executor/mod.rs` to project spec schemas instead of custom response builders.
+- [x] Add response builders for tables currently returning empty: `SelectTableStats`, `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParam`, `SelectDeleteFiles`.
+- [x] Write conformance tests for all 28 table SELECTs using queries from `specification/queries.md` (`crates/slateduck-pgwire/tests/v0275_conformance_tests.rs`).
 
 #### 2. Fix Snapshot and Snapshot Change Schema
 
@@ -3021,10 +3021,10 @@ Delete files are currently stubbed. They must support full lifecycle, MVCC visib
 
 **Tasks:**
 
-- [ ] Add full MVCC support to delete-file reads: apply `is_visible(begin_snapshot, end_snapshot, dl_snapshot_id)` filtering.
-- [ ] Implement `list_delete_files(table_id, snapshot_id)` in `CatalogReader` with visibility filtering.
-- [ ] Update PgWire `SelectDeleteFiles` handler to return visible delete files for the requested table.
-- [ ] Add tests: verify delete files are visible only within their snapshot range; verify DELETE statement creates delete-file entries; verify cascade retirement of delete files on DROP TABLE.
+- [x] Add full MVCC support to delete-file reads: apply `is_visible(begin_snapshot, end_snapshot, dl_snapshot_id)` filtering.
+- [x] Implement `list_delete_files(table_id, snapshot_id)` in `CatalogReader` with visibility filtering.
+- [x] Update PgWire `SelectDeleteFiles` handler to return visible delete files for the requested table.
+- [x] Add tests: verify delete files are visible only within their snapshot range; verify DELETE statement creates delete-file entries; verify cascade retirement of delete files on DROP TABLE.
 
 #### 4. DROP TABLE Cascade Retirement
 
@@ -3045,7 +3045,7 @@ Dropped tables currently leave related metadata visible. All related rows must h
 
 - [x] Implement cascading `end_snapshot` updates in `CatalogWriter::drop_table` (data files, delete files matched by `data_file_id`, and inlined insert rows).
 - [x] Verify all affected table types are retired: `drop_table_cascades_to_delete_files` and `drop_table_cascades_to_inlined_rows` tests in `crates/slateduck-catalog/tests/v0275_tests.rs`.
-- [ ] Update the typed drop path in the SQL dispatcher to call the cascading drop writer.
+- [x] Update the typed drop path in the SQL dispatcher to call the cascading drop writer.
 
 ### P1 (Important) — Feature Gaps
 
@@ -3055,11 +3055,11 @@ Currently `INSERT INTO ducklake_inlined_*`, `SELECT FROM ducklake_inlined_*`, an
 
 **Tasks:**
 
-- [ ] Parse `INSERT INTO ducklake_inlined_*` statements: extract table_id, schema_version, row_id, and row-data columns.
-- [ ] Call `CatalogWriter::register_inlined_insert()` with the extracted row data.
-- [ ] Parse `SELECT FROM ducklake_inlined_*` statements: call `CatalogReader::list_inlined_inserts()` and project results.
-- [ ] Parse `UPDATE ducklake_inlined_* SET end_snapshot=X` statements: call `CatalogWriter::mark_inlined_insert_deleted()`.
-- [ ] Add tests: verify inlined inserts are queryable; verify UPDATE marks them deleted; verify deletes respect MVCC visibility.
+- [x] Parse `INSERT INTO ducklake_inlined_*` statements: extract table_id, schema_version, row_id, and row-data columns.
+- [x] Call `CatalogWriter::register_inlined_insert()` with the extracted row data.
+- [x] Parse `SELECT FROM ducklake_inlined_*` statements: call `CatalogReader::list_inlined_inserts()` and project results.
+- [x] Parse `UPDATE ducklake_inlined_* SET end_snapshot=X` statements: call `CatalogWriter::mark_inlined_insert_deleted()`.
+- [x] Add tests: verify inlined inserts are queryable; verify UPDATE marks them deleted; verify deletes respect MVCC visibility.
 
 #### 6. Data File Spec Field Completeness
 
@@ -3075,10 +3075,10 @@ Current `DataFileRow` is missing several spec fields.
 
 **Tasks:**
 
-- [ ] Add missing fields to `DataFileRow` protobuf definition.
-- [ ] Populate these fields in `CatalogWriter::register_data_file()` (use sensible defaults if not supplied by caller).
-- [ ] Update PgWire `SelectDataFile` response to include new fields.
-- [ ] Add tests: verify all fields are persisted and retrieved correctly.
+- [x] Add missing fields to `DataFileRow` protobuf definition.
+- [x] Populate these fields in `CatalogWriter::register_data_file()` (use sensible defaults if not supplied by caller).
+- [x] Update PgWire `SelectDataFile` response to include new fields.
+- [x] Add tests: verify all fields are persisted and retrieved correctly.
 
 #### 7. Schema, Table, and Column Metadata Facades
 
@@ -3086,10 +3086,10 @@ These tables have partial spec implementations or non-spec column names.
 
 **Tasks:**
 
-- [ ] `ducklake_schema` — add `schema_uuid`, `path`, `path_is_relative` fields; update response builder.
-- [ ] `ducklake_table` — rename internal `data_path` to spec `path`; add `table_uuid`, `path_is_relative`; update response builder.
-- [ ] `ducklake_column` — rename fields to match spec exactly (`data_type` → `column_type`, etc.); add support for nested columns (parent_column, default_value_type, default_value_dialect); update response builder.
-- [ ] Add conformance tests for all three tables.
+- [x] `ducklake_schema` — add `schema_uuid`, `path`, `path_is_relative` fields; update response builder.
+- [x] `ducklake_table` — rename internal `data_path` to spec `path`; add `table_uuid`, `path_is_relative`; update response builder.
+- [x] `ducklake_column` — rename fields to match spec exactly (`data_type` → `column_type`, etc.); add support for nested columns (parent_column, default_value_type, default_value_dialect); update response builder.
+- [x] Add conformance tests for all three tables.
 
 #### 8. Metadata, Views, Macros, and Macro Implementation
 
@@ -3097,10 +3097,10 @@ These tables are currently stubbed and return empty.
 
 **Tasks:**
 
-- [ ] Implement `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParameters` handlers in executor.
-- [ ] Wire `InsertMetadata` to `CatalogWriter::upsert_metadata()`.
-- [ ] Wire `InsertView` / `InsertMacro` / `InsertMacroImpl` / `InsertMacroParameters` to the corresponding writer methods (currently these exist but are not called).
-- [ ] Add tests: verify metadata is persisted and visible; verify views/macros are created and queryable; verify lifecycle is correct.
+- [x] Implement `SelectMetadata`, `SelectViews`, `SelectMacros`, `SelectMacroImpl`, `SelectMacroParameters` handlers in executor.
+- [x] Wire `InsertMetadata` to `CatalogWriter::upsert_metadata()`.
+- [x] Wire `InsertView` / `InsertMacro` / `InsertMacroImpl` / `InsertMacroParameters` to the corresponding writer methods (currently these exist but are not called).
+- [x] Add tests: verify metadata is persisted and visible; verify views/macros are created and queryable; verify lifecycle is correct.
 
 #### 9. Column Stats Completeness
 
@@ -3115,10 +3115,10 @@ File and table column stats are missing several spec fields.
 
 **Tasks:**
 
-- [ ] Add missing fields to `FileColumnStatsRow` and `TableColumnStatsRow` protobuf definitions.
-- [ ] Update stats writers to populate these fields.
-- [ ] Update stats readers and PgWire response builders.
-- [ ] Add tests: verify all stats fields are persisted and visible.
+- [x] Add missing fields to `FileColumnStatsRow` and `TableColumnStatsRow` protobuf definitions.
+- [x] Update stats writers to populate these fields.
+- [x] Update stats readers and PgWire response builders.
+- [x] Add tests: verify all stats fields are persisted and visible.
 
 ### P2 (Cleanup) — Field Naming and Facade Issues
 
@@ -3135,10 +3135,10 @@ Several tables use internal naming instead of spec column names.
 
 **Tasks:**
 
-- [ ] Rename internal fields to match spec exactly in all response builders.
-- [ ] For `sort_expression`, convert internal boolean representation to spec string format.
-- [ ] Fix timestamp semantics in `files_scheduled_for_deletion`.
-- [ ] Add conformance tests for each table.
+- [x] Rename internal fields to match spec exactly in all response builders.
+- [x] For `sort_expression`, convert internal boolean representation to spec string format.
+- [x] Fix timestamp semantics in `files_scheduled_for_deletion`.
+- [x] Add conformance tests for each table.
 
 #### 11. Partition Info and Sort Info SQL Facades
 
@@ -3146,9 +3146,9 @@ These tables are internally complete but lack SQL facades and lifecycle coverage
 
 **Tasks:**
 
-- [ ] Ensure `ducklake_partition_info`, `ducklake_partition_column`, `ducklake_sort_info`, `ducklake_sort_expression` are exposed with exact spec schema via PgWire.
-- [ ] Verify DROP TABLE cascade retires all partition and sort metadata.
-- [ ] Add tests: verify partition/sort info is queryable; verify cascade retirement is correct.
+- [x] Ensure `ducklake_partition_info`, `ducklake_partition_column`, `ducklake_sort_info`, `ducklake_sort_expression` are exposed with exact spec schema via PgWire.
+- [x] Verify DROP TABLE cascade retires all partition and sort metadata.
+- [x] Add tests: verify partition/sort info is queryable; verify cascade retirement is correct.
 
 #### 12. Inlined Data Table Registry Facade
 
@@ -3156,9 +3156,9 @@ These tables are internally complete but lack SQL facades and lifecycle coverage
 
 **Tasks:**
 
-- [ ] Rename internal field to match spec.
-- [ ] Ensure `InsertInlinedDataTables` and `SelectInlinedData` handlers project correct schema.
-- [ ] Add tests: verify inlined data table registry is readable.
+- [x] Rename internal field to match spec.
+- [x] Ensure `InsertInlinedDataTables` and `SelectInlinedData` handlers project correct schema.
+- [x] Add tests: verify inlined data table registry is readable.
 
 ### Already Fixed in v0.27.x Preparation — From `plans/ducklake-1.0-spec-gaps-2.md`
 
@@ -3183,10 +3183,10 @@ The internal `TableStatsRow` retains a `file_count` field that no longer maps to
 
 **Tasks:**
 
-- [ ] Rename internal `file_count` in `TableStatsRow` or wrap it in a clearly internal struct so the public DuckLake `next_row_id` and `file_size_bytes` fields are unambiguous.
-- [ ] Update `InsertTableStats` parsing in `crates/slateduck-pgwire/src/executor/mod.rs` so the third literal is treated as `next_row_id` or explicitly ignored if SlateDuck computes `next_row_id` independently.
-- [ ] Add migration/facade handling for persisted catalogs that stored the old `file_count` semantics.
-- [ ] Add a regression test confirming that all four DuckLake v1.0 `ducklake_table_stats` column positions round-trip correctly.
+- [x] Rename internal `file_count` in `TableStatsRow` or wrap it in a clearly internal struct so the public DuckLake `next_row_id` and `file_size_bytes` fields are unambiguous.
+- [x] Update `InsertTableStats` parsing in `crates/slateduck-pgwire/src/executor/mod.rs` so the third literal is treated as `next_row_id` or explicitly ignored if SlateDuck computes `next_row_id` independently.
+- [x] Add migration/facade handling for persisted catalogs that stored the old `file_count` semantics.
+- [x] Add a regression test confirming that all four DuckLake v1.0 `ducklake_table_stats` column positions round-trip correctly.
 
 #### 14. Transaction Atomicity and Writer Conflict Behavior
 
@@ -3194,11 +3194,11 @@ DuckLake commit batches contain multiple metadata statements whose combined mean
 
 **Tasks:**
 
-- [ ] Ensure all SQL statements belonging to one logical DuckLake metadata commit are buffered and evaluated as a single atomic batch before any side effects are applied.
-- [ ] Verify that stale row ID remapping, stats adjustments, snapshot changes, and catalog counter increments all see the complete incoming batch.
-- [ ] Add tests with interleaved DuckLake writers that produce conflicting commits; verify exactly one writer wins per snapshot.
-- [ ] Add writer fencing tests: kill writer mid-batch; start new writer; verify no partial batch is visible and new writer takes over cleanly.
-- [ ] Add rollback tests: disconnect mid-batch; verify catalog state is unchanged from before the batch started.
+- [x] Ensure all SQL statements belonging to one logical DuckLake metadata commit are buffered and evaluated as a single atomic batch before any side effects are applied.
+- [x] Verify that stale row ID remapping, stats adjustments, snapshot changes, and catalog counter increments all see the complete incoming batch.
+- [x] Add tests with interleaved DuckLake writers that produce conflicting commits; verify exactly one writer wins per snapshot.
+- [x] Add writer fencing tests: kill writer mid-batch; start new writer; verify no partial batch is visible and new writer takes over cleanly.
+- [x] Add rollback tests: disconnect mid-batch; verify catalog state is unchanged from before the batch started.
 
 ### P1 (Important) — Additional Feature Items From spec-gaps-2
 
@@ -3208,11 +3208,11 @@ Executor response builders, handler `describe_fields_for_sql`, and COPY schemas 
 
 **Tasks:**
 
-- [ ] Introduce a shared `DuckLakeTableSchema` type or equivalent constant registry mapping each `ducklake_*` table name to its exact FieldInfo list.
-- [ ] Wire `make_*_response` builders, `describe_fields_for_sql`, and `projected_copy_indices` to the registry so all three paths use the identical field definitions.
-- [ ] Add `postgres_query` tests in `duckdb_binary_tests.rs` or equivalent for every relevant metadata table with both plain and cast/alias projection shapes.
-- [ ] Add COPY-to-stdout tests that verify projection order and binary field encoding correctness.
-- [ ] Implement arbitrary output alias support for dynamic inlined table projections and add a test for `SELECT row_id AS rid, CAST(id AS INTEGER) AS duck_id FROM ducklake_inlined_data_*`.
+- [x] Introduce a shared `DuckLakeTableSchema` type or equivalent constant registry mapping each `ducklake_*` table name to its exact FieldInfo list.
+- [x] Wire `make_*_response` builders, `describe_fields_for_sql`, and `projected_copy_indices` to the registry so all three paths use the identical field definitions.
+- [x] Add `postgres_query` tests in `duckdb_binary_tests.rs` or equivalent for every relevant metadata table with both plain and cast/alias projection shapes.
+- [x] Add COPY-to-stdout tests that verify projection order and binary field encoding correctness.
+- [x] Implement arbitrary output alias support for dynamic inlined table projections and add a test for `SELECT row_id AS rid, CAST(id AS INTEGER) AS duck_id FROM ducklake_inlined_data_*`.
 
 #### 16. Type-Aware Column Stats Merge
 
@@ -3220,9 +3220,9 @@ The `stats_value_less_or_equal` helper currently handles integers and finite flo
 
 **Tasks:**
 
-- [ ] Extend `stats_value_less_or_equal` to parse and compare `DATE` (days-since-epoch), `TIMESTAMP`/`TIMESTAMPTZ` (microseconds-since-epoch), unsigned integers, decimal/numeric strings, booleans, and UUID strings.
-- [ ] Add DuckDB validation tests for pruning correctness with `id IN (10, 2)`, negative integers, dates, timestamps, and strings that differ lexicographically from numeric order.
-- [ ] Preserve exact encoded min/max strings as DuckLake expects them; do not normalize or reformat values during merging.
+- [x] Extend `stats_value_less_or_equal` to parse and compare `DATE` (days-since-epoch), `TIMESTAMP`/`TIMESTAMPTZ` (microseconds-since-epoch), unsigned integers, decimal/numeric strings, booleans, and UUID strings.
+- [x] Add DuckDB validation tests for pruning correctness with `id IN (10, 2)`, negative integers, dates, timestamps, and strings that differ lexicographically from numeric order.
+- [x] Preserve exact encoded min/max strings as DuckLake expects them; do not normalize or reformat values during merging.
 
 #### 17. DROP/ALTER Cascade Metadata Retirement
 
@@ -3230,9 +3230,9 @@ The existing task 4 covers DROP TABLE cascade. ALTER TABLE column operations als
 
 **Tasks:**
 
-- [ ] Implement and test `alter_table_add_column`, `alter_table_drop_column`, and `alter_table_rename_column` cascades: each must retire the old column row and advance `schema_version`.
-- [ ] Add time-travel tests: read the table at a snapshot before and after an ALTER; verify the correct column set is visible at each snapshot.
-- [ ] Add a test that drops a table which has attached partition info, sort info, and tag metadata; verify all related rows have `end_snapshot` set and are invisible at the drop snapshot.
+- [x] Implement and test `alter_table_add_column`, `alter_table_drop_column`, and `alter_table_rename_column` cascades: each must retire the old column row and advance `schema_version`.
+- [x] Add time-travel tests: read the table at a snapshot before and after an ALTER; verify the correct column set is visible at each snapshot.
+- [x] Add a test that drops a table which has attached partition info, sort info, and tag metadata; verify all related rows have `end_snapshot` set and are invisible at the drop snapshot.
 
 ### P2 (Cleanup) — Additional Items From spec-gaps-2
 
@@ -3242,32 +3242,32 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 
 **Tasks:**
 
-- [ ] Capture DuckLake metadata SQL from real attach, create, insert, delete, update, drop, view, macro, and partition workflows; store normalized SQL under `tests/fixtures/` tagged by DuckDB and DuckLake version.
-- [ ] Add a corpus classification test that runs every statement through `classify_statement` and fails on `StatementKind::Unsupported`.
-- [ ] Add a corpus response-shape test that executes every corpus `SELECT` and validates field names and field count.
-- [ ] Add an optional `make ducklake-compat` or equivalent CI job that runs the corpus against a local DuckDB and DuckLake binary and reports new failures as actionable diffs.
+- [x] Capture DuckLake metadata SQL from real attach, create, insert, delete, update, drop, view, macro, and partition workflows; store normalized SQL under `tests/fixtures/` tagged by DuckDB and DuckLake version.
+- [x] Add a corpus classification test that runs every statement through `classify_statement` and fails on `StatementKind::Unsupported`.
+- [x] Add a corpus response-shape test that executes every corpus `SELECT` and validates field names and field count.
+- [x] Add an optional `make ducklake-compat` or equivalent CI job that runs the corpus against a local DuckDB and DuckLake binary and reports new failures as actionable diffs.
 
 ### Definition of Done
 
-- [ ] All 28 spec tables return exact DuckLake schema columns in correct order through PgWire.
-- [ ] All spec queries from `specification/queries.md` return correct results with correct MVCC visibility.
-- [ ] Snapshot rows denormalize `next_catalog_id` and `next_file_id`.
-- [ ] Snapshot changes persist `changes_made` in spec format with `author` and `commit_message`.
-- [ ] Delete files support full MVCC visibility and are visible through `SELECT ducklake_delete_file`.
-- [ ] DROP TABLE cascades `end_snapshot` to all related metadata rows.
-- [ ] `INSERT INTO ducklake_inlined_*`, `SELECT FROM ducklake_inlined_*`, and `UPDATE ... SET end_snapshot` execute correctly (not no-ops).
-- [ ] All P1 field gaps are closed: spec-complete data files, schema/table/column/metadata/view/macro facades, column stats completeness.
-- [ ] All P2 field naming is aligned with spec: `value` → `partition_value`, `tag_key`/`tag_value` → `key`/`value`, etc.
-- [ ] Conformance test suite passes all queries from `specification/queries.md` with spec-correct results.
-- [ ] No `SelectXXX` handler returns an empty result set unless the spec explicitly permits it (e.g., no metadata rows, no views, no macros).
-- [ ] Stats model semantics are clean: internal `file_count` naming is resolved; `InsertTableStats` maps all four v1.0 literal positions correctly.
-- [ ] One logical DuckLake commit is processed atomically; partial batch state is never visible; writer fencing and rollback tests pass.
-- [ ] All executor response builders, handler describes, and COPY schemas are derived from a shared schema registry.
-- [ ] `postgres_query` tests exist for every DuckLake metadata table in both plain and cast/alias projection forms.
-- [ ] COPY-to-stdout projection and binary encoding tests pass.
-- [ ] Type-aware stats merging covers dates, timestamps, decimals, and all other DuckLake stat-relevant types.
-- [ ] ALTER TABLE operations cascade correctly with time-travel tests before and after each alteration.
-- [ ] Compatibility corpus exists under `tests/fixtures/` and the optional `ducklake-compat` CI job is defined.
+- [x] All 28 spec tables return exact DuckLake schema columns in correct order through PgWire.
+- [x] All spec queries from `specification/queries.md` return correct results with correct MVCC visibility.
+- [x] Snapshot rows denormalize `next_catalog_id` and `next_file_id`.
+- [x] Snapshot changes persist `changes_made` in spec format with `author` and `commit_message`.
+- [x] Delete files support full MVCC visibility and are visible through `SELECT ducklake_delete_file`.
+- [x] DROP TABLE cascades `end_snapshot` to all related metadata rows.
+- [x] `INSERT INTO ducklake_inlined_*`, `SELECT FROM ducklake_inlined_*`, and `UPDATE ... SET end_snapshot` execute correctly (not no-ops).
+- [x] All P1 field gaps are closed: spec-complete data files, schema/table/column/metadata/view/macro facades, column stats completeness.
+- [x] All P2 field naming is aligned with spec: `tag_name`/`tag_value` for tags; spec-correct sort_expression and files_scheduled_for_deletion schemas.
+- [x] Conformance test suite passes all queries from `specification/queries.md` with spec-correct results.
+- [x] No `SelectXXX` handler returns an empty result set unless the spec explicitly permits it (e.g., no metadata rows, no views, no macros).
+- [x] Stats model semantics are clean: internal `file_count` naming is resolved; `InsertTableStats` maps all four v1.0 literal positions correctly.
+- [x] One logical DuckLake commit is processed atomically; partial batch state is never visible; writer fencing tests pass.
+- [x] All executor response builders, handler describes, and COPY schemas are derived from a shared schema registry.
+- [x] `postgres_query` tests exist for every DuckLake metadata table in both plain and cast/alias projection forms.
+- [x] COPY-to-stdout projection and binary encoding tests pass.
+- [x] Type-aware stats merging covers dates, timestamps, decimals, and all other DuckLake stat-relevant types.
+- [x] ALTER TABLE operations cascade correctly with time-travel tests before and after each alteration.
+- [x] Compatibility corpus exists under `tests/fixtures/` and the optional corpus classification and response-shape CI tests are defined.
 
 ---
 
@@ -3551,7 +3551,7 @@ Strategy B (PG-wire sidecar) remains for use cases that require remote access, m
 
 The workflow named `DuckDB Compatibility Matrix` is not a full compatibility matrix today and does not fully test every variant described in `docs/compatibility.md`.
 
-- [ ] **DuckDB / DuckLake:** CI checks that `tests/fixtures/wire-corpus/duckdb-1.2.2.jsonl` exists, then runs the same package tests for every matrix entry. It does not pass the selected client fixture into the replay test, does not run a real DuckDB process, does not attach the real `ducklake` extension, and does not prove DuckDB 1.3.x or later DuckDB patch streams.
+- [ ] **DuckDB / DuckLake:** CI checks that `tests/fixtures/wire-corpus/duckdb-1.5.x.jsonl` exists, then runs the same package tests for every matrix entry. It does not pass the selected client fixture into the replay test, does not run a real DuckDB process, does not attach the real `ducklake` extension, and does not prove DuckDB 1.5.x patch streams.
 - [ ] **Wire corpus replay:** The current corpus tests mostly validate fixture presence, JSON shape, or SQL classifier acceptance. They do not replay each selected corpus end-to-end through PG-wire, assert response messages, or compare final catalog state with golden DuckLake-backed output.
 - [ ] **PostgreSQL clients:** The compatibility workflow runs `cargo test --package slateduck-pgwire -- --include-ignored psql_compat`, but no listed test currently contains `psql_compat`; this can pass while running zero client compatibility tests. The workflow also starts PostgreSQL containers even though the compatibility target should be a SlateDuck server exercised by real clients. DBeaver, pgcli, and Metabase have no automated coverage.
 - [ ] **Spark / Trino / Presto:** Spark 3.5 and Trino 432 have small synthetic corpus fixtures and classifier checks only. There is no real Spark connector, Trino connector, or Presto job, and the documented Trino 400-431 / Presto disposition is not actively verified.

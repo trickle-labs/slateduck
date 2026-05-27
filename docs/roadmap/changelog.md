@@ -49,7 +49,7 @@ This release focuses on production readiness: performance optimization, comprehe
 - **MVCC visibility filter** edge case for snapshot ID 0 (the initial snapshot). Previously, entities created at snapshot 0 could be invisible to readers requesting snapshot 0
 - **Key encoding correctness** for maximum u64 values (u64::MAX). The XOR-based descending sort was incorrect for this boundary value
 - **Session cleanup** on abrupt client disconnect. Previously, sessions could leak if the TCP connection was reset without a proper close handshake
-- **Wire corpus compatibility** with DuckDB 1.2.2 which changed column ordering in several INSERT statements
+- **Wire corpus compatibility** with DuckDB 1.5.x which requires postgres-scanner initialization queries before DuckLake metadata initialization can begin
 - **Counter persistence** race condition where rapidly-created transactions could allocate duplicate IDs under extreme concurrency
 - **TLS handshake** timeout handling — connections that stalled during TLS negotiation now properly time out after 30 seconds
 - **Prefix scan** memory usage for very large result sets (previously buffered all results before filtering; now streams and filters incrementally)
@@ -74,7 +74,7 @@ This release adds operational tooling: garbage collection, integrity verificatio
 - **Verify command** for catalog integrity checking: validates key encoding, value envelope format, reference integrity, and counter monotonicity
 - **Repair command** for conservative auto-repair: fixes counter inconsistencies and removes corrupt entries without operator intervention
 - **Checkpoint command** for creating named restore points before risky operations
-- **Wire corpus test suite** for DuckDB 1.2.0 and 1.2.2 (comprehensive coverage of all emitted SQL patterns)
+- **Wire corpus test suite** for DuckDB 1.5.x (comprehensive coverage of all emitted SQL patterns)
 - **Export command** for NDJSON backup of catalog contents
 - **Import command** for restoring from NDJSON backup
 - **Configurable log format** (`text` or `json`) via `SLATEDUCK_LOG_FORMAT` environment variable

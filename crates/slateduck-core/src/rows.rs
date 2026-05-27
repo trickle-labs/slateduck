@@ -402,8 +402,12 @@ pub struct TableStatsRow {
     /// v0.24: renamed from row_count — spec field is record_count.
     #[prost(uint64, tag = "2")]
     pub record_count: u64,
+    /// Internal file-count tracking only. NOT a DuckLake v1.0 public spec column.
+    /// The DuckLake spec `ducklake_table_stats` has no file_count column; the third
+    /// INSERT literal DuckLake sends is `next_row_id` (handled separately).
+    /// Protobuf tag 3 is preserved for backward compatibility with existing stored rows.
     #[prost(uint64, tag = "3")]
-    pub file_count: u64,
+    pub internal_file_count: u64,
     /// v0.24: renamed from total_size_bytes — spec field is file_size_bytes.
     #[prost(uint64, tag = "4")]
     pub file_size_bytes: u64,

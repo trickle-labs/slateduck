@@ -55,7 +55,7 @@ Implemented the network layer and operational tooling:
 - TLS encryption and password authentication
 - Garbage collection (retention advancement + excision)
 - Catalog integrity verification and repair
-- Wire corpus test suite (DuckDB 1.2.0, 1.2.2)
+- Wire corpus test suite (DuckDB 1.5.x)
 - Improved error reporting with SQLSTATE codes
 
 ### Phase 3: Performance & Observability (v0.8) ✅ Current

@@ -56,7 +56,7 @@ tests/fixtures/wire-corpus/
 │   ├── create-table.sql
 │   ├── ...
 │   └── new-feature.sql
-└── duckdb-1.2.2/
+└── duckdb-1.5.x/
     ├── create-schema.sql
     └── ...
 ```
@@ -213,9 +213,7 @@ The corpus tracks compatibility across DuckDB versions:
 
 | DuckDB Version | Corpus Status | New Patterns | Breaking Changes |
 |---------------|---------------|-------------|-----------------|
-| 1.1.0 | Complete | Initial set | — |
-| 1.2.0 | Complete | Column stats format, new quoting | None |
-| 1.2.2 | Complete | Minor whitespace changes | None |
+| 1.5.x | Complete | Postgres-scanner initialization queries | None |
 
 "Breaking changes" means: DuckDB changed a SQL pattern such that the old classifier no longer handles it. This has not happened yet, but the corpus would detect it immediately if it did.
 

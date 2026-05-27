@@ -145,7 +145,8 @@ pub enum BufferedOp {
     InsertTableStats {
         table_id: u64,
         record_count: u64,
-        file_count: u64,
+        /// DuckLake v1.0 position-2 literal: next_row_id (not file_count).
+        next_row_id: u64,
         file_size_bytes: u64,
     },
 }

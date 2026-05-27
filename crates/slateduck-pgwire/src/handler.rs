@@ -1005,7 +1005,6 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
     let kind = slateduck_sql::classify_statement(sql)
         .unwrap_or(slateduck_sql::StatementKind::Unsupported(String::new()));
 
-    /// Quick helper to build a FieldInfo for text-type metadata columns.
     macro_rules! text_col {
         ($name:expr) => {
             FieldInfo::new($name.to_string(), None, None, Type::TEXT, FieldFormat::Text)
@@ -1020,16 +1019,6 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
                 Type::INT8,
                 FieldFormat::Binary,
             )
-        };
-    }
-    macro_rules! int8_text_col {
-        ($name:expr) => {
-            FieldInfo::new($name.to_string(), None, None, Type::INT8, FieldFormat::Text)
-        };
-    }
-    macro_rules! bool_col {
-        ($name:expr) => {
-            FieldInfo::new($name.to_string(), None, None, Type::BOOL, FieldFormat::Text)
         };
     }
 
@@ -1047,90 +1036,31 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
         | slateduck_sql::StatementKind::SelectMaxSnapshotAfter => {
             vec![int8_col!("max")]
         }
-        slateduck_sql::StatementKind::SelectLatestSnapshotInfo => vec![
-            int8_col!("snapshot_id"),
-            int8_col!("schema_version"),
-            int8_col!("next_catalog_id"),
-            int8_col!("next_file_id"),
-        ],
+        // Delegate to registry for the 4-col latest snapshot info shape.
+        slateduck_sql::StatementKind::SelectLatestSnapshotInfo => {
+            (*crate::schema_registry::latest_snapshot_info_schema()).clone()
+        }
         slateduck_sql::StatementKind::ShowVariable(ref var) => {
             vec![text_col!(var.as_str())]
         }
-        // Catalog table schemas — must match the executor's make_*_response column lists.
-        slateduck_sql::StatementKind::SelectSchemas => project_described_fields(
-            sql,
-            vec![
-                int8_col!("schema_id"),
-                int8_col!("begin_snapshot"),
-                int8_col!("end_snapshot"),
-                text_col!("schema_uuid"),
-                text_col!("schema_name"),
-                text_col!("path"),
-                bool_col!("path_is_relative"),
-            ],
-        ),
-        slateduck_sql::StatementKind::SelectTables => project_described_fields(
-            sql,
-            vec![
-                int8_col!("table_id"),
-                int8_col!("begin_snapshot"),
-                int8_col!("end_snapshot"),
-                int8_col!("schema_id"),
-                text_col!("table_name"),
-                text_col!("table_uuid"),
-                text_col!("path"),
-                bool_col!("path_is_relative"),
-            ],
-        ),
-        slateduck_sql::StatementKind::SelectColumns => project_described_fields(
-            sql,
-            vec![
-                int8_text_col!("column_id"),
-                int8_text_col!("begin_snapshot"),
-                int8_text_col!("end_snapshot"),
-                int8_text_col!("table_id"),
-                int8_text_col!("column_order"),
-                text_col!("column_name"),
-                text_col!("column_type"),
-                text_col!("initial_default"),
-                text_col!("default_value"),
-                bool_col!("nulls_allowed"),
-                int8_text_col!("parent_column"),
-                text_col!("default_value_type"),
-                text_col!("default_value_dialect"),
-            ],
-        ),
-        slateduck_sql::StatementKind::SelectDataFiles => project_described_fields(
-            sql,
-            vec![
-                int8_text_col!("data_file_id"),
-                int8_text_col!("table_id"),
-                int8_text_col!("begin_snapshot"),
-                int8_text_col!("end_snapshot"),
-                int8_text_col!("file_order"),
-                text_col!("path"),
-                bool_col!("path_is_relative"),
-                text_col!("file_format"),
-                int8_text_col!("record_count"),
-                int8_text_col!("file_size_bytes"),
-                int8_text_col!("row_id_start"),
-            ],
-        ),
+        // ── Catalog table schemas — all derived from the shared schema registry ──
+        slateduck_sql::StatementKind::SelectSchemas => {
+            project_described_fields(sql, (*crate::schema_registry::schema_schema()).clone())
+        }
+        slateduck_sql::StatementKind::SelectTables => {
+            project_described_fields(sql, (*crate::schema_registry::table_schema()).clone())
+        }
+        slateduck_sql::StatementKind::SelectColumns => {
+            project_described_fields(sql, (*crate::schema_registry::column_schema()).clone())
+        }
+        slateduck_sql::StatementKind::SelectDataFiles => {
+            project_described_fields(sql, (*crate::schema_registry::data_file_schema()).clone())
+        }
         slateduck_sql::StatementKind::SelectFileColumnStats => project_described_fields(
             sql,
-            vec![
-                int8_text_col!("data_file_id"),
-                int8_text_col!("table_id"),
-                int8_text_col!("column_id"),
-                int8_text_col!("column_size_bytes"),
-                int8_text_col!("value_count"),
-                int8_text_col!("null_count"),
-                text_col!("min_value"),
-                text_col!("max_value"),
-                bool_col!("contains_nan"),
-                text_col!("extra_stats"),
-            ],
+            (*crate::schema_registry::file_column_stats_schema()).clone(),
         ),
+        // Combined global stats query (table_stats joined with column_stats).
         slateduck_sql::StatementKind::SelectTableStats
             if sql
                 .to_ascii_lowercase()
@@ -1138,48 +1068,19 @@ fn describe_fields_for_sql(sql: &str) -> Vec<pgwire::api::results::FieldInfo> {
         {
             project_described_fields(
                 sql,
-                vec![
-                    int8_text_col!("table_id"),
-                    int8_text_col!("column_id"),
-                    int8_text_col!("record_count"),
-                    int8_text_col!("next_row_id"),
-                    int8_text_col!("file_size_bytes"),
-                    bool_col!("contains_null"),
-                    bool_col!("contains_nan"),
-                    text_col!("min_value"),
-                    text_col!("max_value"),
-                    text_col!("extra_stats"),
-                ],
+                (*crate::schema_registry::global_table_stats_schema()).clone(),
             )
         }
-        slateduck_sql::StatementKind::SelectTableStats => project_described_fields(
-            sql,
-            vec![
-                int8_text_col!("table_id"),
-                int8_text_col!("record_count"),
-                int8_text_col!("next_row_id"),
-                int8_text_col!("file_size_bytes"),
-            ],
-        ),
+        slateduck_sql::StatementKind::SelectTableStats => {
+            project_described_fields(sql, (*crate::schema_registry::table_stats_schema()).clone())
+        }
         slateduck_sql::StatementKind::SelectTableColumnStats => project_described_fields(
             sql,
-            vec![
-                int8_text_col!("table_id"),
-                int8_text_col!("column_id"),
-                bool_col!("contains_null"),
-                bool_col!("contains_nan"),
-                text_col!("min_value"),
-                text_col!("max_value"),
-                text_col!("extra_stats"),
-            ],
+            (*crate::schema_registry::table_column_stats_schema()).clone(),
         ),
         slateduck_sql::StatementKind::SelectInlinedData => project_described_fields(
             sql,
-            vec![
-                int8_text_col!("table_id"),
-                text_col!("table_name"),
-                int8_text_col!("schema_version"),
-            ],
+            (*crate::schema_registry::inlined_data_tables_schema()).clone(),
         ),
         _ => vec![],
     }

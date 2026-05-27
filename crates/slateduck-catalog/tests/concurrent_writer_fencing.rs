@@ -157,3 +157,73 @@ async fn concurrent_open_exactly_one_commits() {
         "each open must either commit or be fenced; ok={num_commit_ok} fenced={total_fenced}"
     );
 }
+
+/// Test 4: Interleaved DuckLake writers — exactly one commit wins per snapshot.
+///
+/// Two catalog stores both buffer schema metadata (DuckLake-style) and race to
+/// commit.  Because the epoch CAS is monotonic, the second-opened store holds
+/// the winning epoch.  The first store must receive `WriterEpochMismatch` (or
+/// `TransactionConflict`) on its commit attempt.  After the race, only the
+/// winning writer's schema must be visible in the catalog.
+#[tokio::test]
+async fn interleaved_ducklake_writers_exactly_one_wins() {
+    let dir = TempDir::new().unwrap();
+
+    // Store A opens first and buffers a schema creation (DuckLake-style).
+    let mut store_a = CatalogStore::open(test_opts(&dir)).await.unwrap();
+    let mut writer_a = store_a.begin_write();
+    writer_a
+        .create_schema("schema_a")
+        .await
+        .expect("writer A must buffer schema creation");
+
+    // Ensure clock advances so store B gets a strictly higher epoch.
+    tokio::time::sleep(tokio::time::Duration::from_millis(2)).await;
+
+    // Store B opens after A — it now owns the epoch.
+    let mut store_b = CatalogStore::open(test_opts(&dir)).await.unwrap();
+    let mut writer_b = store_b.begin_write();
+    writer_b
+        .create_schema("schema_b")
+        .await
+        .expect("writer B must buffer schema creation");
+
+    // Both writers attempt to commit.  B holds the winning epoch; A is stale.
+    let result_b = writer_b.create_snapshot(Some("winner"), None).await;
+    let result_a = writer_a.create_snapshot(Some("loser"), None).await;
+
+    // B must win (has the latest epoch).
+    assert!(
+        result_b.is_ok(),
+        "writer B (latest epoch) must commit successfully; got: {result_b:?}"
+    );
+    // A must be rejected.
+    let is_fenced_a = matches!(
+        &result_a,
+        Err(CatalogError::WriterEpochMismatch) | Err(CatalogError::TransactionConflict(_))
+    );
+    assert!(
+        is_fenced_a,
+        "writer A (stale epoch) must be fenced; got: {result_a:?}"
+    );
+
+    // Commit winner's result so we can read back the catalog.
+    store_b.commit_writer(result_b.unwrap());
+
+    // Only schema_b should be visible; schema_a was never committed.
+    let reader = store_b.read_latest();
+    let schemas = reader
+        .list_schemas()
+        .await
+        .expect("catalog read must not fail");
+    assert_eq!(
+        schemas.len(),
+        1,
+        "exactly one schema must exist after the interleaved race; found {}",
+        schemas.len()
+    );
+    assert_eq!(
+        schemas[0].schema_name, "schema_b",
+        "only the winning writer's schema must be visible"
+    );
+}
