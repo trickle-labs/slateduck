@@ -137,6 +137,17 @@ pub(super) fn classify_snapshot_select(
         return StatementKind::SelectLatestSnapshotInfo;
     }
 
+    // SELECT * (wildcard) → full snapshot table scan
+    let has_wildcard = select.projection.iter().any(|item| {
+        matches!(
+            item,
+            SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)
+        )
+    });
+    if has_wildcard {
+        return StatementKind::SelectSnapshot;
+    }
+
     StatementKind::SelectMaxSnapshot
 }
 

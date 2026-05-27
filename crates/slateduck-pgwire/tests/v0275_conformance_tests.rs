@@ -56,7 +56,10 @@ async fn exec_all(
     let res = executor::execute_sql(sql, params, store, &mut session, &nm(), &ext())
         .await
         .unwrap_or_else(|e| panic!("execute_sql failed for `{sql}`: {e}"));
-    assert!(!res.is_empty(), "execute_sql returned empty vec for: `{sql}`");
+    assert!(
+        !res.is_empty(),
+        "execute_sql returned empty vec for: `{sql}`"
+    );
     res
 }
 
@@ -98,9 +101,7 @@ async fn inspect_query(resp: pgwire::api::results::Response<'static>) -> (Vec<St
 
 /// Build a populated test catalog with one schema, table, column, data file,
 /// snapshot, and snapshot changes.  Returns (schema_id, table_id, column_id).
-async fn populate_base(
-    store: &Arc<Mutex<CatalogStore>>,
-) -> (u64, u64, u64) {
+async fn populate_base(store: &Arc<Mutex<CatalogStore>>) -> (u64, u64, u64) {
     // Create schema.
     exec_all(
         "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
@@ -214,9 +215,18 @@ async fn spec_ducklake_schema_returns_rows_with_spec_columns() {
     .await;
     let (cols, count) = inspect_query(resp).await;
     assert_eq!(count, 1, "one live schema after populate");
-    assert!(cols.contains(&"schema_id".to_string()), "missing schema_id: {cols:?}");
-    assert!(cols.contains(&"schema_name".to_string()), "missing schema_name: {cols:?}");
-    assert!(cols.contains(&"begin_snapshot".to_string()), "missing begin_snapshot: {cols:?}");
+    assert!(
+        cols.contains(&"schema_id".to_string()),
+        "missing schema_id: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"schema_name".to_string()),
+        "missing schema_name: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"begin_snapshot".to_string()),
+        "missing begin_snapshot: {cols:?}"
+    );
 }
 
 // ─── 4. ducklake_table ────────────────────────────────────────────────────────
@@ -234,9 +244,18 @@ async fn spec_ducklake_table_returns_rows_with_spec_columns() {
     .await;
     let (cols, count) = inspect_query(resp).await;
     assert_eq!(count, 1, "one live table after populate");
-    assert!(cols.contains(&"table_id".to_string()), "missing table_id: {cols:?}");
-    assert!(cols.contains(&"table_name".to_string()), "missing table_name: {cols:?}");
-    assert!(cols.contains(&"schema_id".to_string()), "missing schema_id: {cols:?}");
+    assert!(
+        cols.contains(&"table_id".to_string()),
+        "missing table_id: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"table_name".to_string()),
+        "missing table_name: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"schema_id".to_string()),
+        "missing schema_id: {cols:?}"
+    );
 }
 
 // ─── 5. ducklake_column ───────────────────────────────────────────────────────
@@ -250,9 +269,18 @@ async fn spec_ducklake_column_returns_rows_with_spec_columns() {
     let resp = exec("SELECT * FROM ducklake_column", &store).await;
     let (cols, count) = inspect_query(resp).await;
     assert!(count >= 1, "at least one column after populate");
-    assert!(cols.contains(&"column_id".to_string()), "missing column_id: {cols:?}");
-    assert!(cols.contains(&"column_name".to_string()), "missing column_name: {cols:?}");
-    assert!(cols.contains(&"table_id".to_string()), "missing table_id: {cols:?}");
+    assert!(
+        cols.contains(&"column_id".to_string()),
+        "missing column_id: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"column_name".to_string()),
+        "missing column_name: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"table_id".to_string()),
+        "missing table_id: {cols:?}"
+    );
 }
 
 // ─── 6. ducklake_data_file ────────────────────────────────────────────────────
@@ -297,8 +325,10 @@ async fn spec_ducklake_delete_file_returns_empty_on_fresh_catalog() {
     let (cols, count) = inspect_query(resp).await;
     // No delete files registered yet.
     assert_eq!(count, 0, "no delete files on fresh catalog");
-    assert!(cols.contains(&"path".to_string()) || cols.contains(&"delete_file_id".to_string()),
-        "must have path or delete_file_id column, got: {cols:?}");
+    assert!(
+        cols.contains(&"path".to_string()) || cols.contains(&"delete_file_id".to_string()),
+        "must have path or delete_file_id column, got: {cols:?}"
+    );
 }
 
 // ─── 8. ducklake_file_column_stats ────────────────────────────────────────────
@@ -354,9 +384,18 @@ async fn spec_ducklake_tag_returns_response_with_spec_columns() {
     let resp = exec("SELECT * FROM ducklake_tag", &store).await;
     let (cols, _) = inspect_query(resp).await;
     // Spec columns: tag_id, begin_snapshot, end_snapshot, object_id, tag_name, tag_value.
-    assert!(cols.contains(&"tag_id".to_string()), "missing tag_id: {cols:?}");
-    assert!(cols.contains(&"tag_name".to_string()), "missing tag_name: {cols:?}");
-    assert!(cols.contains(&"tag_value".to_string()), "missing tag_value: {cols:?}");
+    assert!(
+        cols.contains(&"tag_id".to_string()),
+        "missing tag_id: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"tag_name".to_string()),
+        "missing tag_name: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"tag_value".to_string()),
+        "missing tag_value: {cols:?}"
+    );
 }
 
 // ─── 12. ducklake_column_tag ─────────────────────────────────────────────────
@@ -369,10 +408,18 @@ async fn spec_ducklake_column_tag_returns_response_with_spec_columns() {
 
     let resp = exec("SELECT * FROM ducklake_column_tag", &store).await;
     let (cols, _) = inspect_query(resp).await;
-    assert!(cols.contains(&"tag_id".to_string()) || cols.contains(&"column_id".to_string()),
-        "must have tag_id or column_id: {cols:?}");
-    assert!(cols.contains(&"tag_name".to_string()), "missing tag_name: {cols:?}");
-    assert!(cols.contains(&"tag_value".to_string()), "missing tag_value: {cols:?}");
+    assert!(
+        cols.contains(&"tag_id".to_string()) || cols.contains(&"column_id".to_string()),
+        "must have tag_id or column_id: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"tag_name".to_string()),
+        "missing tag_name: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"tag_value".to_string()),
+        "missing tag_value: {cols:?}"
+    );
 }
 
 // ─── 13. ducklake_sort_info ───────────────────────────────────────────────────
@@ -506,7 +553,11 @@ async fn spec_ducklake_files_scheduled_for_deletion_returns_response() {
     let store = open_store(&dir).await;
     populate_base(&store).await;
 
-    let resp = exec("SELECT * FROM ducklake_files_scheduled_for_deletion", &store).await;
+    let resp = exec(
+        "SELECT * FROM ducklake_files_scheduled_for_deletion",
+        &store,
+    )
+    .await;
     let (cols, count) = inspect_query(resp).await;
     assert_eq!(count, 0, "no scheduled deletions on fresh catalog");
     // Spec columns: data_file_id, path, path_is_relative, schedule_start.

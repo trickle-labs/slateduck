@@ -715,9 +715,14 @@ async fn drop_table_cascades_to_column_tags() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        let cid = w.add_column(tid, "amount", "BIGINT", 0, false, None).await.unwrap();
+        let cid = w
+            .add_column(tid, "amount", "BIGINT", 0, false, None)
+            .await
+            .unwrap();
         w.set_column_tag(tid, cid, "pii", "false").await.unwrap();
-        w.set_column_tag(tid, cid, "sensitive", "low").await.unwrap();
+        w.set_column_tag(tid, cid, "sensitive", "low")
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         store.commit_writer(cr);
         (sid, tid, cid)
@@ -770,7 +775,11 @@ async fn drop_table_cascades_to_sort_info() {
             .iter()
             .filter(|r| r.table_id == table_id && r.end_snapshot.is_none())
             .collect();
-        assert_eq!(live.len(), 2, "both sort_info rows should be live before drop");
+        assert_eq!(
+            live.len(),
+            2,
+            "both sort_info rows should be live before drop"
+        );
     }
 
     // Drop the table.
@@ -807,7 +816,9 @@ async fn alter_table_add_column_time_travel() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        w.add_column(tid, "id", "BIGINT", 0, false, None).await.unwrap();
+        w.add_column(tid, "id", "BIGINT", 0, false, None)
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         let sn = cr.snapshot_id;
         store.commit_writer(cr);
@@ -817,14 +828,20 @@ async fn alter_table_add_column_time_travel() {
     // Snapshot 2: add second column.
     {
         let mut w = store.begin_write();
-        w.add_column(table_id, "name", "VARCHAR", 1, true, None).await.unwrap();
+        w.add_column(table_id, "name", "VARCHAR", 1, true, None)
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         store.commit_writer(cr);
     }
 
     // At snap1: only "id" visible.
     let r1 = store.read_at(snap1).unwrap();
-    let (_, cols1) = r1.describe_table(table_id).await.unwrap().expect("table must exist at snap1");
+    let (_, cols1) = r1
+        .describe_table(table_id)
+        .await
+        .unwrap()
+        .expect("table must exist at snap1");
     assert_eq!(
         cols1.len(),
         1,
@@ -834,7 +851,11 @@ async fn alter_table_add_column_time_travel() {
 
     // At snap2: both columns visible.
     let r2 = store.read_at(SnapshotId::new(2)).unwrap();
-    let (_, cols2) = r2.describe_table(table_id).await.unwrap().expect("table must exist at snap2");
+    let (_, cols2) = r2
+        .describe_table(table_id)
+        .await
+        .unwrap()
+        .expect("table must exist at snap2");
     assert_eq!(
         cols2.len(),
         2,
@@ -842,7 +863,10 @@ async fn alter_table_add_column_time_travel() {
     );
     let names: Vec<_> = cols2.iter().map(|c| c.column_name.as_str()).collect();
     assert!(names.contains(&"id"), "id column must be visible at snap2");
-    assert!(names.contains(&"name"), "name column must be visible at snap2");
+    assert!(
+        names.contains(&"name"),
+        "name column must be visible at snap2"
+    );
 }
 
 /// DROP COLUMN → time-travel read at old snapshot still shows the dropped column.
@@ -856,8 +880,13 @@ async fn alter_table_drop_column_time_travel() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        w.add_column(tid, "id", "BIGINT", 0, false, None).await.unwrap();
-        let cid = w.add_column(tid, "tmp", "VARCHAR", 1, true, None).await.unwrap();
+        w.add_column(tid, "id", "BIGINT", 0, false, None)
+            .await
+            .unwrap();
+        let cid = w
+            .add_column(tid, "tmp", "VARCHAR", 1, true, None)
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         let sn = cr.snapshot_id;
         store.commit_writer(cr);
@@ -867,19 +896,29 @@ async fn alter_table_drop_column_time_travel() {
     // Snapshot 2: drop the "tmp" column.
     {
         let mut w = store.begin_write();
-        w.drop_column(table_id, col_id, snap1.as_u64()).await.unwrap();
+        w.drop_column(table_id, col_id, snap1.as_u64())
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         store.commit_writer(cr);
     }
 
     // At snap1: both columns visible.
     let r1 = store.read_at(snap1).unwrap();
-    let (_, cols1) = r1.describe_table(table_id).await.unwrap().expect("table must exist at snap1");
+    let (_, cols1) = r1
+        .describe_table(table_id)
+        .await
+        .unwrap()
+        .expect("table must exist at snap1");
     assert_eq!(cols1.len(), 2, "at snap1 both columns should be visible");
 
     // At snap2: only "id" visible.
     let r2 = store.read_at(SnapshotId::new(2)).unwrap();
-    let (_, cols2) = r2.describe_table(table_id).await.unwrap().expect("table must exist at snap2");
+    let (_, cols2) = r2
+        .describe_table(table_id)
+        .await
+        .unwrap()
+        .expect("table must exist at snap2");
     assert_eq!(
         cols2.len(),
         1,
@@ -900,7 +939,10 @@ async fn stats_merge_handles_timestamps_correctly() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        let cid = w.add_column(tid, "ts", "TIMESTAMP", 0, false, None).await.unwrap();
+        let cid = w
+            .add_column(tid, "ts", "TIMESTAMP", 0, false, None)
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         store.commit_writer(cr);
         (tid, cid)
@@ -971,7 +1013,10 @@ async fn stats_merge_handles_floats_correctly() {
         let mut w = store.begin_write();
         let sid = w.create_schema("s").await.unwrap();
         let tid = w.create_table(sid, "t", None).await.unwrap();
-        let cid = w.add_column(tid, "price", "DOUBLE", 0, false, None).await.unwrap();
+        let cid = w
+            .add_column(tid, "price", "DOUBLE", 0, false, None)
+            .await
+            .unwrap();
         let cr = w.create_snapshot(None, None).await.unwrap();
         store.commit_writer(cr);
         (tid, cid)
