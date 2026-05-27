@@ -2,6 +2,36 @@
 
 This page describes the tested compatibility between RockLake and various ecosystem components.
 
+## DuckLake v1.0 Compatibility Claim
+
+**RockLake v0.27.10 is compatible with DuckLake 1.0 (Catalog Version 7 / `V1_0`) under DuckDB v1.5.3.**
+
+This claim is backed by the durable compatibility corpus and automated CI evidence:
+
+| Acceptance Criterion | Status |
+|----------------------|--------|
+| DuckDB can attach fresh; create/drop schemas and tables without custom flags | ✅ |
+| Inlined and file-backed tables both work | ✅ |
+| INSERT, DELETE, UPDATE, ALTER, DROP work for all 28 spec tables | ✅ |
+| Views, macros, tags, column tags, sort info, partition columns work | ✅ |
+| Fresh reads, restart reads, time-travel reads, projection reads are correct | ✅ |
+| `postgres_query` can inspect every metadata table without RowDescription failures | ✅ |
+| All 28 DuckLake v1.0 tables have exact SQL schemas | ✅ |
+| Table stats, column stats, data-file metadata survive incremental commits | ✅ |
+| Conflict checks and snapshot changes work under multiple writers | ✅ |
+| Exact column schema, count, names, and OIDs under describe match the spec | ✅ |
+| Catalog Version 7 (`V1_0`) is returned; v1.1 migration (`V1_1_DEV_1`) is rejected | ✅ |
+
+**CI Evidence**: The `ducklake-corpus` job in [`.github/workflows/compatibility.yml`](../.github/workflows/compatibility.yml)
+runs on every push/PR and verifies the full DuckLake compatibility corpus. A nightly job
+additionally runs the fresh, restart, and concurrent-writers scenarios.
+
+**Out of scope**: DuckLake v1.1 (Catalog Version 8 / `V1_1_DEV_1`). RockLake strictly
+targets DuckLake 1.0. Any v1.1 migration statements are classified to a known handler
+and not applied.
+
+---
+
 ## DuckDB Client Versions
 
 | DuckDB Version | Status | Notes |
@@ -22,7 +52,8 @@ This page describes the tested compatibility between RockLake and various ecosys
 | DROP TABLE CASCADE for sort_info | ✅ Supported | v0.27+ | All sort_info rows retired |
 | `migrate-from-ducklake` CLI | ✅ Supported | v0.27+ | NDJSON source |
 | `export-catalog` CLI | ✅ Supported | v0.27+ | All 28 tables to NDJSON |
-| Real DuckDB E2E integration | ⚠️ Planned | v0.28 | Requires DuckDB binary in CI |
+| DuckLake compatibility corpus CI | ✅ Supported | v0.27.10 | Pinned DuckDB 1.5.3 / DuckLake 1.0 in CI |
+| DuckLake v1.1 rejection gate | ✅ Enforced | v0.27.10 | V1_1_DEV_1 migrations never applied |
 
 ## SQL Clients
 

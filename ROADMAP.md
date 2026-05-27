@@ -78,7 +78,7 @@ binding on every roadmap release below.
 | **v0.27.7 — DuckLake SQL Schema Registry** | `DuckLakeTableSchema` registry as single source of truth for all 28 metadata table schemas; wire executor response builders, handler describe, and COPY to the registry; projection-order golden tests for every table; arbitrary output alias support for dynamic inlined tables | Done |
 | **v0.27.8 — DuckLake Transaction Atomicity & Snapshot Changes Conformance** | Group all statements in one logical DuckLake commit into an atomic batch; spec-complete `ducklake_snapshot_changes` with `changes_made`, `author`, `commit_message`, `commit_extra_info`; interleaved writer and rollback tests; writer fencing validation; type-aware column stats for dates, timestamps, decimals | Done |
 | **v0.27.9 — DuckLake Advanced Metadata Validation** | End-to-end DuckDB tests for views, macros, tags, column tags, sort info, and partition info; DROP/ALTER cascade covering all metadata types; ALTER TABLE time-travel tests; imported existing DuckLake catalog support | Done |
-| **v0.27.10 — DuckLake Compatibility CI** | Pin known-good DuckDB and DuckLake versions in CI; nightly optional jobs; durable compatibility corpus covering PQsendQuery pg_catalog scans; exact column schema/OID describe checks | Planning |
+| **v0.27.10 — DuckLake Compatibility CI** | Pin known-good DuckDB and DuckLake versions in CI; nightly optional jobs; durable compatibility corpus covering PQsendQuery pg_catalog scans; exact column schema/OID describe checks | Done |
 | **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns) | Planning |
 | **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Planning |
 | **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order | Planning |
@@ -3439,23 +3439,23 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 
 #### Durable Compatibility Corpus
 
-- [ ] Capture the complete set of DuckLake metadata SQL statements from a fresh DuckDB/DuckLake session covering: attach, create schema, create table, INSERT, DELETE, UPDATE, DROP TABLE, DROP SCHEMA, CREATE VIEW, CREATE MACRO, CREATE TABLE with sort/partition/tags.
-- [ ] Capture the multi-statement schema discovery transaction (`StatementKind::PgCatalogScan`) in the compatibility corpus.
-- [ ] Store normalized SQL statements under `tests/fixtures/ducklake-corpus/` tagged by DuckDB version and DuckLake version.
-- [ ] Add a classification test that runs every statement in the corpus through `classify_statement` and fails on any `StatementKind::Unsupported`.
-- [ ] Add a response-shape test that executes every corpus SELECT against a running RockLake instance and validates field names and count.
+- [x] Capture the complete set of DuckLake metadata SQL statements from a fresh DuckDB/DuckLake session covering: attach, create schema, create table, INSERT, DELETE, UPDATE, DROP TABLE, DROP SCHEMA, CREATE VIEW, CREATE MACRO, CREATE TABLE with sort/partition/tags.
+- [x] Capture the multi-statement schema discovery transaction (`StatementKind::PgCatalogScan`) in the compatibility corpus.
+- [x] Store normalized SQL statements under `tests/fixtures/ducklake-corpus/` tagged by DuckDB version and DuckLake version.
+- [x] Add a classification test that runs every statement in the corpus through `classify_statement` and fails on any `StatementKind::Unsupported`.
+- [x] Add a response-shape test that executes every corpus SELECT against a running RockLake instance and validates field names and count.
 
 #### Pinned CI Jobs
 
-- [ ] Pin the exact compatibility targets: **DuckDB v1.5.3** and **DuckLake 1.0 Specification (Catalog Version 7 / V1_0)** in the CI configuration.
-- [ ] Add an optional nightly CI job (skipped by default in PR CI, enabled on schedule) that runs the full compatibility corpus against pinned DuckDB v1.5.3 / DuckLake 1.0 binaries.
-- [ ] Add fresh, restart, and concurrent-writers scenarios to the nightly job.
-- [ ] Explicitly check and gate that any future DuckLake v1.1 / Catalog Version 8 (`V1_1_DEV_1`) features or commits are strictly rejected in the compatibility gate to prevent out-of-scope creep.
+- [x] Pin the exact compatibility targets: **DuckDB v1.5.3** and **DuckLake 1.0 Specification (Catalog Version 7 / V1_0)** in the CI configuration.
+- [x] Add an optional nightly CI job (skipped by default in PR CI, enabled on schedule) that runs the full compatibility corpus against pinned DuckDB v1.5.3 / DuckLake 1.0 binaries.
+- [x] Add fresh, restart, and concurrent-writers scenarios to the nightly job.
+- [x] Explicitly check and gate that any future DuckLake v1.1 / Catalog Version 8 (`V1_1_DEV_1`) features or commits are strictly rejected in the compatibility gate to prevent out-of-scope creep.
 
 #### Acceptance Gates
 
-- [ ] Create a `docs/compatibility.md` section that states the DuckLake v1.0 compatibility claim and links to CI evidence.
-- [ ] Define the acceptance criteria for "DuckDB v1.5.3 and RockLake work perfectly together under DuckLake 1.0" (from `plans/ducklake-1.0-spec-gaps-3.md`):
+- [x] Create a `docs/compatibility.md` section that states the DuckLake v1.0 compatibility claim and links to CI evidence.
+- [x] Define the acceptance criteria for "DuckDB v1.5.3 and RockLake work perfectly together under DuckLake 1.0" (from `plans/ducklake-1.0-spec-gaps-3.md`):
   - DuckDB can attach fresh; create/drop schemas and tables without custom flags.
   - Inlined and file-backed tables both work.
   - INSERT, DELETE, UPDATE, ALTER, DROP, view, macro, tag, partition, and sort metadata work.
@@ -3470,11 +3470,11 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 
 ### Definition of Done
 
-- [ ] Corpus captured and stored under `tests/fixtures/ducklake-corpus/`.
-- [ ] Classification and response-shape corpus tests pass.
-- [ ] Nightly optional CI job is defined and runs green against pinned DuckDB v1.5.3 and DuckLake 1.0.
-- [ ] `docs/compatibility.md` states DuckLake v1.0 compatibility (under DuckDB v1.5.3) with CI evidence.
-- [ ] All acceptance criteria from `plans/ducklake-1.0-spec-gaps-3.md` are met.
+- [x] Corpus captured and stored under `tests/fixtures/ducklake-corpus/`.
+- [x] Classification and response-shape corpus tests pass.
+- [x] Nightly optional CI job is defined and runs green against pinned DuckDB v1.5.3 and DuckLake 1.0.
+- [x] `docs/compatibility.md` states DuckLake v1.0 compatibility (under DuckDB v1.5.3) with CI evidence.
+- [x] All acceptance criteria from `plans/ducklake-1.0-spec-gaps-3.md` are met.
 
 ---
 

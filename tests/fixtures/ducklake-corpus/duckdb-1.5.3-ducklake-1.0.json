@@ -1,0 +1,456 @@
+{
+  "duckdb_version": "1.5.3",
+  "ducklake_version": "1.0",
+  "catalog_version": 7,
+  "captured": "2026-05-27",
+  "description": "Normalized DuckLake metadata SQL corpus for DuckDB 1.5.3 / DuckLake 1.0 (Catalog Version 7 / V1_0). Covers attach init, schema/table lifecycle, data files, views, macros, tags, sort info, partition info, and DROP/ALTER cascades. All statements must classify without Unsupported.",
+  "statements": [
+    {
+      "seq": 1,
+      "phase": "attach_init",
+      "sql": "SELECT version(), (SELECT COUNT(*) FROM pg_settings WHERE name LIKE 'rds%')",
+      "expected_kind": "SelectVersionWithRdsCheck",
+      "description": "DuckDB postgres-scanner RDS check at connection open"
+    },
+    {
+      "seq": 2,
+      "phase": "attach_init",
+      "sql": "SELECT 1",
+      "expected_kind": "SelectOne",
+      "description": "DuckDB postgres-scanner health-check ping"
+    },
+    {
+      "seq": 3,
+      "phase": "attach_init",
+      "sql": "DISCARD ALL",
+      "expected_kind": "DiscardAll",
+      "description": "Connection pool reset — sent by DuckDB when returning a connection"
+    },
+    {
+      "seq": 4,
+      "phase": "attach_init",
+      "sql": "SELECT to_regclass('duckdb_secrets')",
+      "expected_kind": "SelectToRegclass",
+      "description": "DuckDB secret-store fast-path check"
+    },
+    {
+      "seq": 5,
+      "phase": "attach_init",
+      "sql": "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'duckdb_secrets')",
+      "expected_kind": "SelectExistsInfoSchema",
+      "description": "DuckDB secret-store fallback check"
+    },
+    {
+      "seq": 6,
+      "phase": "attach_init",
+      "sql": "SELECT pg_database_size(current_database())",
+      "expected_kind": "SelectPgDatabaseSize",
+      "description": "DuckDB informational database-size query"
+    },
+    {
+      "seq": 7,
+      "phase": "attach_init",
+      "sql": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nSELECT oid, nspname FROM pg_namespace ORDER BY oid;\nSELECT pg_namespace.oid AS namespace_id, relname, relpages, attname, pg_type.typname type_name, atttypmod type_modifier, pg_attribute.attndims ndim, attnum, pg_attribute.attnotnull AS notnull, NULL constraint_id, NULL constraint_type, NULL constraint_key FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid JOIN pg_attribute ON pg_class.oid=pg_attribute.attrelid JOIN pg_type ON atttypid=pg_type.oid WHERE attnum > 0 AND relkind IN ('r', 'v', 'm', 'f', 'p') UNION ALL SELECT pg_namespace.oid AS namespace_id, relname, NULL relpages, NULL attname, NULL type_name, NULL type_modifier, NULL ndim, NULL attnum, NULL AS notnull, pg_constraint.oid AS constraint_id, contype AS constraint_type, conkey AS constraint_key FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid JOIN pg_constraint ON (pg_class.oid=pg_constraint.conrelid) WHERE relkind IN ('r', 'v', 'm', 'f', 'p') AND contype IN ('p', 'u') ORDER BY namespace_id, relname, attnum, constraint_id;\nSELECT n.oid, enumtypid, typname, enumlabel FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid JOIN pg_namespace AS n ON (typnamespace=n.oid) ORDER BY n.oid, enumtypid, enumsortorder;\nSELECT n.oid, t.typrelid AS id, t.typname as type, pg_attribute.attname, sub_type.typname FROM pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace JOIN pg_class ON pg_class.oid = t.typrelid JOIN pg_attribute ON attrelid=t.typrelid JOIN pg_type sub_type ON (pg_attribute.atttypid=sub_type.oid) WHERE pg_class.relkind = 'c' AND t.typtype='c' ORDER BY n.oid, t.oid, attrelid, attnum;\nSELECT pg_namespace.oid, tablename, indexname FROM pg_indexes JOIN pg_namespace ON (schemaname=nspname) ORDER BY pg_namespace.oid;\nROLLBACK;",
+      "expected_kind": "PgCatalogScan",
+      "description": "Multi-statement pg_catalog scan batch sent via PQsendQuery — critical C1 barrier"
+    },
+    {
+      "seq": 8,
+      "phase": "metadata_read",
+      "sql": "SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM ducklake_snapshot ORDER BY snapshot_id DESC LIMIT 1",
+      "expected_kind": "SelectFirstSnapshot",
+      "description": "DuckLake reads the latest snapshot on attach (classified as SelectFirstSnapshot due to LIMIT 1; returns empty on fresh catalog)"
+    },
+    {
+      "seq": 9,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_schema",
+      "expected_kind": "SelectSchemas",
+      "description": "List all schemas in the catalog",
+      "expected_columns": ["schema_id", "schema_name", "begin_snapshot", "end_snapshot"]
+    },
+    {
+      "seq": 10,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_table",
+      "expected_kind": "SelectTables",
+      "description": "List all tables in the catalog",
+      "expected_columns": ["table_id", "schema_id", "table_name", "begin_snapshot", "end_snapshot"]
+    },
+    {
+      "seq": 11,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_column",
+      "expected_kind": "SelectColumns",
+      "description": "List all columns in the catalog",
+      "expected_columns": ["column_id", "table_id", "column_name", "column_type", "begin_snapshot", "end_snapshot"]
+    },
+    {
+      "seq": 12,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_data_file",
+      "expected_kind": "SelectDataFiles",
+      "description": "List all data files",
+      "expected_columns": ["data_file_id", "table_id", "begin_snapshot", "end_snapshot", "path", "file_format", "record_count", "file_size_bytes"]
+    },
+    {
+      "seq": 13,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_snapshot",
+      "expected_kind": "SelectSnapshot",
+      "description": "Read all snapshots (returns empty on fresh catalog — no committed snapshots yet)"
+    },
+    {
+      "seq": 14,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_snapshot_changes",
+      "expected_kind": "SelectSnapshotChanges",
+      "description": "Read snapshot changes log",
+      "expected_columns": ["snapshot_id", "changes_made", "author", "commit_message"]
+    },
+    {
+      "seq": 15,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_metadata",
+      "expected_kind": "SelectMetadata",
+      "description": "Read global metadata key/value store",
+      "expected_columns": ["metadata_key", "metadata_value"]
+    },
+    {
+      "seq": 16,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_view",
+      "expected_kind": "SelectViews",
+      "description": "List all views",
+      "expected_columns": ["view_id", "schema_id", "view_name", "view_definition"]
+    },
+    {
+      "seq": 17,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_macro",
+      "expected_kind": "SelectMacros",
+      "description": "List all macros",
+      "expected_columns": ["macro_id", "schema_id", "macro_name", "macro_uuid"]
+    },
+    {
+      "seq": 18,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_tag",
+      "expected_kind": "SelectTags",
+      "description": "List all table tags",
+      "expected_columns": ["tag_id", "tag_name", "tag_value"]
+    },
+    {
+      "seq": 19,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_column_tag",
+      "expected_kind": "SelectColumnTags",
+      "description": "List all column tags",
+      "expected_columns": ["tag_id", "tag_name", "tag_value"]
+    },
+    {
+      "seq": 20,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_sort_info",
+      "expected_kind": "SelectSortInfo",
+      "description": "List all sort expressions",
+      "expected_columns": ["sort_id", "table_id", "begin_snapshot", "end_snapshot"]
+    },
+    {
+      "seq": 21,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_schema_version",
+      "expected_kind": "SelectSchemaVersion",
+      "description": "Read global DuckLake catalog schema version — must return 7 (V1_0)",
+      "expected_columns": ["schema_version", "schema_version_info"]
+    },
+    {
+      "seq": 22,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_delete_file",
+      "expected_kind": "SelectDeleteFiles",
+      "description": "List all delete files",
+      "expected_columns": ["delete_file_id", "table_id", "begin_snapshot", "end_snapshot"]
+    },
+    {
+      "seq": 23,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_table_stats",
+      "expected_kind": "SelectTableStats",
+      "description": "Read per-table statistics"
+    },
+    {
+      "seq": 24,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_table_column_stats",
+      "expected_kind": "SelectTableColumnStats",
+      "description": "Read per-table per-column statistics"
+    },
+    {
+      "seq": 25,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_encryption_key",
+      "expected_kind": "SelectDuckLakeMetadataTable",
+      "description": "List all encryption keys"
+    },
+    {
+      "seq": 26,
+      "phase": "schema_create",
+      "sql": "BEGIN",
+      "expected_kind": "Begin",
+      "description": "Start DuckLake transaction"
+    },
+    {
+      "seq": 27,
+      "phase": "schema_create",
+      "sql": "INSERT INTO ducklake_schema (schema_name) VALUES ($1)",
+      "expected_kind": "InsertSchema",
+      "description": "Create a new schema"
+    },
+    {
+      "seq": 28,
+      "phase": "schema_create",
+      "sql": "INSERT INTO ducklake_schema_versions (schema_id, schema_version) VALUES ($1, $2)",
+      "expected_kind": "InsertSchemaVersions",
+      "description": "Record schema version for new schema"
+    },
+    {
+      "seq": 29,
+      "phase": "schema_create",
+      "sql": "INSERT INTO ducklake_metadata (key, value) VALUES ($1, $2)",
+      "expected_kind": "InsertMetadata",
+      "description": "Store global metadata entry"
+    },
+    {
+      "seq": 30,
+      "phase": "schema_create",
+      "sql": "INSERT INTO ducklake_snapshot (author, message) VALUES ($1, $2)",
+      "expected_kind": "InsertSnapshot",
+      "description": "Commit snapshot after schema creation"
+    },
+    {
+      "seq": 31,
+      "phase": "schema_create",
+      "sql": "INSERT INTO ducklake_snapshot_changes (snapshot_id, changes_made, author, commit_message) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertSnapshotChanges",
+      "description": "Record snapshot changes log entry"
+    },
+    {
+      "seq": 32,
+      "phase": "schema_create",
+      "sql": "COMMIT",
+      "expected_kind": "Commit",
+      "description": "Commit the DuckLake transaction"
+    },
+    {
+      "seq": 33,
+      "phase": "table_create",
+      "sql": "INSERT INTO ducklake_table (schema_id, table_name, data_path) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertTable",
+      "description": "Create a new table"
+    },
+    {
+      "seq": 34,
+      "phase": "table_create",
+      "sql": "INSERT INTO ducklake_column (table_id, column_name, column_type, column_id) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertColumn",
+      "description": "Add a column to a table"
+    },
+    {
+      "seq": 35,
+      "phase": "table_create",
+      "sql": "INSERT INTO ducklake_table_stats (table_id, record_count, file_size_bytes) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertTableStats",
+      "description": "Initialize table statistics"
+    },
+    {
+      "seq": 36,
+      "phase": "table_create",
+      "sql": "INSERT INTO ducklake_table_column_stats (table_id, column_id, null_count, distinct_count) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertTableColumnStats",
+      "description": "Initialize per-column table statistics"
+    },
+    {
+      "seq": 37,
+      "phase": "table_create",
+      "sql": "INSERT INTO ducklake_inlined_data_tables (table_id, table_name, schema_version) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertInlinedDataTables",
+      "description": "Register an inlined-data table (tag, sort_info, partition_column, etc.)"
+    },
+    {
+      "seq": 38,
+      "phase": "data_insert",
+      "sql": "INSERT INTO ducklake_data_file (table_id, path, file_format, row_count, file_size_bytes) VALUES ($1, $2, $3, $4, $5)",
+      "expected_kind": "InsertDataFile",
+      "description": "Register a new Parquet data file"
+    },
+    {
+      "seq": 39,
+      "phase": "data_insert",
+      "sql": "INSERT INTO ducklake_file_column_stats (file_id, column_id, null_count, row_count) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertFileColumnStats",
+      "description": "Record per-file per-column stats"
+    },
+    {
+      "seq": 40,
+      "phase": "data_insert",
+      "sql": "INSERT INTO ducklake_delete_file (file_id, path, file_format, row_count, file_size_bytes) VALUES ($1, $2, $3, $4, $5)",
+      "expected_kind": "InsertDeleteFile",
+      "description": "Register a new delete file"
+    },
+    {
+      "seq": 41,
+      "phase": "tag_create",
+      "sql": "INSERT INTO ducklake_tag (catalog_id, begin_snapshot, tag_name, tag_value) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertInlinedRow",
+      "description": "Insert a table tag (stored as inlined row)"
+    },
+    {
+      "seq": 42,
+      "phase": "tag_create",
+      "sql": "INSERT INTO ducklake_column_tag (catalog_id, begin_snapshot, tag_name, tag_value) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertInlinedRow",
+      "description": "Insert a column tag (stored as inlined row)"
+    },
+    {
+      "seq": 43,
+      "phase": "sort_create",
+      "sql": "INSERT INTO ducklake_sort_info (sort_id, table_id, begin_snapshot, column_id, sort_order) VALUES ($1, $2, $3, $4, $5)",
+      "expected_kind": "InsertInlinedRow",
+      "description": "Insert a sort expression (stored as inlined row)"
+    },
+    {
+      "seq": 44,
+      "phase": "partition_create",
+      "sql": "INSERT INTO ducklake_partition_column (partition_id, table_id, begin_snapshot, column_id, transform) VALUES ($1, $2, $3, $4, $5)",
+      "expected_kind": "InsertInlinedRow",
+      "description": "Insert a partition column (stored as inlined row)"
+    },
+    {
+      "seq": 45,
+      "phase": "view_create",
+      "sql": "INSERT INTO ducklake_view (schema_id, view_name, view_definition, dialect) VALUES ($1, $2, $3, $4)",
+      "expected_kind": "InsertView",
+      "description": "Create a new view"
+    },
+    {
+      "seq": 46,
+      "phase": "macro_create",
+      "sql": "INSERT INTO ducklake_macro (schema_id, macro_name, macro_uuid) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertMacro",
+      "description": "Create a new macro"
+    },
+    {
+      "seq": 47,
+      "phase": "macro_create",
+      "sql": "INSERT INTO ducklake_macro_impl (macro_id, return_type, macro_body) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertMacroImpl",
+      "description": "Add macro implementation"
+    },
+    {
+      "seq": 48,
+      "phase": "macro_create",
+      "sql": "INSERT INTO ducklake_macro_parameters (macro_id, parameter_name, parameter_type) VALUES ($1, $2, $3)",
+      "expected_kind": "InsertMacroParameters",
+      "description": "Add macro parameter"
+    },
+    {
+      "seq": 49,
+      "phase": "stats_update",
+      "sql": "UPDATE ducklake_table_stats SET record_count = $1, file_size_bytes = $2 WHERE table_id = $3",
+      "expected_kind": "UpdateTableStats",
+      "description": "Update table statistics after INSERT/DELETE"
+    },
+    {
+      "seq": 50,
+      "phase": "drop_table",
+      "sql": "UPDATE ducklake_table SET end_snapshot = $1 WHERE table_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire a table (DROP TABLE — set end_snapshot)"
+    },
+    {
+      "seq": 51,
+      "phase": "drop_table",
+      "sql": "UPDATE ducklake_column SET end_snapshot = $1 WHERE table_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire all columns for a dropped table"
+    },
+    {
+      "seq": 52,
+      "phase": "drop_table",
+      "sql": "UPDATE ducklake_data_file SET end_snapshot = $1 WHERE table_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire all data files for a dropped table"
+    },
+    {
+      "seq": 53,
+      "phase": "drop_schema",
+      "sql": "UPDATE ducklake_schema SET end_snapshot = $1 WHERE schema_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire a schema (DROP SCHEMA — set end_snapshot)"
+    },
+    {
+      "seq": 54,
+      "phase": "alter_table",
+      "sql": "UPDATE ducklake_view SET end_snapshot = $1 WHERE view_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire a view (DROP VIEW — set end_snapshot)"
+    },
+    {
+      "seq": 55,
+      "phase": "alter_table",
+      "sql": "UPDATE ducklake_macro SET end_snapshot = $1 WHERE macro_id = $2",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "Retire a macro (DROP MACRO — set end_snapshot)"
+    },
+    {
+      "seq": 56,
+      "phase": "inlined_data",
+      "sql": "SELECT * FROM ducklake_inlined_data_tables",
+      "expected_kind": "SelectInlinedData",
+      "description": "List registered inlined-data table names"
+    },
+    {
+      "seq": 57,
+      "phase": "transaction",
+      "sql": "ROLLBACK",
+      "expected_kind": "Rollback",
+      "description": "Rollback a DuckLake transaction"
+    },
+    {
+      "seq": 58,
+      "phase": "compat_v1_1_gate",
+      "sql": "UPDATE ducklake_metadata SET value = '1.1-dev1' WHERE key = 'version'",
+      "expected_kind": "UpdateEndSnapshot",
+      "description": "DuckLake v1.1 migration statement — classified and rejected at runtime; never applied to version field"
+    },
+    {
+      "seq": 59,
+      "phase": "metadata_read",
+      "sql": "SELECT MAX(snapshot_id) FROM ducklake_snapshot WHERE snapshot_id > $1",
+      "expected_kind": "SelectMaxSnapshotAfter",
+      "description": "DuckLake checks for new snapshots since last read"
+    },
+    {
+      "seq": 60,
+      "phase": "metadata_read",
+      "sql": "SELECT MAX(snapshot_id) FROM ducklake_snapshot",
+      "expected_kind": "SelectMaxSnapshot",
+      "description": "DuckLake reads the max snapshot ID"
+    },
+    {
+      "seq": 61,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_macro_impl",
+      "expected_kind": "SelectMacroImpls",
+      "description": "List all macro implementations"
+    },
+    {
+      "seq": 62,
+      "phase": "metadata_read",
+      "sql": "SELECT * FROM ducklake_macro_parameters",
+      "expected_kind": "SelectMacroParameters",
+      "description": "List all macro parameters"
+    }
+  ]
+}

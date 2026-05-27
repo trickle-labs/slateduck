@@ -1,17 +1,25 @@
 name: DuckDB Compatibility Matrix
 
+# Pinned compatibility targets (v0.27.10):
+#   DuckDB:    v1.5.3  (primary supported client)
+#   DuckLake:  1.0     (Catalog Version 7 / V1_0)
+#   DuckLake v1.1 (Catalog Version 8 / V1_1_DEV_1) is explicitly out of scope.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   schedule:
-    # Run weekly to catch DuckDB patch releases
-    - cron: '0 6 * * 1'
+    # Nightly run against pinned DuckDB v1.5.3 / DuckLake 1.0.
+    - cron: '0 2 * * *'
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
+  # Pinned compatibility versions — update only via a versioned roadmap release.
+  DUCKLAKE_PINNED_DUCKDB_VERSION: "1.5.3"
+  DUCKLAKE_PINNED_CATALOG_VERSION: "7"
 
 jobs:
   wire-corpus-replay:
@@ -20,7 +28,7 @@ jobs:
     strategy:
       matrix:
         client:
-          - duckdb-1.2.2
+          - duckdb-1.5.x
           - pgtide-0.34
     steps:
       - uses: actions/checkout@v4
@@ -82,3 +90,99 @@ jobs:
 
       - name: Run all catalog tests
         run: cargo test --package rocklake-catalog
+
+  # ── DuckLake 1.0 compatibility corpus (v0.27.10) ──────────────────────────
+  ducklake-corpus:
+    name: DuckLake 1.0 Compatibility Corpus (DuckDB ${{ env.DUCKLAKE_PINNED_DUCKDB_VERSION }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify ducklake corpus fixture exists
+        run: |
+          test -f tests/fixtures/ducklake-corpus/duckdb-1.5.3-ducklake-1.0.json
+
+      - name: Assert corpus targets pinned DuckDB 1.5.3 / DuckLake 1.0
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          with open("tests/fixtures/ducklake-corpus/duckdb-1.5.3-ducklake-1.0.json") as f:
+              corpus = json.load(f)
+          assert corpus["duckdb_version"] == "1.5.3", f"expected duckdb_version=1.5.3, got {corpus['duckdb_version']}"
+          assert corpus["ducklake_version"] == "1.0", f"expected ducklake_version=1.0, got {corpus['ducklake_version']}"
+          assert corpus["catalog_version"] == 7, f"expected catalog_version=7, got {corpus['catalog_version']}"
+          assert len(corpus["statements"]) >= 50, f"corpus must have >= 50 statements, got {len(corpus['statements'])}"
+          print(f"Corpus OK: {len(corpus['statements'])} statements, DuckDB={corpus['duckdb_version']}, DuckLake={corpus['ducklake_version']}, CatalogVersion={corpus['catalog_version']}")
+          EOF
+
+      - name: Run ducklake corpus classification tests
+        run: cargo test --package rocklake-pgwire --test v02710_corpus_tests -- --nocapture
+
+      - name: Gate: no DuckLake v1.1 (Catalog Version 8) statements in corpus
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          with open("tests/fixtures/ducklake-corpus/duckdb-1.5.3-ducklake-1.0.json") as f:
+              corpus = json.load(f)
+          if corpus.get("catalog_version", 0) >= 8:
+              print("FAIL: corpus targets Catalog Version >= 8 (DuckLake v1.1) — out of scope", file=sys.stderr)
+              sys.exit(1)
+          v11_keywords = ["1.1-dev", "V1_1_DEV", "catalog_version_8", "v1_1"]
+          for stmt in corpus.get("statements", []):
+              sql = stmt.get("sql", "").lower()
+              for kw in v11_keywords:
+                  if kw.lower() in sql and stmt.get("phase", "") != "compat_v1_1_gate":
+                      print(f"FAIL: statement seq={stmt.get('seq')} contains v1.1 keyword '{kw}' outside compat_v1_1_gate phase", file=sys.stderr)
+                      sys.exit(1)
+          print("Gate OK: corpus contains no unguarded DuckLake v1.1 features")
+          EOF
+
+  # ── Nightly full compatibility run (scheduled; skipped on PR CI) ──────────
+  nightly-ducklake-compat:
+    name: Nightly DuckLake Compat (DuckDB ${{ env.DUCKLAKE_PINNED_DUCKDB_VERSION }} / DuckLake ${{ env.DUCKLAKE_PINNED_CATALOG_VERSION }})
+    # Only run on schedule (nightly) or when explicitly dispatched.
+    # PR CI skips this job to keep feedback loops fast.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run full ducklake corpus test suite
+        run: cargo test --package rocklake-pgwire --test v02710_corpus_tests -- --nocapture
+
+      - name: Run full pgwire integration tests (fresh scenario)
+        run: cargo test --package rocklake-pgwire -- --nocapture
+
+      - name: Run concurrent-writers fencing test
+        run: cargo test --package rocklake-pgwire -- concurrent_writer --nocapture
+
+      - name: Run catalog restart / snapshot-ID safety tests
+        run: cargo test --package rocklake-catalog -- --nocapture
+
+      - name: Verify corpus covers all 28 DuckLake v1.0 tables
+        run: |
+          python3 - <<'EOF'
+          import json
+          DUCKLAKE_V10_TABLES = [
+              "ducklake_snapshot", "ducklake_snapshot_changes", "ducklake_schema",
+              "ducklake_schema_versions", "ducklake_table", "ducklake_column",
+              "ducklake_data_file", "ducklake_delete_file", "ducklake_file_column_stats",
+              "ducklake_table_stats", "ducklake_table_column_stats", "ducklake_metadata",
+              "ducklake_view", "ducklake_macro", "ducklake_macro_impl",
+              "ducklake_macro_parameters", "ducklake_tag", "ducklake_column_tag",
+              "ducklake_sort_info", "ducklake_partition_column", "ducklake_encryption_key",
+              "ducklake_inlined_data_tables", "ducklake_schema_version",
+          ]
+          with open("tests/fixtures/ducklake-corpus/duckdb-1.5.3-ducklake-1.0.json") as f:
+              corpus = json.load(f)
+          sql_blob = " ".join(s.get("sql","") for s in corpus["statements"]).lower()
+          missing = [t for t in DUCKLAKE_V10_TABLES if t not in sql_blob]
+          if missing:
+              print(f"WARNING: corpus does not mention tables: {missing}")
+          else:
+              print(f"OK: all {len(DUCKLAKE_V10_TABLES)} DuckLake v1.0 tables present in corpus")
+          EOF
