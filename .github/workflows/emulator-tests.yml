@@ -1,0 +1,68 @@
+name: Emulator Integration Tests
+
+on:
+  schedule:
+    # Run nightly at 02:30 UTC on the default branch.
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "Which emulator backend(s) to test"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - gcs
+          - azure
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  gcs-emulator-tests:
+    name: GCS Emulator Tests
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.backend == 'all' || github.event.inputs.backend == 'gcs'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Pull fake-gcs-server image
+        run: docker pull fsouza/fake-gcs-server:latest
+
+      - name: Run GCS emulator catalog compatibility tests
+        run: |
+          cargo test \
+            -p rocklake-catalog \
+            --test v02712_backend_compat_tests \
+            --features gcs-emulator \
+            -- --nocapture
+
+  azure-emulator-tests:
+    name: Azure Emulator Tests
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.backend == 'all' || github.event.inputs.backend == 'azure'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Pull Azurite image
+        run: docker pull mcr.microsoft.com/azure-storage/azurite:latest
+
+      - name: Run Azure emulator catalog compatibility tests
+        run: |
+          cargo test \
+            -p rocklake-catalog \
+            --test v02712_backend_compat_tests \
+            --features azure-emulator \
+            -- --nocapture

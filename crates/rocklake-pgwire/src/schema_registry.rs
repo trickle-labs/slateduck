@@ -156,7 +156,8 @@ pub fn column_schema() -> Arc<Vec<FieldInfo>> {
 
 /// `ducklake_data_file(data_file_id, table_id, begin_snapshot, end_snapshot,
 /// file_order, path, path_is_relative, file_format, record_count,
-/// file_size_bytes, row_id_start)` — DuckLake v1.0 spec.
+/// file_size_bytes, row_id_start, footer_size, encryption_key, partition_id,
+/// mapping_id, partial_max)` — DuckLake v1.0 spec (v0.27.12 extended fields).
 pub fn data_file_schema() -> Arc<Vec<FieldInfo>> {
     Arc::new(vec![
         int8t!("data_file_id"),
@@ -170,6 +171,11 @@ pub fn data_file_schema() -> Arc<Vec<FieldInfo>> {
         int8t!("record_count"),
         int8t!("file_size_bytes"),
         int8t!("row_id_start"),
+        int8t!("footer_size"),
+        text_col!("encryption_key"),
+        int8t!("partition_id"),
+        int8t!("mapping_id"),
+        text_col!("partial_max"),
     ])
 }
 
@@ -177,6 +183,7 @@ pub fn data_file_schema() -> Arc<Vec<FieldInfo>> {
 
 /// `ducklake_delete_file` — DuckLake v1.0 spec presentation columns.
 /// Note: `delete_file_id` is a synthesized surrogate; `path` is the file path.
+/// v0.27.12: extended with `footer_size` and `partial_max`.
 pub fn delete_file_schema() -> Arc<Vec<FieldInfo>> {
     Arc::new(vec![
         int8t!("delete_file_id"),
@@ -186,6 +193,8 @@ pub fn delete_file_schema() -> Arc<Vec<FieldInfo>> {
         int8t!("file_size_bytes"),
         int8t!("begin_snapshot"),
         int8t!("end_snapshot"),
+        int8t!("footer_size"),
+        text_col!("partial_max"),
     ])
 }
 

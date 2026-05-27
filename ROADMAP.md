@@ -80,7 +80,7 @@ binding on every roadmap release below.
 | **v0.27.9 — DuckLake Advanced Metadata Validation** | End-to-end DuckDB tests for views, macros, tags, column tags, sort info, and partition info; DROP/ALTER cascade covering all metadata types; ALTER TABLE time-travel tests; imported existing DuckLake catalog support | Done |
 | **v0.27.10 — DuckLake Compatibility CI** | Pin known-good DuckDB and DuckLake versions in CI; nightly optional jobs; durable compatibility corpus covering PQsendQuery pg_catalog scans; exact column schema/OID describe checks | Done |
 | **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for pg-trickle CDC startup | Planning |
-| **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Planning |
+| **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Done |
 | **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; remove pg-trickle-specific framing and archive planning docs as generic DuckLake CDC contract reference | Planning |
 | **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Planning |
 | **v0.35.0 — Strategy C: Native DuckDB Extension** | Complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; eliminates all Postgres-scanner compatibility burden for local/embedded use; `rocklake-ffi` C ABI already done; C++ catalog registration is the remaining gap | Planning |
@@ -3567,30 +3567,30 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 ### Tasks
 
 #### GCS Emulator Harness
-- [ ] Implement `GcsEmulatorHarness` in `crates/rocklake-testkit/src/gcs_emulator_harness.rs` using `fsouza/fake-gcs-server`.
-- [ ] Configure `GoogleCloudStorageBuilder` in `rocklake-core` to resolve against local emulator port endpoints.
-- [ ] Add GCS integration tests gated behind `#[cfg(feature = "gcs-emulator")]` feature flags.
+- [x] Implement `GcsEmulatorHarness` in `crates/rocklake-testkit/src/gcs_emulator_harness.rs` using `fsouza/fake-gcs-server`.
+- [x] Configure `GoogleCloudStorageBuilder` in `rocklake-core` to resolve against local emulator port endpoints.
+- [x] Add GCS integration tests gated behind `#[cfg(feature = "gcs-emulator")]` feature flags.
 
 #### Azure Emulator Harness
-- [ ] Implement `AzureEmulatorHarness` in `crates/rocklake-testkit/src/azure_emulator_harness.rs` using the Azurite (`mcr.microsoft.com/azure-storage/azurite`) Docker container.
-- [ ] Configure `MicrosoftAzureBuilder` in `rocklake-core` to resolve against the local emulator container.
-- [ ] Add Azure integration tests gated behind `#[cfg(feature = "azure-emulator")]` feature flags.
+- [x] Implement `AzureEmulatorHarness` in `crates/rocklake-testkit/src/azure_emulator_harness.rs` using the Azurite (`mcr.microsoft.com/azure-storage/azurite`) Docker container.
+- [x] Configure `MicrosoftAzureBuilder` in `rocklake-core` to resolve against the local emulator container.
+- [x] Add Azure integration tests gated behind `#[cfg(feature = "azure-emulator")]` feature flags.
 
 #### Shared Catalog Backend Test Suite
-- [ ] Refactor existing MinIO catalog integration tests into a generic `catalog_backend_compat_test!` macro.
-- [ ] Run the unified suite—including open/create, snapshot commit, read-after-write, prefix listings, writer fencing, and post-crash recovery—across MinIO, GCS, and Azure emulators.
-- [ ] Wire emulator tests into scheduled and release-candidate CI pipelines.
+- [x] Refactor existing MinIO catalog integration tests into a generic `catalog_backend_compat_test!` macro.
+- [x] Run the unified suite—including open/create, snapshot commit, read-after-write, prefix listings, writer fencing, and post-crash recovery—across MinIO, GCS, and Azure emulators.
+- [x] Wire emulator tests into scheduled and release-candidate CI pipelines.
 
 #### Data-File & Delete-File Conformance
-- [ ] Extend data file and delete file registrations in the catalog writer to persist and expose `footer_size` (as `BIGINT`), `partition_id`, `encryption_key`, `mapping_id`, and `partial_max` columns.
-- [ ] Verify that `ducklake_data_file` and `ducklake_delete_file` fields are correctly mapped under S3, GCS, and Azure emulation environments.
-- [ ] Ensure all file fields are compliant with the DuckLake 1.0 specification, explicitly keeping any v1.1 attributes out of scope.
+- [x] Extend data file and delete file registrations in the catalog writer to persist and expose `footer_size` (as `BIGINT`), `partition_id`, `encryption_key`, `mapping_id`, and `partial_max` columns.
+- [x] Verify that `ducklake_data_file` and `ducklake_delete_file` fields are correctly mapped under S3, GCS, and Azure emulation environments.
+- [x] Ensure all file fields are compliant with the DuckLake 1.0 specification, explicitly keeping any v1.1 attributes out of scope.
 
 ### Definition of Done
-- [ ] `GcsEmulatorHarness` compiles and successfully passes a GCS-backend catalog smoke test.
-- [ ] `AzureEmulatorHarness` compiles and successfully passes an Azure-backend catalog smoke test.
-- [ ] Shared backend integration tests pass reliably for GCS, Azure, and MinIO in CI without flaky failures.
-- [ ] The catalog writer correctly serializes and exposes the extended DuckLake v1.0 data-file and delete-file parameters (`footer_size`, `partition_id`, `encryption_key`, `mapping_id`, `partial_max`).
+- [x] `GcsEmulatorHarness` compiles and successfully passes a GCS-backend catalog smoke test.
+- [x] `AzureEmulatorHarness` compiles and successfully passes an Azure-backend catalog smoke test.
+- [x] Shared backend integration tests pass reliably for GCS, Azure, and MinIO in CI without flaky failures.
+- [x] The catalog writer correctly serializes and exposes the extended DuckLake v1.0 data-file and delete-file parameters (`footer_size`, `partition_id`, `encryption_key`, `mapping_id`, `partial_max`).
 
 ---
 

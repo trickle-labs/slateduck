@@ -3914,7 +3914,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-catalog"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -3931,6 +3931,7 @@ dependencies = [
  "rocklake-datafusion",
  "rocklake-ffi",
  "rocklake-sql",
+ "rocklake-testkit",
  "serde",
  "serde_json",
  "slatedb",
@@ -3944,7 +3945,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-core"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -3965,7 +3966,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-datafusion"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "arrow",
  "async-trait",
@@ -3983,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-ffi"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "object_store 0.12.5",
  "rocklake-catalog",
@@ -3994,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-pgwire"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "arrow",
  "async-trait",
@@ -4025,7 +4026,7 @@ dependencies = [
 
 [[package]]
 name = "rocklake-sql"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
  "arrow",
  "bytes",
@@ -4042,8 +4043,9 @@ dependencies = [
 
 [[package]]
 name = "rocklake-testkit"
-version = "0.27.11"
+version = "0.27.12"
 dependencies = [
+ "chrono",
  "object_store 0.12.5",
  "proptest",
  "reqwest",

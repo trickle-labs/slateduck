@@ -975,6 +975,25 @@ pub(super) fn make_data_files_response(
         encoder
             .encode_field_with_type_and_format(&row_id_start, &Type::TEXT, FieldFormat::Text)
             .expect("pgwire field encoding is infallible");
+        // v0.27.12: extended DuckLake v1.0 data-file fields.
+        let footer_size = f.footer_size.map(|s| s.to_string());
+        encoder
+            .encode_field_with_type_and_format(&footer_size, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        encoder
+            .encode_field_with_type_and_format(&f.encryption_key, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        let partition_id = f.partition_id.map(|p| p.to_string());
+        encoder
+            .encode_field_with_type_and_format(&partition_id, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        let mapping_id = f.mapping_id.map(|m| m.to_string());
+        encoder
+            .encode_field_with_type_and_format(&mapping_id, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        encoder
+            .encode_field_with_type_and_format(&f.partial_max, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }
     let count = data_rows.len();
@@ -1904,6 +1923,14 @@ pub(super) fn make_delete_files_response(
         let end = f.end_snapshot.map(|e| e.to_string());
         encoder
             .encode_field_with_type_and_format(&end, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        // v0.27.12: extended DuckLake v1.0 delete-file fields.
+        let footer_size = f.footer_size.map(|s| s.to_string());
+        encoder
+            .encode_field_with_type_and_format(&footer_size, &Type::TEXT, FieldFormat::Text)
+            .expect("pgwire field encoding is infallible");
+        encoder
+            .encode_field_with_type_and_format(&f.partial_max, &Type::TEXT, FieldFormat::Text)
             .expect("pgwire field encoding is infallible");
         data_rows.push(encoder.finish());
     }

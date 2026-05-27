@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+## Enable GCS emulator integration tests (requires Docker with fake-gcs-server).
+gcs-emulator = ["rocklake-testkit/gcs-emulator"]
+## Enable Azure Blob Storage emulator integration tests (requires Docker with Azurite).
+azure-emulator = ["rocklake-testkit/azure-emulator"]
+
 [dependencies]
 rocklake-core = { path = "../rocklake-core" }
 slatedb = { workspace = true }
@@ -30,6 +36,7 @@ criterion = { workspace = true }
 rocklake-ffi = { path = "../rocklake-ffi" }
 rocklake-datafusion = { path = "../rocklake-datafusion" }
 rocklake-sql = { path = "../rocklake-sql" }
+rocklake-testkit = { path = "../rocklake-testkit" }
 serde_json = { workspace = true }
 datafusion = "45"
 

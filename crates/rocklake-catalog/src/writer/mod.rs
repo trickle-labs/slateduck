@@ -733,6 +733,102 @@ impl CatalogWriter {
         Ok(data_file_id)
     }
 
+    /// v0.27.12: Register a data file with all DuckLake v1.0 extended fields.
+    ///
+    /// Persists and exposes `footer_size`, `encryption_key`, `partition_id`,
+    /// `mapping_id`, and `partial_max` as required by the DuckLake 1.0 spec.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn register_data_file_with_metadata(
+        &mut self,
+        table_id: u64,
+        path: &str,
+        file_format: &str,
+        record_count: u64,
+        file_size_bytes: u64,
+        footer_size: Option<i64>,
+        encryption_key: Option<&str>,
+        partition_id: Option<u64>,
+        mapping_id: Option<u64>,
+        partial_max: Option<&str>,
+    ) -> CatalogResult<u64> {
+        let data_file_id = self.counters.alloc_file_id();
+        let snapshot_id = self.counters.peek_snapshot_id();
+        let file_order = data_file_id;
+        let row_id_start = {
+            let key = keys::key_table_stats(table_id);
+            match self.db.get(&key).await? {
+                Some(data) => {
+                    let existing: rocklake_core::rows::TableStatsRow =
+                        rocklake_core::values::decode_value(&data).unwrap_or_default();
+                    existing.next_row_id.unwrap_or(0)
+                }
+                None => 0,
+            }
+        };
+
+        let row = DataFileRow {
+            data_file_id,
+            table_id,
+            path: path.to_string(),
+            file_format: file_format.to_string(),
+            record_count,
+            file_size_bytes,
+            footer_size,
+            encryption_key: encryption_key.map(|s| s.to_string()),
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
+            file_order: Some(file_order),
+            path_is_relative: Some(false),
+            row_id_start: Some(row_id_start),
+            partition_id,
+            mapping_id,
+            partial_max: partial_max.map(|s| s.to_string()),
+        };
+
+        let key = keys::key_data_file(table_id, data_file_id);
+        let encoded = values::encode_value(&row);
+        let idx_key = keys::key_data_file_by_snapshot(table_id, snapshot_id, data_file_id);
+        self.stage(key, encoded.clone());
+        self.stage(idx_key, encoded);
+        Ok(data_file_id)
+    }
+
+    /// v0.27.12: Register a delete file with all DuckLake v1.0 extended fields.
+    ///
+    /// Persists and exposes `footer_size` and `partial_max`.
+    pub async fn register_delete_file_with_metadata(
+        &mut self,
+        data_file_id: u64,
+        path: &str,
+        delete_count: u64,
+        file_size_bytes: u64,
+        footer_size: Option<i64>,
+        partial_max: Option<&str>,
+    ) -> CatalogResult<u64> {
+        let delete_file_id = self.counters.alloc_file_id();
+        let snapshot_id = self.counters.peek_snapshot_id();
+
+        let row = DeleteFileRow {
+            delete_file_id,
+            data_file_id,
+            path: path.to_string(),
+            delete_count,
+            file_size_bytes,
+            snapshot_id,
+            table_id: None,
+            begin_snapshot: Some(snapshot_id),
+            end_snapshot: None,
+            path_is_relative: Some(false),
+            format: Some("parquet".to_string()),
+            footer_size,
+            partial_max: partial_max.map(|s| s.to_string()),
+        };
+
+        let key = keys::key_delete_file(data_file_id, delete_file_id);
+        self.stage(key, values::encode_value(&row));
+        Ok(delete_file_id)
+    }
+
     pub async fn register_delete_file(
         &mut self,
         data_file_id: u64,
