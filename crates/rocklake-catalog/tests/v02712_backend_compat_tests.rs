@@ -26,9 +26,10 @@ use rocklake_testkit::catalog_backend_compat_test;
 
 // ── In-memory (always runs) ───────────────────────────────────────────────────
 
-catalog_backend_compat_test!(inmem, {
+catalog_backend_compat_test!(
+    inmem,
     std::sync::Arc::new(object_store::memory::InMemory::new())
-});
+);
 
 // ── GCS emulator (requires --features gcs-emulator + Docker) ─────────────────
 
@@ -58,7 +59,7 @@ mod gcs_compat {
         harness.object_store("rocklake-test")
     }
 
-    catalog_backend_compat_test!(gcs, { super::gcs_store().await });
+    catalog_backend_compat_test!(gcs, super::gcs_store().await);
 }
 
 // ── Azure emulator (requires --features azure-emulator + Docker) ──────────────
@@ -88,5 +89,5 @@ mod azure_compat {
         harness.object_store("rocklake-test")
     }
 
-    catalog_backend_compat_test!(azure, { super::azure_store().await });
+    catalog_backend_compat_test!(azure, super::azure_store().await);
 }

@@ -60,7 +60,7 @@ macro_rules! catalog_backend_compat_test {
 
             #[tokio::test]
             async fn open_create() {
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let mut cat = CatalogStore::open(make_opts(Arc::clone(&store)))
                     .await
                     .expect("open_create: CatalogStore::open failed");
@@ -77,7 +77,7 @@ macro_rules! catalog_backend_compat_test {
 
             #[tokio::test]
             async fn snapshot_commit() {
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let opts = make_opts(Arc::clone(&store));
 
                 // First session: create a schema and commit.
@@ -116,7 +116,7 @@ macro_rules! catalog_backend_compat_test {
 
             #[tokio::test]
             async fn read_after_write() {
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let mut cat = CatalogStore::open(make_opts(store))
                     .await
                     .expect("read_after_write: open failed");
@@ -147,7 +147,7 @@ macro_rules! catalog_backend_compat_test {
 
             #[tokio::test]
             async fn prefix_listing() {
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let mut cat = CatalogStore::open(make_opts(store))
                     .await
                     .expect("prefix_listing: open failed");
@@ -186,7 +186,7 @@ macro_rules! catalog_backend_compat_test {
             async fn writer_fencing() {
                 use rocklake_catalog::CatalogError;
 
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let opts = make_opts(Arc::clone(&store));
 
                 // Open first writer to establish an epoch.
@@ -242,7 +242,7 @@ macro_rules! catalog_backend_compat_test {
 
             #[tokio::test]
             async fn post_crash_recovery() {
-                let store: Arc<dyn object_store::ObjectStore> = { $store_expr };
+                let store: Arc<dyn object_store::ObjectStore> = $store_expr;
                 let opts = make_opts(Arc::clone(&store));
 
                 // Session 1: create a table.
