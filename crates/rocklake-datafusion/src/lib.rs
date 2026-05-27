@@ -5,5 +5,7 @@
 //! without DuckDB.
 
 pub mod catalog_provider;
+pub mod virtual_catalog;
 
 pub use catalog_provider::RockLakeCatalogProvider;
+pub use virtual_catalog::VirtualCatalogContext;

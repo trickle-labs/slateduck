@@ -440,6 +440,21 @@ async fn execute_classified<'a>(
             let id = snap.map(|s| s.snapshot_id).unwrap_or(0);
             Ok(vec![make_single_int_response("max", id as i64)])
         }
+        // pg-trickle CDC startup: SELECT ducklake_latest_snapshot_id($1::regclass).
+        // Returns the snapshot_id of the latest visible snapshot (or NULL if none).
+        // This function gates the `table_changes()` call — without it pg-trickle
+        // cannot register a DUCKLAKE_CHANGE_FEED and returns SQLSTATE 42883.
+        StatementKind::SelectLatestSnapshotId => {
+            let reader = { store.lock().await.read_latest() };
+            let snap = reader.get_snapshot().await.map_err(RockLakeError::from)?;
+            match snap {
+                Some(s) => Ok(vec![make_single_int_response(
+                    "ducklake_latest_snapshot_id",
+                    s.snapshot_id as i64,
+                )]),
+                None => Ok(vec![make_null_int_response("ducklake_latest_snapshot_id")]),
+            }
+        }
         StatementKind::SelectLatestSnapshotInfo => {
             let reader = { store.lock().await.read_latest() };
             let snap = reader.get_snapshot().await.map_err(RockLakeError::from)?;

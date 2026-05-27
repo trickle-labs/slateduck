@@ -59,7 +59,13 @@ pub(super) fn classify_ast(stmt: &Statement) -> StatementKind {
         // CREATE TABLE for inlined tables
         Statement::CreateTable(ct) => {
             let name = ct.name.to_string().to_lowercase();
-            if name.contains("ducklake_inlined") {
+            // Strip surrounding quotes from bare table names (DuckDB 1.5+ sends
+            // `CREATE TABLE IF NOT EXISTS "ducklake_metadata"` with quoted identifiers).
+            let name_unquoted = name.trim_matches('"');
+            if name_unquoted.contains("ducklake_inlined") {
+                StatementKind::CreateInlinedTable
+            } else if name_unquoted.starts_with("ducklake_") {
+                // Bare quoted DuckLake core table — treat as no-op.
                 StatementKind::CreateInlinedTable
             } else if name.contains('.') {
                 // Extension schema DDL: CREATE TABLE IF NOT EXISTS pgtrickle.table_name
@@ -332,6 +338,10 @@ pub(super) fn classify_no_from_select(select: &sqlparser::ast::Select) -> Statem
                 "current_schema" => return StatementKind::SelectCurrentSchema,
                 "current_database" => return StatementKind::SelectCurrentDatabase,
                 "gen_random_uuid" => return StatementKind::SelectGenRandomUuid,
+                // pg-trickle CDC startup: SELECT ducklake_latest_snapshot_id($1::regclass)
+                "ducklake_latest_snapshot_id" => {
+                    return StatementKind::SelectLatestSnapshotId;
+                }
                 // DuckDB postgres scanner: secret storage fast-path check.
                 "to_regclass" => return StatementKind::SelectToRegclass,
                 // DuckDB postgres scanner: database size query.
@@ -364,14 +374,25 @@ pub(super) fn classify_no_from_select(select: &sqlparser::ast::Select) -> Statem
     StatementKind::Unsupported("SELECT without FROM".to_string())
 }
 
-/// Strip a `"public".` or `public.` schema prefix.
+/// Strip a `"public".` or `public.` schema prefix, and strip surrounding
+/// double-quote delimiters from a bare single-identifier table name.
 /// DuckDB 1.5+ sends schema-qualified names (e.g. `"public"."ducklake_metadata"`);
 /// rocklake matches against unqualified names, so we normalize here.
 fn strip_public_schema(s: &str) -> &str {
     if let Some(rest) = s.strip_prefix("\"public\".") {
         rest.trim_matches('"')
     } else if let Some(rest) = s.strip_prefix("public.") {
-        rest
+        rest.trim_matches('"')
+    } else if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        // A single bare quoted identifier like `"ducklake_metadata"`.
+        // Only strip quotes when there is no interior unescaped quote (which
+        // would indicate a multi-part name such as `"My Schema".my_table`).
+        let inner = &s[1..s.len() - 1];
+        if !inner.contains('"') {
+            inner
+        } else {
+            s
+        }
     } else {
         s
     }

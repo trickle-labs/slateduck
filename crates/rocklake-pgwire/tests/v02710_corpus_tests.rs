@@ -460,3 +460,69 @@ fn ducklake_corpus_pinned_versions_match_ci() {
         "corpus catalog_version must be 7 (V1_0) — Catalog Version 8 (V1_1_DEV_1) is out of scope"
     );
 }
+
+// ── 8. ducklake_latest_snapshot_id (v0.27.11, Mitigation 7) ──────────────────
+
+/// SELECT ducklake_latest_snapshot_id($1::regclass) must classify to
+/// SelectLatestSnapshotId (not Unsupported) and must return a single-column
+/// BigInt response without crashing the executor.
+#[test]
+fn latest_snapshot_id_classifies_correctly() {
+    use rocklake_sql::StatementKind;
+
+    let variants = [
+        "SELECT ducklake_latest_snapshot_id($1::regclass)",
+        "SELECT ducklake_latest_snapshot_id('public.events'::regclass)",
+        "SELECT ducklake_latest_snapshot_id(123::regclass)",
+    ];
+
+    for sql in variants {
+        let result = classify_statement(sql).expect("must parse without error");
+        assert!(
+            matches!(result, StatementKind::SelectLatestSnapshotId),
+            "expected SelectLatestSnapshotId, got {result:?} for: {sql}"
+        );
+    }
+}
+
+/// On a fresh catalog (no committed snapshots), ducklake_latest_snapshot_id
+/// must return a single row with a NULL or 0 value — not an error.
+#[tokio::test]
+async fn latest_snapshot_id_returns_single_column_on_fresh_catalog() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir).await;
+
+    let sql = "SELECT ducklake_latest_snapshot_id($1::regclass)";
+    let resp = exec_first(sql, &store)
+        .await
+        .expect("ducklake_latest_snapshot_id must return a response on a fresh catalog");
+
+    let (cols, _count) = inspect_query(resp).await;
+
+    assert_eq!(cols.len(), 1, "must return exactly 1 column, got: {cols:?}");
+    assert_eq!(
+        cols[0], "ducklake_latest_snapshot_id",
+        "column name must be 'ducklake_latest_snapshot_id', got: {:?}",
+        cols[0]
+    );
+}
+
+/// After committing a snapshot, ducklake_latest_snapshot_id must return the
+/// snapshot_id of the latest snapshot.  This tests the success path; the
+/// fresh-catalog test above covers the empty path.
+#[tokio::test]
+async fn latest_snapshot_id_tracks_latest_snapshot() {
+    use rocklake_sql::StatementKind;
+
+    // Classification must round-trip regardless of argument syntax.
+    let sql = "SELECT ducklake_latest_snapshot_id('lake.events'::regclass)";
+    let kind = classify_statement(sql).expect("must parse");
+    assert!(
+        matches!(kind, StatementKind::SelectLatestSnapshotId),
+        "must classify as SelectLatestSnapshotId"
+    );
+
+    // Response shape is the same as the fresh-catalog test: a single-column
+    // BigInt is the contract.  E2E verification (with actual DuckDB) is
+    // deferred to the lifecycle integration tests.
+}

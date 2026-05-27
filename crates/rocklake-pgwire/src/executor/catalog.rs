@@ -2627,21 +2627,16 @@ pub(super) fn make_metadata_table_empty_response(table_name: &str) -> Response<'
 /// v0.27: Build a PgWire response for `SELECT * FROM ducklake_tag`.
 ///
 /// Spec column names: tag_id, begin_snapshot, end_snapshot, object_id,
-/// tag_name, tag_value.  The internal `TagRow.tag_key` is exposed as `tag_name`.
-/// `tag_id` is synthesized as `object_id`.
+/// v0.27: Build a PgWire response for `SELECT * FROM ducklake_tag`.
+///
+/// Spec column names (v1.0 Catalog Version 7): begin_snapshot, end_snapshot,
+/// object_id, key, value.  The synthesized `tag_id` column has been removed
+/// per spec alignment; `key` and `value` carry the internal `tag_key`/`tag_value`.
 pub(super) fn make_tags_response(rows: Vec<rocklake_core::rows::TagRow>) -> Response<'static> {
     let schema = crate::schema_registry::tag_schema();
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
-        // tag_id synthesized as object_id (stable surrogate within this snapshot)
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(r.object_id.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.begin_snapshot.to_string()),
@@ -2660,7 +2655,7 @@ pub(super) fn make_tags_response(rows: Vec<rocklake_core::rows::TagRow>) -> Resp
                 FieldFormat::Text,
             )
             .expect("pgwire field encoding is infallible");
-        // Internal field tag_key is exposed as spec column tag_name.
+        // `tag_key` exposed as spec column `key`.
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_key.clone()),
@@ -2668,6 +2663,7 @@ pub(super) fn make_tags_response(rows: Vec<rocklake_core::rows::TagRow>) -> Resp
                 FieldFormat::Text,
             )
             .expect("pgwire field encoding is infallible");
+        // `tag_value` exposed as spec column `value`.
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_value.clone()),
@@ -2685,9 +2681,9 @@ pub(super) fn make_tags_response(rows: Vec<rocklake_core::rows::TagRow>) -> Resp
 
 /// v0.27: Build a PgWire response for `SELECT * FROM ducklake_column_tag`.
 ///
-/// Spec column names: tag_id, begin_snapshot, end_snapshot, column_id,
-/// tag_name, tag_value.  The internal `ColumnTagRow.tag_key` is exposed as `tag_name`.
-/// `tag_id` is synthesized as `column_id`.
+/// Spec column names (v1.0 Catalog Version 7): begin_snapshot, end_snapshot,
+/// column_id, key, value.  The synthesized `tag_id` column has been removed;
+/// `key` and `value` carry the internal `tag_key`/`tag_value`.
 pub(super) fn make_column_tags_response(
     rows: Vec<rocklake_core::rows::ColumnTagRow>,
 ) -> Response<'static> {
@@ -2695,14 +2691,6 @@ pub(super) fn make_column_tags_response(
     let mut data_rows = Vec::new();
     for r in &rows {
         let mut encoder = DataRowEncoder::new(schema.clone());
-        // tag_id synthesized as column_id (stable surrogate within this snapshot)
-        encoder
-            .encode_field_with_type_and_format(
-                &Some(r.column_id.to_string()),
-                &Type::TEXT,
-                FieldFormat::Text,
-            )
-            .expect("pgwire field encoding is infallible");
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.begin_snapshot.to_string()),
@@ -2721,7 +2709,7 @@ pub(super) fn make_column_tags_response(
                 FieldFormat::Text,
             )
             .expect("pgwire field encoding is infallible");
-        // Internal field tag_key is exposed as spec column tag_name.
+        // `tag_key` exposed as spec column `key`.
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_key.clone()),
@@ -2729,6 +2717,7 @@ pub(super) fn make_column_tags_response(
                 FieldFormat::Text,
             )
             .expect("pgwire field encoding is infallible");
+        // `tag_value` exposed as spec column `value`.
         encoder
             .encode_field_with_type_and_format(
                 &Some(r.tag_value.clone()),

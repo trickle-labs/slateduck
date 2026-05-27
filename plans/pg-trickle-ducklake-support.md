@@ -121,7 +121,28 @@ This relay connects to RockLake over the standard PG-wire protocol — the same 
 
 DuckLake stores small writes (below a configurable row threshold) in PostgreSQL heap tables named `ducklake_inlined_data_table_<table_id>_<schema_version>`. When this feature is active, pg-trickle attaches AFTER triggers to these heap tables for sub-millisecond CDC latency. When DuckLake flushes inlined rows to Parquet, a DDL watcher detects the `DROP TABLE ducklake_inlined_data_table_*` event and switches CDC mode.
 
-In RockLake's case, the same functionality maps to the `0xFD` key-space inlined data (documented in `plans/blueprint.md` §9.1). The PG-wire layer must expose these as virtual tables or via a trigger-compatible mechanism.
+In RockLake's case, the same functionality maps to the `0xFD` key-space inlined data (documented in `plans/blueprint.md` §9.1). The PG-wire layer exposes these as virtual tables for SELECT, but **trigger-based CDC is architecturally impossible for remote RockLake deployments**.
+
+#### Architectural Constraint: Trigger-Based CDC Requires Local PostgreSQL DML
+
+PostgreSQL `AFTER` triggers only fire when DML executes locally on the host PostgreSQL server. When a DuckDB or other remote client writes inlined data directly to RockLake over PG-wire, the writes bypass the host PostgreSQL entirely — they are translated into RockLake `0xFD` key-space mutations at the executor layer. The host PostgreSQL server never sees the DML, so its trigger machinery is never invoked.
+
+This means:
+
+- **Trigger-based CDC is only viable when RockLake is co-located with a PostgreSQL instance and DML is routed through that PostgreSQL instance.** This deployment topology is not the primary RockLake use case.
+- **For standard remote RockLake deployments, pg-trickle must use `DUCKLAKE_CHANGE_FEED` polling mode** (`table_changes()` function, see Gap 1). pg-trickle detects a non-PostgreSQL catalog backend during its connection handshake and automatically selects `DUCKLAKE_CHANGE_FEED` mode rather than trigger mode.
+- **Inlined-data rows are included in `table_changes()` output.** RockLake's `SnapshotDiff` computation reads the `0xFD` key space and materializes inlined rows as change records alongside Parquet-backed rows. No trigger attachment is required.
+
+The `DUCKLAKE_CHANGE_FEED` path has higher latency than a local trigger (milliseconds instead of microseconds), but it is correct, durable, and works across any network topology. For workloads where sub-millisecond CDC latency on inlined data is required, consider a co-located PostgreSQL + DuckDB deployment that routes writes through native PostgreSQL — not a remote RockLake endpoint.
+
+#### Tier A Integration Test Contract
+
+The pg-trickle integration test suite (Tier A) must include a test that:
+
+1. Connects pg-trickle to a RockLake endpoint over PG-wire.
+2. Asserts that pg-trickle **does not** attempt trigger attachment (i.e., does not issue `CREATE TRIGGER` SQL over the PG-wire connection).
+3. Asserts that pg-trickle **does** call `ducklake_latest_snapshot_id($1::regclass)` during connection setup (Mitigation 7 from v0.27.11 roadmap).
+4. Asserts that pg-trickle successfully issues `table_changes(…)` calls and receives well-formed change records.
 
 ---
 

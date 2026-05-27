@@ -28,7 +28,6 @@ use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use rocklake_catalog::{CatalogStore, OpenOptions};
 use rocklake_pgwire::server::ServerConfig;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -46,23 +45,40 @@ fn make_catalog_opts(dir: &TempDir) -> OpenOptions {
 }
 
 /// Returns `false` if the `duckdb` binary is not on `$PATH`.
-fn duckdb_available() -> bool {
-    Command::new("duckdb").arg("--version").output().is_ok()
+/// Uses a 5-second timeout to avoid indefinite blocking on slow systems.
+async fn duckdb_available() -> bool {
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::process::Command::new("duckdb")
+            .arg("--version")
+            .output()
+            .await
+            .is_ok()
+    })
+    .await;
+    result.unwrap_or(false)
 }
 
 /// Returns `false` if DuckDB cannot load the `ducklake` extension.
-/// Requires `duckdb` to be in `$PATH` and the extension to be installed.
-fn ducklake_available() -> bool {
-    if !duckdb_available() {
+///
+/// Wraps the external command in a 5-second `tokio::time::timeout` so that
+/// slow or network-restricted environments (where `LOAD ducklake` might try
+/// to fetch the extension over the network) time out cleanly instead of
+/// hanging the entire test runner.
+async fn ducklake_available() -> bool {
+    if !duckdb_available().await {
         return false;
     }
-    let output = Command::new("duckdb")
-        .arg("-c")
-        .arg("LOAD ducklake; SELECT 1;")
-        .output();
-    match output {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::process::Command::new("duckdb")
+            .arg("-c")
+            .arg("LOAD ducklake; SELECT 1;")
+            .output()
+            .await
+    })
+    .await;
+    match result {
+        Ok(Ok(o)) => o.status.success(),
+        _ => false, // timed out or process error — skip cleanly
     }
 }
 
@@ -107,7 +123,7 @@ async fn start_server(
 /// the inlined-data insert/read path end-to-end.
 #[tokio::test]
 async fn inlined_data_fresh_lifecycle() {
-    if !ducklake_available() {
+    if !ducklake_available().await {
         eprintln!("SKIP inlined_data_fresh_lifecycle: duckdb/ducklake not available");
         return;
     }
@@ -130,11 +146,16 @@ async fn inlined_data_fresh_lifecycle() {
          SELECT COUNT(*) AS total FROM s.items;"
     );
 
-    let output = Command::new("duckdb")
-        .arg("-c")
-        .arg(&sql)
-        .output()
-        .expect("duckdb must start");
+    let output = tokio::time::timeout(
+        Duration::from_secs(30),
+        tokio::process::Command::new("duckdb")
+            .arg("-c")
+            .arg(&sql)
+            .output(),
+    )
+    .await
+    .expect("duckdb timed out after 30s")
+    .expect("duckdb must start");
 
     let _ = shutdown_tx.send(());
     let _ = handle.await;
@@ -164,7 +185,7 @@ async fn inlined_data_fresh_lifecycle() {
 /// catalog directory, reattach and verify all rows are durable.
 #[tokio::test]
 async fn inlined_data_restart_lifecycle() {
-    if !ducklake_available() {
+    if !ducklake_available().await {
         eprintln!("SKIP inlined_data_restart_lifecycle: duckdb/ducklake not available");
         return;
     }
@@ -187,11 +208,16 @@ async fn inlined_data_restart_lifecycle() {
              INSERT INTO s.events VALUES (10, 'write-phase'), (20, 'persist-me');"
         );
 
-        let output = Command::new("duckdb")
-            .arg("-c")
-            .arg(&sql_write)
-            .output()
-            .expect("duckdb must start for write phase");
+        let output = tokio::time::timeout(
+            Duration::from_secs(30),
+            tokio::process::Command::new("duckdb")
+                .arg("-c")
+                .arg(&sql_write)
+                .output(),
+        )
+        .await
+        .expect("duckdb write phase timed out after 30s")
+        .expect("duckdb must start for write phase");
 
         let _ = shutdown_tx.send(());
         let _ = handle.await;
@@ -215,11 +241,16 @@ async fn inlined_data_restart_lifecycle() {
              SELECT id, label FROM s.events ORDER BY id;"
         );
 
-        let output = Command::new("duckdb")
-            .arg("-c")
-            .arg(&sql_read)
-            .output()
-            .expect("duckdb must start for read phase");
+        let output = tokio::time::timeout(
+            Duration::from_secs(30),
+            tokio::process::Command::new("duckdb")
+                .arg("-c")
+                .arg(&sql_read)
+                .output(),
+        )
+        .await
+        .expect("duckdb read phase timed out after 30s")
+        .expect("duckdb must start for read phase");
 
         let _ = shutdown_tx.send(());
         let _ = handle.await;
@@ -247,7 +278,7 @@ async fn inlined_data_restart_lifecycle() {
 /// returned schema includes `row_id`, `begin_snapshot`, `end_snapshot`.
 #[tokio::test]
 async fn postgres_query_inlined_data() {
-    if !ducklake_available() {
+    if !ducklake_available().await {
         eprintln!("SKIP postgres_query_inlined_data: duckdb/ducklake not available");
         return;
     }
@@ -259,26 +290,32 @@ async fn postgres_query_inlined_data() {
 
     // Create an inlined-data table and insert rows; then inspect the raw
     // metadata table via postgres_query.
+    // ducklake_default_data_inlining_row_limit defaults to 10, so a 2-row
+    // INSERT will use inlined (catalog-resident) storage, populating
+    // ducklake_inlined_data_tables.
     let sql = format!(
         "LOAD ducklake; \
+         LOAD postgres; \
          ATTACH 'ducklake:postgres:host=127.0.0.1 port={port} dbname=rocklake' AS my_lake \
              (DATA_PATH '{data_path}'); \
          USE my_lake; \
          CREATE SCHEMA IF NOT EXISTS s; \
          CREATE TABLE s.cfg (key VARCHAR, value VARCHAR); \
          INSERT INTO s.cfg VALUES ('env', 'test'), ('version', '1'); \
-         -- Inspect the raw inlined-data table rows via postgres_query. \
-         SELECT * FROM postgres_query( \
-             'host=127.0.0.1 port={port} dbname=rocklake', \
-             'SELECT * FROM ducklake_inlined_data_tables' \
-         );"
+         ATTACH 'host=127.0.0.1 port={port} dbname=rocklake' AS raw_pg (TYPE postgres, READ_ONLY); \
+         SELECT * FROM postgres_query('raw_pg', 'SELECT * FROM ducklake_inlined_data_tables');"
     );
 
-    let output = Command::new("duckdb")
-        .arg("-c")
-        .arg(&sql)
-        .output()
-        .expect("duckdb must start");
+    let output = tokio::time::timeout(
+        Duration::from_secs(30),
+        tokio::process::Command::new("duckdb")
+            .arg("-c")
+            .arg(&sql)
+            .output(),
+    )
+    .await
+    .expect("duckdb timed out after 30s")
+    .expect("duckdb must start");
 
     let _ = shutdown_tx.send(());
     let _ = handle.await;

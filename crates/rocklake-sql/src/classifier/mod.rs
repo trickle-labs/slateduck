@@ -1,11 +1,13 @@
 //! SQL statement classifier: pattern-match on AST to identify DuckLake operations.
 //!
 //! This module is decomposed into sub-modules by concern:
+//! - `normalize`: pre-parser AST normalizer (schema prefix stripping, subquery lifting)
 //! - `prefix`: pre-parser classifiers for LISTEN/UNLISTEN
 //! - `table_selects`: table select classifiers and identifier string helpers
 //! - `ast`: AST-based SQL statement classifiers
 
 mod ast;
+pub(crate) mod normalize;
 mod prefix;
 mod table_selects;
 
@@ -209,6 +211,15 @@ pub enum StatementKind {
     SelectMacroParameters,
     /// `SELECT gen_random_uuid()` — pg-tide-relay generates UUIDs
     SelectGenRandomUuid,
+    /// `SELECT ducklake_latest_snapshot_id($1::regclass)` — pg-trickle CDC
+    /// startup handshake: resolves the latest snapshot boundary for a named
+    /// table before calling `table_changes()`.  The table argument is the
+    /// qualified table name cast to `regclass` (e.g. `'lake.events'::regclass`).
+    ///
+    /// Returns a single BIGINT column `ducklake_latest_snapshot_id` containing
+    /// the `snapshot_id` of the latest visible snapshot, or NULL if no snapshot
+    /// has been committed yet.
+    SelectLatestSnapshotId,
 
     // ─── v0.27 DuckLake Facade Tables ─────────────────────────────────
     /// `SELECT * FROM ducklake_tag`
@@ -332,6 +343,9 @@ pub enum StatementKind {
 
 /// Classify a SQL string into a `StatementKind`.
 pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> {
+    // Apply AST normalization first: strip schema prefixes etc.
+    let sql_cow = normalize::normalize_sql(sql);
+    let sql = sql_cow.as_ref();
     let lower = sql.to_ascii_lowercase();
 
     // Pre-parse fast path for LISTEN/UNLISTEN.
@@ -384,5 +398,11 @@ pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> 
         return Err(SqlDispatchError::ParseError("empty statement".to_string()));
     }
 
-    Ok(classify_ast(&statements[0]))
+    // Attempt to lift trivial subquery wrappers added by some client drivers.
+    let stmt = &statements[0];
+    if let Some(lifted) = normalize::try_lift_trivial_subquery(stmt) {
+        return Ok(classify_ast(&lifted));
+    }
+
+    Ok(classify_ast(stmt))
 }

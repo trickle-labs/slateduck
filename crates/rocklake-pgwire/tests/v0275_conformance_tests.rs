@@ -393,18 +393,19 @@ async fn spec_ducklake_tag_returns_response_with_spec_columns() {
 
     let resp = exec("SELECT * FROM ducklake_tag", &store).await;
     let (cols, _) = inspect_query(resp).await;
-    // Spec columns: tag_id, begin_snapshot, end_snapshot, object_id, tag_name, tag_value.
+    // Spec columns (v0.27.11 / DuckLake v1.0): begin_snapshot, end_snapshot, object_id, key, value.
+    // tag_id / tag_name / tag_value were renamed in Mitigation 6.
     assert!(
-        cols.contains(&"tag_id".to_string()),
-        "missing tag_id: {cols:?}"
+        cols.contains(&"key".to_string()),
+        "missing 'key' (renamed from tag_name): {cols:?}"
     );
     assert!(
-        cols.contains(&"tag_name".to_string()),
-        "missing tag_name: {cols:?}"
+        cols.contains(&"value".to_string()),
+        "missing 'value' (renamed from tag_value): {cols:?}"
     );
     assert!(
-        cols.contains(&"tag_value".to_string()),
-        "missing tag_value: {cols:?}"
+        cols.contains(&"object_id".to_string()),
+        "missing object_id: {cols:?}"
     );
 }
 
@@ -418,17 +419,19 @@ async fn spec_ducklake_column_tag_returns_response_with_spec_columns() {
 
     let resp = exec("SELECT * FROM ducklake_column_tag", &store).await;
     let (cols, _) = inspect_query(resp).await;
+    // Spec columns (v0.27.11 / DuckLake v1.0): begin_snapshot, end_snapshot, column_id, key, value.
+    // tag_id / tag_name / tag_value were renamed in Mitigation 6.
     assert!(
-        cols.contains(&"tag_id".to_string()) || cols.contains(&"column_id".to_string()),
-        "must have tag_id or column_id: {cols:?}"
+        cols.contains(&"column_id".to_string()),
+        "must have column_id: {cols:?}"
     );
     assert!(
-        cols.contains(&"tag_name".to_string()),
-        "missing tag_name: {cols:?}"
+        cols.contains(&"key".to_string()),
+        "missing 'key' (renamed from tag_name): {cols:?}"
     );
     assert!(
-        cols.contains(&"tag_value".to_string()),
-        "missing tag_value: {cols:?}"
+        cols.contains(&"value".to_string()),
+        "missing 'value' (renamed from tag_value): {cols:?}"
     );
 }
 
@@ -638,8 +641,8 @@ async fn spec_ducklake_column_mapping_returns_empty_response() {
     let (cols, count) = inspect_query(resp).await;
     assert_eq!(count, 0, "no column mappings on fresh catalog");
     assert!(
-        cols.contains(&"mapping_id".to_string()),
-        "must have mapping_id, got: {cols:?}"
+        cols.contains(&"column_id".to_string()),
+        "must have column_id, got: {cols:?}"
     );
 }
 
@@ -655,8 +658,8 @@ async fn spec_ducklake_name_mapping_returns_empty_response() {
     let (cols, count) = inspect_query(resp).await;
     assert_eq!(count, 0, "no name mappings on fresh catalog");
     assert!(
-        cols.contains(&"mapping_id".to_string()),
-        "must have mapping_id, got: {cols:?}"
+        cols.contains(&"table_id".to_string()),
+        "must have table_id, got: {cols:?}"
     );
 }
 

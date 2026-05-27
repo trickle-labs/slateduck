@@ -37,7 +37,13 @@ pub(super) fn get_show_value(var: &str, session: &SessionState) -> String {
         "client_encoding" => session.settings.client_encoding.clone(),
         "transaction_isolation" => "read committed".to_string(),
         "standard_conforming_strings" => "on".to_string(),
-        _ => String::new(),
+        // Fall back to the generic extra map for any driver-specific variable.
+        other => session
+            .settings
+            .extra
+            .get(other)
+            .cloned()
+            .unwrap_or_default(),
     }
 }
 
@@ -48,7 +54,12 @@ pub(super) fn apply_set(var: &str, val: &str, session: &mut SessionState) {
         "client_encoding" => session.settings.client_encoding = clean_val,
         "datestyle" | "date_style" => session.settings.date_style = clean_val,
         "application_name" => session.settings.application_name = clean_val,
-        _ => {} // Accept and ignore unknown settings
+        // Store any unknown setting in the generic extra map so that driver-
+        // specific SET commands (e.g. SET synchronize_seqscans = off) are
+        // accepted and retrievable via SHOW without crashing or returning errors.
+        other => {
+            session.settings.extra.insert(other.to_string(), clean_val);
+        }
     }
 }
 

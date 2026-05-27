@@ -162,8 +162,8 @@ async fn ducklake_view_select_returns_correct_schema() {
         "ducklake_view must include view_name column"
     );
     assert!(
-        cols.contains(&"view_definition".to_string()),
-        "ducklake_view must include view_definition column"
+        cols.contains(&"sql".to_string()),
+        "ducklake_view must include sql column"
     );
 }
 
@@ -202,16 +202,16 @@ async fn ducklake_tag_select_returns_correct_schema() {
     let (cols, _) = inspect(resp).await;
 
     assert!(
-        cols.contains(&"tag_id".to_string()),
-        "ducklake_tag must include tag_id column"
+        cols.contains(&"object_id".to_string()),
+        "ducklake_tag must include object_id column"
     );
     assert!(
-        cols.contains(&"tag_name".to_string()),
-        "ducklake_tag must include tag_name column"
+        cols.contains(&"key".to_string()),
+        "ducklake_tag must include key column"
     );
     assert!(
-        cols.contains(&"tag_value".to_string()),
-        "ducklake_tag must include tag_value column"
+        cols.contains(&"value".to_string()),
+        "ducklake_tag must include value column"
     );
 }
 
@@ -325,8 +325,8 @@ async fn view_lifecycle_via_duckdb() {
         "ducklake_view must include view_id"
     );
     assert!(
-        cols.contains(&"view_definition".to_string()),
-        "ducklake_view must include view_definition"
+        cols.contains(&"sql".to_string()),
+        "ducklake_view must include sql"
     );
     assert!(
         cols.contains(&"schema_id".to_string()),

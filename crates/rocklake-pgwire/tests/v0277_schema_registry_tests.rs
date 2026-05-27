@@ -168,10 +168,11 @@ async fn populate_base(store: &Arc<Mutex<CatalogStore>>) -> (u64, u64, u64) {
 // ── Registry correctness: fields_for_table covers all 28 tables ──────────────
 
 #[test]
-fn registry_covers_all_28_tables() {
+fn registry_covers_all_32_tables() {
     use rocklake_pgwire::schema_registry::fields_for_table;
 
     let tables = [
+        // 29 original tables
         "ducklake_snapshot",
         "ducklake_snapshot_changes",
         "ducklake_schema",
@@ -201,14 +202,18 @@ fn registry_covers_all_28_tables() {
         "ducklake_encrypted_secret",
         "ducklake_encryption_key",
         "ducklake_file_partition_value",
+        // 3 extension tables added in v0.27.11
+        "ducklake_file_variant_stats",
+        "ducklake_column_mapping",
+        "ducklake_name_mapping",
     ];
 
-    assert_eq!(tables.len(), 29, "test list must have exactly 29 tables");
+    assert_eq!(tables.len(), 32, "test list must have exactly 32 tables");
 
     for table in &tables {
         assert!(
             fields_for_table(table).is_some(),
-            "fields_for_table must return Some for all 29 spec tables; missing: {table}"
+            "fields_for_table must return Some for all 32 spec tables; missing: {table}"
         );
     }
 }
@@ -400,8 +405,12 @@ async fn golden_ducklake_metadata() {
     let resp = exec("SELECT * FROM ducklake_metadata", &store).await;
     let (cols, _) = inspect(resp).await;
     assert!(
-        cols.first().map(|s| s.as_str()) == Some("metadata_key"),
-        "first column must be metadata_key, got: {cols:?}"
+        cols.first().map(|s| s.as_str()) == Some("key"),
+        "first column must be 'key' (v0.27.11 spec rename from metadata_key), got: {cols:?}"
+    );
+    assert!(
+        cols.contains(&"value".to_string()),
+        "must have 'value' column (renamed from metadata_value): {cols:?}"
     );
 }
 
@@ -417,8 +426,8 @@ async fn golden_ducklake_view() {
         "first column must be view_id, got: {cols:?}"
     );
     assert!(
-        cols.contains(&"view_definition".to_string()),
-        "must have view_definition column: {cols:?}"
+        cols.contains(&"sql".to_string()),
+        "must have 'sql' column (renamed from view_definition in v0.27.11): {cols:?}"
     );
 }
 
@@ -479,12 +488,11 @@ async fn golden_ducklake_tag() {
     assert_cols_eq(
         &cols,
         &[
-            "tag_id",
             "begin_snapshot",
             "end_snapshot",
             "object_id",
-            "tag_name",
-            "tag_value",
+            "key",
+            "value",
         ],
         "ducklake_tag",
     );
@@ -500,12 +508,11 @@ async fn golden_ducklake_column_tag() {
     assert_cols_eq(
         &cols,
         &[
-            "tag_id",
             "begin_snapshot",
             "end_snapshot",
             "column_id",
-            "tag_name",
-            "tag_value",
+            "key",
+            "value",
         ],
         "ducklake_column_tag",
     );

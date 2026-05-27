@@ -246,6 +246,10 @@ pub struct SessionSettings {
     pub client_encoding: String,
     pub date_style: String,
     pub application_name: String,
+    /// Generic key-value map for any SET variable not handled by a named field.
+    /// Enables graceful acceptance of unknown driver-specific settings without
+    /// requiring per-variable handling in the classifier or executor.
+    pub extra: std::collections::HashMap<String, String>,
 }
 
 impl Default for SessionSettings {
@@ -255,6 +259,7 @@ impl Default for SessionSettings {
             client_encoding: "UTF8".to_string(),
             date_style: "ISO, MDY".to_string(),
             application_name: String::new(),
+            extra: std::collections::HashMap::new(),
         }
     }
 }
