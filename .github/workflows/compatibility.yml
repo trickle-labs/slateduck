@@ -93,7 +93,7 @@ jobs:
 
   # ── DuckLake 1.0 compatibility corpus (v0.27.10) ──────────────────────────
   ducklake-corpus:
-    name: DuckLake 1.0 Compatibility Corpus (DuckDB ${{ env.DUCKLAKE_PINNED_DUCKDB_VERSION }})
+    name: DuckLake 1.0 Compatibility Corpus (DuckDB 1.5.3)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +141,7 @@ jobs:
 
   # ── Nightly full compatibility run (scheduled; skipped on PR CI) ──────────
   nightly-ducklake-compat:
-    name: Nightly DuckLake Compat (DuckDB ${{ env.DUCKLAKE_PINNED_DUCKDB_VERSION }} / DuckLake ${{ env.DUCKLAKE_PINNED_CATALOG_VERSION }})
+    name: Nightly DuckLake Compat (DuckDB 1.5.3 / DuckLake CatalogVersion 7)
     # Only run on schedule (nightly) or when explicitly dispatched.
     # PR CI skips this job to keep feedback loops fast.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
