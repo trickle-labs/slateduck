@@ -1,6 +1,6 @@
 # S3 API Cost Analysis
 
-SlateDuck exposes three `--cost-mode` presets that trade write latency for
+Rocklake exposes three `--cost-mode` presets that trade write latency for
 object-storage API cost. This page explains the cost model, shows the
 crossover points, and gives guidance on choosing a mode.
 
@@ -14,7 +14,7 @@ Standard S3 pricing (us-east-1, as of 2024):
 | GET/HEAD  | $0.0004                  |
 | LIST      | $0.005                   |
 
-SlateDuck's write path issues **1 PUT** per SST flush, plus **1 LIST** per
+Rocklake's write path issues **1 PUT** per SST flush, plus **1 LIST** per
 compaction cycle.  The memtable size and `l0_sst_count_threshold` setting
 together control flush frequency.
 
@@ -57,15 +57,15 @@ throughput).
 ## Monthly cost crossover vs. PostgreSQL
 
 A self-managed PostgreSQL instance on a `db.t3.medium` RDS instance costs
-roughly **$29/month** in us-east-1. SlateDuck in `balanced` mode at 10
+roughly **$29/month** in us-east-1. Rocklake in `balanced` mode at 10
 writes/s costs **< $0.30/month** in API fees, plus storage ($0.023/GB-month
 for S3 Standard). Storage break-even is around **1 200 GB** for a data
 warehouse that does not need online transaction processing.
 
-## Using `slateduck inspect api-costs`
+## Using `rocklake inspect api-costs`
 
 ```
-slateduck inspect api-costs \
+rocklake inspect api-costs \
     --catalog s3://my-bucket/catalog \
     --estimate-monthly \
     --compare-postgres

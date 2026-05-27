@@ -1,14 +1,14 @@
 # DuckDB Compatibility
 
-SlateDuck aims to be a transparent, drop-in replacement for DuckLake's built-in PostgreSQL and SQLite catalog backends. From DuckDB's perspective, talking to SlateDuck should be indistinguishable from talking to a PostgreSQL instance running the DuckLake schema. This page documents the complete SQL compatibility matrix, version support, known differences, and the testing methodology that ensures compatibility across DuckDB releases.
+Rocklake aims to be a transparent, drop-in replacement for DuckLake's built-in PostgreSQL and SQLite catalog backends. From DuckDB's perspective, talking to Rocklake should be indistinguishable from talking to a PostgreSQL instance running the DuckLake schema. This page documents the complete SQL compatibility matrix, version support, known differences, and the testing methodology that ensures compatibility across DuckDB releases.
 
 ## Compatibility Philosophy
 
-DuckDB's `ducklake` extension emits a specific, bounded set of SQL statements to manage catalog metadata. SlateDuck does not implement general-purpose SQL — it implements exactly the SQL patterns that DuckDB's ducklake extension produces. This is the "bounded SQL" design: rather than building a full SQL engine, SlateDuck recognizes and handles only the specific statement patterns it will encounter.
+DuckDB's `ducklake` extension emits a specific, bounded set of SQL statements to manage catalog metadata. Rocklake does not implement general-purpose SQL — it implements exactly the SQL patterns that DuckDB's ducklake extension produces. This is the "bounded SQL" design: rather than building a full SQL engine, Rocklake recognizes and handles only the specific statement patterns it will encounter.
 
 This approach has important implications:
 
-- If DuckDB's ducklake extension emits a new SQL pattern (in a new version), SlateDuck must be updated to recognize it
+- If DuckDB's ducklake extension emits a new SQL pattern (in a new version), Rocklake must be updated to recognize it
 - Arbitrary SQL from custom clients will be rejected unless it matches a known pattern
 - The compatibility surface is finite and testable
 
@@ -34,11 +34,11 @@ This approach has important implications:
 | ALTER TABLE RENAME COLUMN | ✅ Full | Updates column name in-place |
 | ALTER TABLE RENAME | ✅ Full | Updates table name |
 | ALTER TABLE SET SCHEMA | ✅ Full | Moves table to different schema |
-| CREATE TABLE ... AS | ✅ Full | DuckDB handles data, SlateDuck handles metadata |
+| CREATE TABLE ... AS | ✅ Full | DuckDB handles data, Rocklake handles metadata |
 
 ### Column Type Support
 
-SlateDuck stores column types as strings matching DuckDB's type system:
+Rocklake stores column types as strings matching DuckDB's type system:
 
 | Type Category | Examples | Status |
 |--------------|---------|--------|
@@ -100,7 +100,7 @@ SlateDuck stores column types as strings matching DuckDB's type system:
 
 ### Supported Versions
 
-| DuckDB Version | ducklake Version | SlateDuck Compatibility | Notes |
+| DuckDB Version | ducklake Version | Rocklake Compatibility | Notes |
 |----------------|-----------------|------------------------|-------|
 | 1.3.x | 0.1.1+ | ✅ Full | Latest, recommended |
 | 1.2.x | 0.1.0 | ✅ Full | First stable ducklake |
@@ -109,11 +109,11 @@ SlateDuck stores column types as strings matching DuckDB's type system:
 
 ### Version Detection
 
-SlateDuck detects the client's DuckDB version from the startup message parameters and adjusts its behavior accordingly. Older versions may emit slightly different SQL patterns for the same operations, and SlateDuck handles these variations transparently.
+Rocklake detects the client's DuckDB version from the startup message parameters and adjusts its behavior accordingly. Older versions may emit slightly different SQL patterns for the same operations, and Rocklake handles these variations transparently.
 
 ### Wire Corpus Testing
 
-Compatibility is verified through a **wire corpus** — a collection of recorded PostgreSQL wire protocol messages captured from each supported DuckDB version. The corpus records the exact SQL that DuckDB emits for every catalog operation, and the test suite replays these messages against SlateDuck to verify correct handling.
+Compatibility is verified through a **wire corpus** — a collection of recorded PostgreSQL wire protocol messages captured from each supported DuckDB version. The corpus records the exact SQL that DuckDB emits for every catalog operation, and the test suite replays these messages against Rocklake to verify correct handling.
 
 ```
 tests/golden/wire-corpus/
@@ -128,13 +128,13 @@ tests/golden/wire-corpus/
 │   └── ...
 ```
 
-When a new DuckDB version is released, the corpus is extended with recordings from that version. If the new version emits new SQL patterns, SlateDuck's bounded SQL dispatcher is updated to recognize them.
+When a new DuckDB version is released, the corpus is extended with recordings from that version. If the new version emits new SQL patterns, Rocklake's bounded SQL dispatcher is updated to recognize them.
 
 ## Known Differences
 
 ### Transaction Isolation Level
 
-| Feature | DuckLake on PostgreSQL | SlateDuck |
+| Feature | DuckLake on PostgreSQL | Rocklake |
 |---------|----------------------|-----------|
 | Isolation level | SERIALIZABLE (PostgreSQL) | Snapshot Isolation |
 | Write conflicts | Detected at commit | Prevented by single-writer |
@@ -145,13 +145,13 @@ When a new DuckDB version is released, the corpus is extended with recordings fr
 
 ### Error Messages
 
-SlateDuck returns standard SQLSTATE error codes identical to what PostgreSQL would return. However, the human-readable error messages differ:
+Rocklake returns standard SQLSTATE error codes identical to what PostgreSQL would return. However, the human-readable error messages differ:
 
 ```
 -- PostgreSQL:
 ERROR: relation "ducklake_schemas" does not exist
 
--- SlateDuck:
+-- Rocklake:
 ERROR: Table not found in catalog: ducklake_schemas
 ```
 
@@ -159,7 +159,7 @@ Well-behaved clients (including DuckDB) use SQLSTATE codes for error handling, n
 
 ### Session Variables
 
-SlateDuck acknowledges but ignores most PostgreSQL session variables:
+Rocklake acknowledges but ignores most PostgreSQL session variables:
 
 | Variable | Behavior |
 |----------|----------|
@@ -171,7 +171,7 @@ SlateDuck acknowledges but ignores most PostgreSQL session variables:
 
 ### System Catalog Queries
 
-DuckDB's ducklake extension does not query PostgreSQL system catalogs (`pg_catalog`, `information_schema`). If custom clients send such queries, SlateDuck returns empty results or an error depending on the specific table.
+DuckDB's ducklake extension does not query PostgreSQL system catalogs (`pg_catalog`, `information_schema`). If custom clients send such queries, Rocklake returns empty results or an error depending on the specific table.
 
 ### COPY Protocol
 
@@ -179,7 +179,7 @@ The PostgreSQL COPY protocol (bulk data transfer) is not supported. DuckDB does 
 
 ## Bounded SQL: What's Recognized
 
-SlateDuck's SQL dispatcher classifies incoming statements into categories. Here are examples of recognized patterns:
+Rocklake's SQL dispatcher classifies incoming statements into categories. Here are examples of recognized patterns:
 
 ### Catalog Reads (SELECT)
 
@@ -212,18 +212,18 @@ UPDATE ducklake_tables SET end_snapshot_id = $1 WHERE table_id = $2
 
 ### Unrecognized SQL
 
-If SlateDuck receives SQL it does not recognize, it returns:
+If Rocklake receives SQL it does not recognize, it returns:
 
 ```
 ERROR: Unsupported SQL statement
 SQLSTATE: 42601
 DETAIL: The bounded SQL dispatcher does not recognize this statement pattern.
-HINT: SlateDuck only handles catalog SQL emitted by DuckDB's ducklake extension.
+HINT: Rocklake only handles catalog SQL emitted by DuckDB's ducklake extension.
 ```
 
 ## Testing Your Setup
 
-After connecting DuckDB to SlateDuck, verify compatibility:
+After connecting DuckDB to Rocklake, verify compatibility:
 
 ```sql
 -- Create a test schema and table

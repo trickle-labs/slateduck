@@ -1,8 +1,8 @@
 # SlateDB Tuning
 
-SlateDuck inherits its storage engine from [SlateDB](https://slatedb.io), an
+Rocklake inherits its storage engine from [SlateDB](https://slatedb.io), an
 embedded LSM-tree key-value store that writes directly to object storage.
-This page documents the parameters exposed through `slateduck tune` and the
+This page documents the parameters exposed through `rocklake tune` and the
 `--cost-mode` flag, plus guidance on compaction tuning.
 
 ## Quick-start
@@ -10,7 +10,7 @@ This page documents the parameters exposed through `slateduck tune` and the
 Run the auto-tuner and apply the recommended settings:
 
 ```
-slateduck tune --catalog s3://my-bucket/catalog --apply
+rocklake tune --catalog s3://my-bucket/catalog --apply
 ```
 
 Without `--apply` the command prints a diff of current vs. recommended
@@ -30,8 +30,8 @@ triggered.
 | 8     | Conservative; fewer S3 PUTs, higher p99 read-amplification |
 
 Rule of thumb: increase if you are write-bound and the PUT cost in
-`slateduck inspect api-costs` is significant; decrease if
-`slateduck inspect cache-utilization` shows low hit ratios caused by too
+`rocklake inspect api-costs` is significant; decrease if
+`rocklake inspect cache-utilization` shows low hit ratios caused by too
 many small files.
 
 ### `max_write_batch_bytes`
@@ -72,7 +72,7 @@ compaction consumes I/O:
 | 7–10    | High              | Read-heavy, latency-sensitive queries |
 
 High aggressiveness reduces read-amplification at the expense of higher S3
-PUT and GET counts during compaction.  Use `slateduck inspect api-costs` to
+PUT and GET counts during compaction.  Use `rocklake inspect api-costs` to
 measure the trade-off in your environment.
 
 ## Block cache sizing guide
@@ -80,11 +80,11 @@ measure the trade-off in your environment.
 The block cache holds decompressed SST blocks in memory.  A well-sized cache
 eliminates the majority of S3 GETs for hot catalog data.
 
-Use `slateduck inspect cache-utilization` to see the current hit ratio and a
+Use `rocklake inspect cache-utilization` to see the current hit ratio and a
 recommended cache size:
 
 ```
-slateduck inspect cache-utilization \
+rocklake inspect cache-utilization \
     --catalog s3://my-bucket/catalog \
     --cache-size-mb 256
 ```

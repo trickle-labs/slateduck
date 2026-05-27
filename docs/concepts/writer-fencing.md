@@ -1,6 +1,6 @@
 # Writer Fencing
 
-The single-writer constraint is one of SlateDB's core architectural guarantees, and it is the property that makes SlateDuck's consistency model possible without distributed consensus. At most one process may write to a given catalog at any time. This sounds like a severe limitation — and for some workloads, it is a meaningful constraint to design around — but it is also the reason that SlateDuck can provide linearizable writes, crash-safe recovery, and unlimited reader scale-out without any of the infrastructure complexity that multi-writer systems require.
+The single-writer constraint is one of SlateDB's core architectural guarantees, and it is the property that makes Rocklake's consistency model possible without distributed consensus. At most one process may write to a given catalog at any time. This sounds like a severe limitation — and for some workloads, it is a meaningful constraint to design around — but it is also the reason that Rocklake can provide linearizable writes, crash-safe recovery, and unlimited reader scale-out without any of the infrastructure complexity that multi-writer systems require.
 
 This page explains what the single-writer constraint means operationally, why it was chosen over multi-writer alternatives, how the fencing mechanism works when a writer needs to fail over to a new process, what the recovery latency looks like in practice, and how to design your deployment to work within the constraint rather than fighting against it.
 
@@ -8,19 +8,19 @@ This page explains what the single-writer constraint means operationally, why it
 
 The most obvious way to make a distributed system handle concurrent writes from multiple processes is to introduce a consensus protocol — Raft, Paxos, or multi-version optimistic concurrency control with retry logic. These protocols work, but they come with significant complexity: leader election, log replication, split-brain handling, membership changes, and subtle failure modes that can cause data loss if not implemented correctly. Every multi-writer system is also a distributed consensus system, whether it acknowledges that complexity or not.
 
-SlateDuck chose the opposite approach: accept the constraint that writes are serialized through a single process, and derive all other properties from that simplification. If there is only one writer, there are no write-write conflicts to resolve. If there are no conflicts, there is no need for optimistic locking, retry loops, or conflict resolution logic. If writes are serialized, readers always see a consistent linear history — there is no "concurrent branch" that needs to be merged.
+Rocklake chose the opposite approach: accept the constraint that writes are serialized through a single process, and derive all other properties from that simplification. If there is only one writer, there are no write-write conflicts to resolve. If there are no conflicts, there is no need for optimistic locking, retry loops, or conflict resolution logic. If writes are serialized, readers always see a consistent linear history — there is no "concurrent branch" that needs to be merged.
 
-The single-writer model means that SlateDuck's consistency model is trivially linearizable for writes: every write happens in a total order defined by the writer's commit sequence. For a catalog workload — where the write rate is modest (schema changes and file registrations happen at human or batch-pipeline timescales, not at millions of operations per second) — this simplification eliminates an entire category of distributed systems complexity without meaningful throughput limitations.
+The single-writer model means that Rocklake's consistency model is trivially linearizable for writes: every write happens in a total order defined by the writer's commit sequence. For a catalog workload — where the write rate is modest (schema changes and file registrations happen at human or batch-pipeline timescales, not at millions of operations per second) — this simplification eliminates an entire category of distributed systems complexity without meaningful throughput limitations.
 
 ## What Happens When the Writer Fails
 
-In any single-writer system, the critical question is: what happens when the writer process dies? The catalog cannot accept writes until a new writer takes over, so the duration of the writer vacancy directly affects write availability. SlateDuck addresses this through SlateDB's fencing mechanism and a deterministic takeover protocol.
+In any single-writer system, the critical question is: what happens when the writer process dies? The catalog cannot accept writes until a new writer takes over, so the duration of the writer vacancy directly affects write availability. Rocklake addresses this through SlateDB's fencing mechanism and a deterministic takeover protocol.
 
 ### The Fencing Mechanism
 
-When a SlateDuck writer opens a catalog, it registers itself as the current writer by writing a fencing token to the SlateDB manifest. This token is a unique identifier (typically a UUID or epoch number) that identifies the current authoritative writer. Any subsequent write operation includes this token, and SlateDB verifies that the token matches the registered writer before accepting the write.
+When a Rocklake writer opens a catalog, it registers itself as the current writer by writing a fencing token to the SlateDB manifest. This token is a unique identifier (typically a UUID or epoch number) that identifies the current authoritative writer. Any subsequent write operation includes this token, and SlateDB verifies that the token matches the registered writer before accepting the write.
 
-If a second SlateDuck process opens the same catalog for writing (for example, because a Kubernetes pod was restarted and the new pod started before the old one fully terminated), the following sequence occurs:
+If a second Rocklake process opens the same catalog for writing (for example, because a Kubernetes pod was restarted and the new pod started before the old one fully terminated), the following sequence occurs:
 
 1. The new process opens the catalog and attempts to register as the writer.
 2. SlateDB updates the manifest with the new writer's fencing token.
@@ -89,15 +89,15 @@ Configure DuckDB clients with retry logic for connection failures (the `ducklake
 
 ## The SQLSTATE Mapping
 
-When a writer is fenced, SlateDuck maps the SlateDB fencing error to `SQLSTATE 57P04`, which PostgreSQL defines as "connection failure" in the "connection exception" class. DuckDB interprets this as "the server went away — disconnect and reconnect." This is the correct behavior: the old writer is no longer authoritative, and the client should reconnect (at which point it will reach the new writer via the service discovery or load-balancer endpoint).
+When a writer is fenced, Rocklake maps the SlateDB fencing error to `SQLSTATE 57P04`, which PostgreSQL defines as "connection failure" in the "connection exception" class. DuckDB interprets this as "the server went away — disconnect and reconnect." This is the correct behavior: the old writer is no longer authoritative, and the client should reconnect (at which point it will reach the new writer via the service discovery or load-balancer endpoint).
 
 Operators monitoring for writer fencing events should watch for `SQLSTATE 57P04` in their logs. A single occurrence during a planned or unplanned failover is normal. Repeated occurrences suggest a "flapping" condition where multiple processes are competing to be the writer — this typically indicates a misconfiguration where more than one writer process is being started against the same catalog.
 
 ## Comparison with Multi-Writer Alternatives
 
-For readers who want to understand why SlateDuck chose single-writer over multi-writer, here is a brief comparison:
+For readers who want to understand why Rocklake chose single-writer over multi-writer, here is a brief comparison:
 
-| Property | Single-Writer (SlateDuck) | Optimistic Concurrency (OCC) | Raft / Multi-Paxos |
+| Property | Single-Writer (Rocklake) | Optimistic Concurrency (OCC) | Raft / Multi-Paxos |
 |----------|--------------------------|-------------------------------|---------------------|
 | Write consistency | Linearizable (trivially) | Serializable (with retries) | Linearizable (via consensus) |
 | Conflict resolution | None needed | Retry on conflict | Leader handles all writes |
@@ -106,7 +106,7 @@ For readers who want to understand why SlateDuck chose single-writer over multi-
 | Operational complexity | Minimal | Moderate (retry storms under contention) | High (membership, elections, log replication) |
 | Failure mode | Writer death = brief outage | Contention = degraded throughput | Split brain possible if misconfigured |
 
-For SlateDuck's workload (catalog mutations at moderate rates, with the dominant performance concern being read latency rather than write throughput), single-writer provides the best complexity-to-correctness ratio.
+For Rocklake's workload (catalog mutations at moderate rates, with the dominant performance concern being read latency rather than write throughput), single-writer provides the best complexity-to-correctness ratio.
 
 ## Further Reading
 

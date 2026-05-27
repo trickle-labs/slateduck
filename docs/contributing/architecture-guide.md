@@ -1,18 +1,18 @@
 # Architecture Guide for Contributors
 
-This page explains how the SlateDuck codebase is organized, what each module does, where to find things, and most importantly — where to make changes for common types of contributions. It is written for someone who has just cloned the repository and needs to orient themselves quickly without reading every file in the project.
+This page explains how the Rocklake codebase is organized, what each module does, where to find things, and most importantly — where to make changes for common types of contributions. It is written for someone who has just cloned the repository and needs to orient themselves quickly without reading every file in the project.
 
-SlateDuck is a Cargo workspace with seven crates. Each crate has a single, well-defined responsibility. Dependencies flow in one direction (from higher-level crates to lower-level crates), which means you can understand any crate by understanding only what is below it in the dependency graph. You never need to understand the entire codebase to make a contribution — just the crate (or two) that your change touches.
+Rocklake is a Cargo workspace with seven crates. Each crate has a single, well-defined responsibility. Dependencies flow in one direction (from higher-level crates to lower-level crates), which means you can understand any crate by understanding only what is below it in the dependency graph. You never need to understand the entire codebase to make a contribution — just the crate (or two) that your change touches.
 
 ## The Dependency Graph
 
 ```mermaid
 graph TD
-    pgwire[slateduck-pgwire<br/><small>Network layer, binary</small>] --> sql[slateduck-sql<br/><small>SQL classification</small>]
-    sql --> catalog[slateduck-catalog<br/><small>Read/write operations</small>]
-    catalog --> core[slateduck-core<br/><small>Types, keys, values, MVCC</small>]
-    ffi[slateduck-ffi<br/><small>C FFI for DuckDB extension</small>] --> catalog
-    datafusion[slateduck-datafusion<br/><small>DataFusion provider</small>] --> catalog
+    pgwire[rocklake-pgwire<br/><small>Network layer, binary</small>] --> sql[rocklake-sql<br/><small>SQL classification</small>]
+    sql --> catalog[rocklake-catalog<br/><small>Read/write operations</small>]
+    catalog --> core[rocklake-core<br/><small>Types, keys, values, MVCC</small>]
+    ffi[rocklake-ffi<br/><small>C FFI for DuckDB extension</small>] --> catalog
+    datafusion[rocklake-datafusion<br/><small>DataFusion provider</small>] --> catalog
 ```
 
 Information flows from top (network layer) to bottom (persistence layer). Each crate depends only on crates below it — never on peers or ancestors. This means:
@@ -24,7 +24,7 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 
 ## Crate Responsibilities
 
-### slateduck-core
+### rocklake-core
 
 **The foundation.** Contains types that every other crate needs:
 
@@ -43,7 +43,7 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Adding a new field to an existing row struct
 - Fixing a sort order bug
 
-### slateduck-catalog
+### rocklake-catalog
 
 **The persistence layer.** Reads from and writes to SlateDB:
 
@@ -62,7 +62,7 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Optimizing read performance
 - Modifying garbage collection behavior
 
-### slateduck-sql
+### rocklake-sql
 
 **The SQL classifier.** Receives SQL strings from the wire protocol and determines what operation DuckDB is requesting:
 
@@ -77,7 +77,7 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Fixing misclassification of an existing statement
 - Handling a new DuckDB version that changes SQL patterns
 
-### slateduck-pgwire
+### rocklake-pgwire
 
 **The network layer and binary.** Implements the PostgreSQL wire protocol and ties everything together:
 
@@ -95,7 +95,7 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Adding CLI options or configuration
 - Changing server behavior (connection limits, timeouts)
 
-### slateduck-ffi
+### rocklake-ffi
 
 **The C FFI.** Exposes catalog operations through a C-compatible interface for use by the native DuckDB extension:
 
@@ -109,12 +109,12 @@ Information flows from top (network layer) to bottom (persistence layer). Each c
 - Fixing ABI compatibility issues
 - Changing the C API signature (requires coordinating with the C++ extension code)
 
-### slateduck-datafusion
+### rocklake-datafusion
 
 **The DataFusion integration.** Implements Apache DataFusion's `CatalogProvider` trait:
 
 - **Provider** (`catalog_provider.rs`): Implements `CatalogProvider` and `SchemaProvider`
-- **Table** (`table_provider.rs`): Wraps SlateDuck tables as DataFusion `TableProvider`
+- **Table** (`table_provider.rs`): Wraps Rocklake tables as DataFusion `TableProvider`
 
 **When to modify this crate:**
 - Supporting additional DataFusion query patterns
@@ -137,7 +137,7 @@ tests/fixtures/wire-corpus/duckdb-X.Y.Z/new-statement.sql
 
 **Step 2: Add a StatementKind variant**
 
-In `crates/slateduck-sql/src/statement.rs`:
+In `crates/rocklake-sql/src/statement.rs`:
 
 ```rust
 pub enum StatementKind {
@@ -148,7 +148,7 @@ pub enum StatementKind {
 
 **Step 3: Add classification logic**
 
-In `crates/slateduck-sql/src/classifier.rs`, add a pattern match for the new SQL:
+In `crates/rocklake-sql/src/classifier.rs`, add a pattern match for the new SQL:
 
 ```rust
 if sql.starts_with("INSERT INTO ducklake_new_thing") {
@@ -163,12 +163,12 @@ if sql.starts_with("INSERT INTO ducklake_new_thing") {
 
 If the statement requires new storage operations:
 
-- Add key/value types in `slateduck-core` (if new entity type)
-- Add reader/writer methods in `slateduck-catalog`
+- Add key/value types in `rocklake-core` (if new entity type)
+- Add reader/writer methods in `rocklake-catalog`
 
 **Step 5: Add an executor arm**
 
-In `crates/slateduck-pgwire/src/executor.rs`:
+In `crates/rocklake-pgwire/src/executor.rs`:
 
 ```rust
 StatementKind::NewStatement => {
@@ -189,7 +189,7 @@ This involves touching `core` and `catalog`:
 
 **Step 1: Allocate a tag byte**
 
-In `crates/slateduck-core/src/tags.rs`:
+In `crates/rocklake-core/src/tags.rs`:
 
 ```rust
 pub const TAG_NEW_ENTITY: u8 = 0x1D;  // Next available byte
@@ -197,7 +197,7 @@ pub const TAG_NEW_ENTITY: u8 = 0x1D;  // Next available byte
 
 **Step 2: Define the row struct**
 
-In `crates/slateduck-core/src/rows.rs`:
+In `crates/rocklake-core/src/rows.rs`:
 
 ```rust
 #[derive(Clone, Debug, PartialEq, prost::Message)]
@@ -212,7 +212,7 @@ pub struct NewEntityRow {
 
 **Step 3: Add key encoding**
 
-In `crates/slateduck-core/src/keys.rs`:
+In `crates/rocklake-core/src/keys.rs`:
 
 ```rust
 pub struct NewEntityKey {
@@ -230,20 +230,20 @@ impl NewEntityKey {
 
 **Step 4: Add read/write operations**
 
-In `crates/slateduck-catalog/src/reader.rs` and `writer.rs`.
+In `crates/rocklake-catalog/src/reader.rs` and `writer.rs`.
 
 ### Fixing a Wire Protocol Bug
 
-1. Reproduce the issue by connecting DuckDB to SlateDuck and observing the error
-2. Check `crates/slateduck-pgwire/src/handler.rs` for message handling
-3. Check `crates/slateduck-pgwire/src/session.rs` for session state
-4. Add a regression test in `crates/slateduck-pgwire/tests/`
+1. Reproduce the issue by connecting DuckDB to Rocklake and observing the error
+2. Check `crates/rocklake-pgwire/src/handler.rs` for message handling
+3. Check `crates/rocklake-pgwire/src/session.rs` for session state
+4. Add a regression test in `crates/rocklake-pgwire/tests/`
 5. Fix the bug
 6. Verify the test passes
 
 ### Improving Performance
 
-1. Add a benchmark in `crates/slateduck-catalog/benches/catalog_bench.rs`
+1. Add a benchmark in `crates/rocklake-catalog/benches/catalog_bench.rs`
 2. Run `cargo bench` to establish a baseline
 3. Profile (use `cargo flamegraph` or `perf`)
 4. Identify the bottleneck
@@ -252,9 +252,9 @@ In `crates/slateduck-catalog/src/reader.rs` and `writer.rs`.
 7. Include before/after numbers in the PR description
 
 Common optimization points:
-- `crates/slateduck-catalog/src/performance.rs` — Hot key cache, secondary index
-- `crates/slateduck-core/src/keys.rs` — Key encoding (called on every read/write)
-- `crates/slateduck-catalog/src/reader.rs` — Prefix scan deserialization
+- `crates/rocklake-catalog/src/performance.rs` — Hot key cache, secondary index
+- `crates/rocklake-core/src/keys.rs` — Key encoding (called on every read/write)
+- `crates/rocklake-catalog/src/reader.rs` — Prefix scan deserialization
 
 ## Key Design Principles
 
@@ -270,7 +270,7 @@ Keys are encoded into stack buffers where possible. Values are decoded in place.
 
 ### Keep the SQL Surface Bounded
 
-Do not add support for arbitrary SQL. Every new statement must correspond to an actual DuckDB ducklake pattern (observed in the wire corpus). SlateDuck implements DuckLake, not a general-purpose SQL engine.
+Do not add support for arbitrary SQL. Every new statement must correspond to an actual DuckDB ducklake pattern (observed in the wire corpus). Rocklake implements DuckLake, not a general-purpose SQL engine.
 
 ### Tests Before Implementation
 
@@ -289,21 +289,21 @@ Every catalog modification must be a single atomic WriteBatch. If an operation r
 
 | I want to find... | Look in... |
 |-------------------|-----------|
-| Key encoding for entity X | `crates/slateduck-core/src/keys.rs` |
-| Protobuf row definition for entity X | `crates/slateduck-core/src/rows.rs` |
-| Tag byte assignment | `crates/slateduck-core/src/tags.rs` |
-| How entity X is read from storage | `crates/slateduck-catalog/src/reader.rs` |
-| How entity X is written to storage | `crates/slateduck-catalog/src/writer.rs` |
-| How SQL statement Y is classified | `crates/slateduck-sql/src/classifier.rs` |
-| How SQL statement Y is executed | `crates/slateduck-pgwire/src/executor.rs` |
-| Wire protocol message handling | `crates/slateduck-pgwire/src/handler.rs` |
-| Connection session state | `crates/slateduck-pgwire/src/session.rs` |
-| Garbage collection logic | `crates/slateduck-catalog/src/gc.rs` |
-| Performance optimizations | `crates/slateduck-catalog/src/performance.rs` |
-| C FFI bindings | `crates/slateduck-ffi/src/lib.rs` |
-| Integration tests for catalog | `crates/slateduck-catalog/tests/` |
+| Key encoding for entity X | `crates/rocklake-core/src/keys.rs` |
+| Protobuf row definition for entity X | `crates/rocklake-core/src/rows.rs` |
+| Tag byte assignment | `crates/rocklake-core/src/tags.rs` |
+| How entity X is read from storage | `crates/rocklake-catalog/src/reader.rs` |
+| How entity X is written to storage | `crates/rocklake-catalog/src/writer.rs` |
+| How SQL statement Y is classified | `crates/rocklake-sql/src/classifier.rs` |
+| How SQL statement Y is executed | `crates/rocklake-pgwire/src/executor.rs` |
+| Wire protocol message handling | `crates/rocklake-pgwire/src/handler.rs` |
+| Connection session state | `crates/rocklake-pgwire/src/session.rs` |
+| Garbage collection logic | `crates/rocklake-catalog/src/gc.rs` |
+| Performance optimizations | `crates/rocklake-catalog/src/performance.rs` |
+| C FFI bindings | `crates/rocklake-ffi/src/lib.rs` |
+| Integration tests for catalog | `crates/rocklake-catalog/tests/` |
 | Wire corpus fixtures | `tests/fixtures/wire-corpus/` |
-| Benchmarks | `crates/slateduck-catalog/benches/` |
+| Benchmarks | `crates/rocklake-catalog/benches/` |
 
 ## Further Reading
 

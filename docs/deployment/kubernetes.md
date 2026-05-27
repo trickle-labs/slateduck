@@ -1,12 +1,12 @@
 # Kubernetes Deployment
 
-Kubernetes is the recommended deployment platform for production SlateDuck instances that need automated restarts, health monitoring, and integration with cloud IAM. Because SlateDuck stores all state in object storage, it runs as a stateless Deployment — no PersistentVolumes, no StatefulSets, no operator required. This makes it one of the simplest database-adjacent services to deploy on Kubernetes.
+Kubernetes is the recommended deployment platform for production Rocklake instances that need automated restarts, health monitoring, and integration with cloud IAM. Because Rocklake stores all state in object storage, it runs as a stateless Deployment — no PersistentVolumes, no StatefulSets, no operator required. This makes it one of the simplest database-adjacent services to deploy on Kubernetes.
 
-This page covers complete deployment manifests, scaling patterns, IAM integration for all three major clouds, health probing strategies, and operational practices for running SlateDuck reliably in a cluster.
+This page covers complete deployment manifests, scaling patterns, IAM integration for all three major clouds, health probing strategies, and operational practices for running Rocklake reliably in a cluster.
 
 ## Why Deployment, Not StatefulSet
 
-Traditional databases on Kubernetes need StatefulSets for stable network identifiers and persistent storage. SlateDuck needs neither:
+Traditional databases on Kubernetes need StatefulSets for stable network identifiers and persistent storage. Rocklake needs neither:
 
 - **No persistent storage.** All data lives in object storage. The pod can be killed and rescheduled on any node without data loss.
 - **No stable identity.** The writer acquires its epoch on startup; it does not need to be "pod-0" or have a fixed hostname.
@@ -22,13 +22,13 @@ This means standard Deployment semantics apply: rolling updates, pod disruption 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: slateduck
+  name: rocklake
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: slateduck-config
-  namespace: slateduck
+  name: rocklake-config
+  namespace: rocklake
 data:
   storage: "s3://my-lakehouse-bucket/catalog/"
   region: "us-east-1"
@@ -43,8 +43,8 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: slateduck-auth
-  namespace: slateduck
+  name: rocklake-auth
+  namespace: rocklake
 type: Opaque
 stringData:
   password: "your-secure-password-here"
@@ -58,10 +58,10 @@ The primary (writer) deployment — always exactly 1 replica:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: slateduck-writer
-  namespace: slateduck
+  name: rocklake-writer
+  namespace: rocklake
   labels:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: writer
 spec:
   replicas: 1
@@ -69,73 +69,73 @@ spec:
     type: Recreate  # Ensure old pod is gone before new one starts (single-writer)
   selector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
       app.kubernetes.io/component: writer
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: slateduck
+        app.kubernetes.io/name: rocklake
         app.kubernetes.io/component: writer
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
     spec:
-      serviceAccountName: slateduck
+      serviceAccountName: rocklake
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
         fsGroup: 65534
       containers:
-        - name: slateduck
-          image: ghcr.io/slateduck/slateduck:0.8.0
+        - name: rocklake
+          image: ghcr.io/rocklake/rocklake:0.8.0
           ports:
             - containerPort: 5432
               name: pgwire
               protocol: TCP
           args:
             - "--storage"
-            - "$(SLATEDUCK_STORAGE)"
+            - "$(ROCKLAKE_STORAGE)"
             - "--bind"
             - "0.0.0.0:5432"
             - "--max-sessions"
-            - "$(SLATEDUCK_MAX_SESSIONS)"
+            - "$(ROCKLAKE_MAX_SESSIONS)"
             - "--log-format"
-            - "$(SLATEDUCK_LOG_FORMAT)"
+            - "$(ROCKLAKE_LOG_FORMAT)"
             - "--log-level"
-            - "$(SLATEDUCK_LOG_LEVEL)"
+            - "$(ROCKLAKE_LOG_LEVEL)"
             - "--auth-user"
             - "ducklake"
           env:
-            - name: SLATEDUCK_STORAGE
+            - name: ROCKLAKE_STORAGE
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: storage
-            - name: SLATEDUCK_MAX_SESSIONS
+            - name: ROCKLAKE_MAX_SESSIONS
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: max-sessions
-            - name: SLATEDUCK_LOG_FORMAT
+            - name: ROCKLAKE_LOG_FORMAT
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: log-format
-            - name: SLATEDUCK_LOG_LEVEL
+            - name: ROCKLAKE_LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: log-level
             - name: AWS_REGION
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: region
-            - name: SLATEDUCK_PASSWORD
+            - name: ROCKLAKE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: slateduck-auth
+                  name: rocklake-auth
                   key: password
           resources:
             requests:
@@ -172,10 +172,10 @@ For read-heavy workloads, deploy additional read-only replicas that scale horizo
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: slateduck-reader
-  namespace: slateduck
+  name: rocklake-reader
+  namespace: rocklake
   labels:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: reader
 spec:
   replicas: 3
@@ -186,48 +186,48 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
       app.kubernetes.io/component: reader
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: slateduck
+        app.kubernetes.io/name: rocklake
         app.kubernetes.io/component: reader
     spec:
-      serviceAccountName: slateduck
+      serviceAccountName: rocklake
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
       containers:
-        - name: slateduck
-          image: ghcr.io/slateduck/slateduck:0.8.0
+        - name: rocklake
+          image: ghcr.io/rocklake/rocklake:0.8.0
           ports:
             - containerPort: 5432
               name: pgwire
           args:
             - "--storage"
-            - "$(SLATEDUCK_STORAGE)"
+            - "$(ROCKLAKE_STORAGE)"
             - "--bind"
             - "0.0.0.0:5432"
             - "--read-only"
             - "--auth-user"
             - "ducklake"
           env:
-            - name: SLATEDUCK_STORAGE
+            - name: ROCKLAKE_STORAGE
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: storage
             - name: AWS_REGION
               valueFrom:
                 configMapKeyRef:
-                  name: slateduck-config
+                  name: rocklake-config
                   key: region
-            - name: SLATEDUCK_PASSWORD
+            - name: ROCKLAKE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: slateduck-auth
+                  name: rocklake-auth
                   key: password
           resources:
             requests:
@@ -248,14 +248,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: slateduck-writer
-  namespace: slateduck
+  name: rocklake-writer
+  namespace: rocklake
   labels:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: writer
 spec:
   selector:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: writer
   ports:
     - port: 5432
@@ -266,14 +266,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: slateduck-reader
-  namespace: slateduck
+  name: rocklake-reader
+  namespace: rocklake
   labels:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: reader
 spec:
   selector:
-    app.kubernetes.io/name: slateduck
+    app.kubernetes.io/name: rocklake
     app.kubernetes.io/component: reader
   ports:
     - port: 5432
@@ -286,10 +286,10 @@ Connect from other pods:
 
 ```sql
 -- Writer (DDL, DML, and queries)
-ATTACH 'ducklake:host=slateduck-writer.slateduck.svc.cluster.local;port=5432;user=ducklake;password=...' AS lake;
+ATTACH 'ducklake:host=rocklake-writer.rocklake.svc.cluster.local;port=5432;user=ducklake;password=...' AS lake;
 
 -- Reader (queries only, load-balanced across replicas)
-ATTACH 'ducklake:host=slateduck-reader.slateduck.svc.cluster.local;port=5432;user=ducklake;password=...' AS lake;
+ATTACH 'ducklake:host=rocklake-reader.rocklake.svc.cluster.local;port=5432;user=ducklake;password=...' AS lake;
 ```
 
 ## IAM Integration
@@ -302,10 +302,10 @@ On EKS, use IRSA to provide S3 credentials without static keys:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: slateduck
-  namespace: slateduck
+  name: rocklake
+  namespace: rocklake
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/slateduck-s3-access
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/rocklake-s3-access
 ```
 
 The IAM role policy:
@@ -345,7 +345,7 @@ Trust policy (allow the service account to assume the role):
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE:sub": "system:serviceaccount:slateduck:slateduck"
+          "oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE:sub": "system:serviceaccount:rocklake:rocklake"
         }
       }
     }
@@ -361,10 +361,10 @@ On GKE, use Workload Identity to bind a Kubernetes service account to a GCP serv
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: slateduck
-  namespace: slateduck
+  name: rocklake
+  namespace: rocklake
   annotations:
-    iam.gke.io/gcp-service-account: slateduck@my-project.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: rocklake@my-project.iam.gserviceaccount.com
 ```
 
 Grant the GCP service account `roles/storage.objectAdmin` on the bucket.
@@ -377,8 +377,8 @@ On AKS with Azure AD Workload Identity:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: slateduck
-  namespace: slateduck
+  name: rocklake
+  namespace: rocklake
   annotations:
     azure.workload.identity/client-id: "12345678-1234-1234-1234-123456789012"
   labels:
@@ -393,13 +393,13 @@ Scale reader replicas based on CPU or connection count:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: slateduck-reader
-  namespace: slateduck
+  name: rocklake-reader
+  namespace: rocklake
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: slateduck-reader
+    name: rocklake-reader
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -419,13 +419,13 @@ Protect the writer from accidental eviction during node maintenance:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: slateduck-writer
-  namespace: slateduck
+  name: rocklake-writer
+  namespace: rocklake
 spec:
   maxUnavailable: 0
   selector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
       app.kubernetes.io/component: writer
 ```
 
@@ -435,37 +435,37 @@ For readers, allow one replica to be unavailable during rolling updates:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: slateduck-reader
-  namespace: slateduck
+  name: rocklake-reader
+  namespace: rocklake
 spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
       app.kubernetes.io/component: reader
 ```
 
 ## Network Policy
 
-Restrict which pods can connect to SlateDuck:
+Restrict which pods can connect to Rocklake:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: slateduck-ingress
-  namespace: slateduck
+  name: rocklake-ingress
+  namespace: rocklake
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
   policyTypes:
     - Ingress
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              slateduck-access: "true"
+              rocklake-access: "true"
       ports:
         - protocol: TCP
           port: 5432
@@ -474,7 +474,7 @@ spec:
 Label namespaces that should have access:
 
 ```bash
-kubectl label namespace analytics slateduck-access=true
+kubectl label namespace analytics rocklake-access=true
 ```
 
 ## GC CronJob
@@ -485,8 +485,8 @@ Schedule garbage collection as a Kubernetes CronJob to clean up expired snapshot
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: slateduck-gc
-  namespace: slateduck
+  name: rocklake-gc
+  namespace: rocklake
 spec:
   schedule: "0 3 * * *"
   concurrencyPolicy: Forbid
@@ -498,15 +498,15 @@ spec:
       activeDeadlineSeconds: 3600
       template:
         spec:
-          serviceAccountName: slateduck
+          serviceAccountName: rocklake
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
           containers:
             - name: gc
-              image: ghcr.io/slateduck/slateduck:0.8.0
+              image: ghcr.io/rocklake/rocklake:0.8.0
               command:
-                - "slateduck"
+                - "rocklake"
                 - "gc"
                 - "--storage"
                 - "s3://my-lakehouse-bucket/catalog/"
@@ -527,19 +527,19 @@ spec:
 
 ## Rolling Updates
 
-Because SlateDuck is stateless, rolling updates are straightforward:
+Because Rocklake is stateless, rolling updates are straightforward:
 
 ```bash
 # Update image tag
-kubectl set image deployment/slateduck-writer \
-  slateduck=ghcr.io/slateduck/slateduck:0.9.0 \
-  -n slateduck
+kubectl set image deployment/rocklake-writer \
+  rocklake=ghcr.io/rocklake/rocklake:0.9.0 \
+  -n rocklake
 
 # Watch rollout
-kubectl rollout status deployment/slateduck-writer -n slateduck
+kubectl rollout status deployment/rocklake-writer -n rocklake
 ```
 
-For the writer deployment (`strategy: Recreate`), Kubernetes terminates the old pod before starting the new one. This ensures no split-brain scenario — only one writer exists at any time. The brief downtime (typically 2–5 seconds) is acceptable because SlateDuck starts fast and clients retry automatically.
+For the writer deployment (`strategy: Recreate`), Kubernetes terminates the old pod before starting the new one. This ensures no split-brain scenario — only one writer exists at any time. The brief downtime (typically 2–5 seconds) is acceptable because Rocklake starts fast and clients retry automatically.
 
 ## Monitoring with Prometheus
 
@@ -549,12 +549,12 @@ Add a ServiceMonitor for Prometheus Operator:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: slateduck
-  namespace: slateduck
+  name: rocklake
+  namespace: rocklake
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
   endpoints:
     - port: metrics
       interval: 15s
@@ -564,7 +564,7 @@ spec:
 
 ### Pod stuck in CrashLoopBackOff
 
-Check logs: `kubectl logs -n slateduck deploy/slateduck-writer`. Common causes:
+Check logs: `kubectl logs -n rocklake deploy/rocklake-writer`. Common causes:
 
 - **Storage access denied:** IAM role not configured or trust policy incorrect
 - **Invalid storage path:** Bucket does not exist or prefix is misspelled
@@ -574,7 +574,7 @@ Check logs: `kubectl logs -n slateduck deploy/slateduck-writer`. Common causes:
 
 - Verify the Service selector matches pod labels
 - Check NetworkPolicy allows ingress from client namespace
-- Ensure DNS resolution works: `kubectl exec -it debug -- nslookup slateduck-writer.slateduck.svc.cluster.local`
+- Ensure DNS resolution works: `kubectl exec -it debug -- nslookup rocklake-writer.rocklake.svc.cluster.local`
 
 ### Writer epoch conflict
 
@@ -584,7 +584,7 @@ If you accidentally run two writer deployments against the same storage, the sec
 
 ### Memory Sizing
 
-SlateDuck's memory usage is predictable:
+Rocklake's memory usage is predictable:
 
 | Component | Memory | Notes |
 |-----------|--------|-------|
@@ -599,7 +599,7 @@ For a deployment with 50 max sessions and a 20 MB block cache: request 128 Mi, l
 
 ### CPU Sizing
 
-SlateDuck's writer path is single-threaded (all writes serialize through the writer). The reader path can use multiple threads for concurrent sessions. For most deployments:
+Rocklake's writer path is single-threaded (all writes serialize through the writer). The reader path can use multiple threads for concurrent sessions. For most deployments:
 
 - **1 writer pod:** 100m request, 500m limit (burst for write batches)
 - **Reader pods:** 100m request, 250m limit each (read-only workload is lighter)
@@ -612,20 +612,20 @@ For read-heavy workloads, autoscale reader pods based on connection count:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: slateduck-reader
-  namespace: slateduck
+  name: rocklake-reader
+  namespace: rocklake
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: slateduck-reader
+    name: rocklake-reader
   minReplicas: 2
   maxReplicas: 10
   metrics:
     - type: Pods
       pods:
         metric:
-          name: slateduck_active_sessions
+          name: rocklake_active_sessions
         target:
           type: AverageValue
           averageValue: "20"
@@ -635,18 +635,18 @@ This scales out when the average session count per pod exceeds 20, ensuring each
 
 ## Network Policies
 
-Lock down SlateDuck's network access for defense in depth:
+Lock down Rocklake's network access for defense in depth:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: slateduck-writer
-  namespace: slateduck
+  name: rocklake-writer
+  namespace: rocklake
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: slateduck
+      app.kubernetes.io/name: rocklake
       app.kubernetes.io/component: writer
   policyTypes:
     - Ingress
@@ -656,7 +656,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              slateduck-access: "true"
+              rocklake-access: "true"
       ports:
         - protocol: TCP
           port: 5432

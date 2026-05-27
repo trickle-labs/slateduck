@@ -1,8 +1,8 @@
 # pg-tide-relay
 
-pg-tide-relay is a concept for relaying DuckLake catalog traffic through intermediate infrastructure that provides capabilities beyond what SlateDuck offers natively: connection pooling, multi-tenant routing, enhanced authentication, fine-grained authorization, audit logging, and rate limiting. Rather than connecting DuckDB directly to SlateDuck, traffic passes through a proxy layer that adds these enterprise features transparently.
+pg-tide-relay is a concept for relaying DuckLake catalog traffic through intermediate infrastructure that provides capabilities beyond what Rocklake offers natively: connection pooling, multi-tenant routing, enhanced authentication, fine-grained authorization, audit logging, and rate limiting. Rather than connecting DuckDB directly to Rocklake, traffic passes through a proxy layer that adds these enterprise features transparently.
 
-The name "tide-relay" comes from the idea of traffic flowing like tides between DuckDB and SlateDuck — the relay simply channels the flow, optionally inspecting or redirecting it along the way.
+The name "tide-relay" comes from the idea of traffic flowing like tides between DuckDB and Rocklake — the relay simply channels the flow, optionally inspecting or redirecting it along the way.
 
 ## Architecture
 
@@ -11,37 +11,37 @@ graph LR
     D1[DuckDB Client 1] --> R[pg-tide-relay]
     D2[DuckDB Client 2] --> R
     D3[DuckDB Client 3] --> R
-    R --> S1[SlateDuck Instance 1<br/>Tenant A]
-    R --> S2[SlateDuck Instance 2<br/>Tenant B]
-    R --> S3[SlateDuck Instance 3<br/>Tenant C]
+    R --> S1[Rocklake Instance 1<br/>Tenant A]
+    R --> S2[Rocklake Instance 2<br/>Tenant B]
+    R --> S3[Rocklake Instance 3<br/>Tenant C]
 ```
 
-The relay sits between DuckDB clients and SlateDuck instances, intercepting PostgreSQL wire protocol messages. From the client's perspective, the relay looks like a PostgreSQL server. From SlateDuck's perspective, the relay looks like a PostgreSQL client. The relay forwards messages bidirectionally, optionally logging, modifying, or routing them.
+The relay sits between DuckDB clients and Rocklake instances, intercepting PostgreSQL wire protocol messages. From the client's perspective, the relay looks like a PostgreSQL server. From Rocklake's perspective, the relay looks like a PostgreSQL client. The relay forwards messages bidirectionally, optionally logging, modifying, or routing them.
 
 ## Capabilities
 
 ### Connection Pooling
 
-SlateDuck handles connections efficiently, but in deployments with hundreds of DuckDB instances, a connection pool reduces the total number of connections SlateDuck must maintain:
+Rocklake handles connections efficiently, but in deployments with hundreds of DuckDB instances, a connection pool reduces the total number of connections Rocklake must maintain:
 
 ```
-100 DuckDB instances → pg-tide-relay (pool: 20 connections) → SlateDuck
+100 DuckDB instances → pg-tide-relay (pool: 20 connections) → Rocklake
 ```
 
 Benefits:
 
-- Reduces SlateDuck's memory footprint (fewer concurrent sessions)
+- Reduces Rocklake's memory footprint (fewer concurrent sessions)
 - Reduces connection establishment overhead (pre-warmed connections)
 - Provides connection queuing during bursts
 
 ### Multi-Tenant Routing
 
-Route connections to different SlateDuck instances based on client identity:
+Route connections to different Rocklake instances based on client identity:
 
 ```
-DuckDB (tenant=acme)     → relay → SlateDuck (s3://acme-bucket/catalog/)
-DuckDB (tenant=globex)   → relay → SlateDuck (s3://globex-bucket/catalog/)
-DuckDB (tenant=initech)  → relay → SlateDuck (s3://initech-bucket/catalog/)
+DuckDB (tenant=acme)     → relay → Rocklake (s3://acme-bucket/catalog/)
+DuckDB (tenant=globex)   → relay → Rocklake (s3://globex-bucket/catalog/)
+DuckDB (tenant=initech)  → relay → Rocklake (s3://initech-bucket/catalog/)
 ```
 
 Routing can be based on:
@@ -54,7 +54,7 @@ Routing can be based on:
 
 ### Enhanced Authentication
 
-Add authentication beyond SlateDuck's built-in options:
+Add authentication beyond Rocklake's built-in options:
 
 | Auth Method | Description |
 |-------------|-------------|
@@ -109,7 +109,7 @@ Audit logs can be shipped to:
 
 ### Rate Limiting
 
-Protect SlateDuck from overload:
+Protect Rocklake from overload:
 
 | Limit Type | Example Configuration |
 |-----------|----------------------|
@@ -122,15 +122,15 @@ Protect SlateDuck from overload:
 
 ### Good Fit
 
-- **Multi-tenant SaaS:** Each tenant needs isolated catalog access with separate SlateDuck instances
+- **Multi-tenant SaaS:** Each tenant needs isolated catalog access with separate Rocklake instances
 - **Enterprise compliance:** Regulatory requirements mandate comprehensive audit trails of all data access
 - **Zero-trust environments:** All connections must be authenticated and authorized, even internal ones
 - **High-scale deployments:** Hundreds of DuckDB instances connecting to a shared catalog
-- **Gradual migration:** Route some traffic to SlateDuck while keeping some on existing PostgreSQL catalog
+- **Gradual migration:** Route some traffic to Rocklake while keeping some on existing PostgreSQL catalog
 
 ### Not Needed
 
-- **Single-tenant, single-client:** Direct DuckDB → SlateDuck connection is simpler
+- **Single-tenant, single-client:** Direct DuckDB → Rocklake connection is simpler
 - **Development environments:** Authentication and routing add unnecessary complexity
 - **Latency-sensitive workloads:** The relay adds 0.5–2ms per round-trip
 - **Simple deployments:** If you do not need the relay's features, do not add it
@@ -142,7 +142,7 @@ Protect SlateDuck from overload:
 The simplest relay — pure TCP forwarding with routing based on connection parameters:
 
 ```
-frontend slateduck_frontend
+frontend rocklake_frontend
     bind *:5432
     mode tcp
     
@@ -153,11 +153,11 @@ frontend slateduck_frontend
 
 backend tenant_a
     mode tcp
-    server slateduck-acme 10.0.1.10:5432
+    server rocklake-acme 10.0.1.10:5432
 
 backend tenant_b
     mode tcp
-    server slateduck-globex 10.0.2.10:5432
+    server rocklake-globex 10.0.2.10:5432
 ```
 
 Limitations: No SQL-level inspection, no audit logging at the query level.
@@ -168,7 +168,7 @@ For pure connection pooling without routing:
 
 ```ini
 [databases]
-slateduck = host=10.0.1.10 port=5432
+rocklake = host=10.0.1.10 port=5432
 
 [pgbouncer]
 listen_port = 6432
@@ -181,7 +181,7 @@ Limitations: Single backend only, no SQL inspection, no multi-tenant routing.
 
 ### Option 3: Custom Rust Proxy
 
-For full control over routing, authentication, authorization, and audit logging, build a custom proxy using the `pgwire` crate (the same crate SlateDuck uses for its server):
+For full control over routing, authentication, authorization, and audit logging, build a custom proxy using the `pgwire` crate (the same crate Rocklake uses for its server):
 
 ```rust
 use pgwire::api::auth::*;
@@ -230,7 +230,7 @@ For Kubernetes-native deployments, Envoy can handle TCP proxying with observabil
 ```yaml
 static_resources:
   listeners:
-    - name: slateduck_listener
+    - name: rocklake_listener
       address:
         socket_address: { address: 0.0.0.0, port_value: 5432 }
       filter_chains:
@@ -238,18 +238,18 @@ static_resources:
             - name: envoy.filters.network.tcp_proxy
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
-                stat_prefix: slateduck
-                cluster: slateduck_backend
+                stat_prefix: rocklake
+                cluster: rocklake_backend
   clusters:
-    - name: slateduck_backend
+    - name: rocklake_backend
       connect_timeout: 5s
       load_assignment:
-        cluster_name: slateduck_backend
+        cluster_name: rocklake_backend
         endpoints:
           - lb_endpoints:
               - endpoint:
                   address:
-                    socket_address: { address: slateduck.default.svc, port_value: 5432 }
+                    socket_address: { address: rocklake.default.svc, port_value: 5432 }
 ```
 
 ## Performance Impact
@@ -270,8 +270,8 @@ For Strategy B deployments where each catalog round-trip is already 1–5ms, the
 ### Sidecar Pattern (Per-Client Relay)
 
 ```
-Pod 1: [DuckDB] → [relay sidecar] → SlateDuck
-Pod 2: [DuckDB] → [relay sidecar] → SlateDuck
+Pod 1: [DuckDB] → [relay sidecar] → Rocklake
+Pod 2: [DuckDB] → [relay sidecar] → Rocklake
 ```
 
 Good for per-client authentication and local connection pooling.
@@ -279,7 +279,7 @@ Good for per-client authentication and local connection pooling.
 ### Centralized Relay
 
 ```
-All DuckDB instances → [relay service] → SlateDuck
+All DuckDB instances → [relay service] → Rocklake
 ```
 
 Good for centralized audit logging and rate limiting.
@@ -287,14 +287,14 @@ Good for centralized audit logging and rate limiting.
 ### Tiered Relay
 
 ```
-DuckDB instances → [edge relay (auth + rate limit)] → [routing relay (tenant routing)] → SlateDuck instances
+DuckDB instances → [edge relay (auth + rate limit)] → [routing relay (tenant routing)] → Rocklake instances
 ```
 
 Good for large-scale multi-tenant deployments.
 
 ## Implementation Status
 
-pg-tide-relay is currently a design concept. The protocol compatibility between DuckDB, SlateDuck, and standard PostgreSQL proxies has been validated — any TCP proxy that passes PostgreSQL wire protocol transparently works as a relay. The project may provide a reference implementation in the future based on community demand.
+pg-tide-relay is currently a design concept. The protocol compatibility between DuckDB, Rocklake, and standard PostgreSQL proxies has been validated — any TCP proxy that passes PostgreSQL wire protocol transparently works as a relay. The project may provide a reference implementation in the future based on community demand.
 
 For now, the recommended approach is:
 
@@ -305,7 +305,7 @@ For now, the recommended approach is:
 
 ## Building Your Own Relay
 
-If the recommended approaches above do not meet your needs, building a custom relay is straightforward because the protocol between DuckDB and SlateDuck is standard PostgreSQL wire protocol. Here is a high-level architecture for a custom Rust-based relay:
+If the recommended approaches above do not meet your needs, building a custom relay is straightforward because the protocol between DuckDB and Rocklake is standard PostgreSQL wire protocol. Here is a high-level architecture for a custom Rust-based relay:
 
 ### Minimal TCP Proxy
 
@@ -367,16 +367,16 @@ A protocol-aware relay provides a natural instrumentation point:
 
 ```
 # Prometheus metrics from the relay
-slateduck_relay_connections_total{upstream="primary"} 1247
-slateduck_relay_connections_active{upstream="primary"} 12
-slateduck_relay_queries_total{upstream="primary"} 89432
-slateduck_relay_query_duration_seconds_bucket{le="0.01"} 67000
-slateduck_relay_query_duration_seconds_bucket{le="0.1"} 85000
-slateduck_relay_query_duration_seconds_bucket{le="1.0"} 89400
-slateduck_relay_errors_total{upstream="primary",code="XX000"} 3
+rocklake_relay_connections_total{upstream="primary"} 1247
+rocklake_relay_connections_active{upstream="primary"} 12
+rocklake_relay_queries_total{upstream="primary"} 89432
+rocklake_relay_query_duration_seconds_bucket{le="0.01"} 67000
+rocklake_relay_query_duration_seconds_bucket{le="0.1"} 85000
+rocklake_relay_query_duration_seconds_bucket{le="1.0"} 89400
+rocklake_relay_errors_total{upstream="primary",code="XX000"} 3
 ```
 
-These metrics give you visibility into query patterns, latency distributions, and error rates without modifying SlateDuck itself. For teams that cannot instrument DuckDB clients directly, the relay provides the observability layer.
+These metrics give you visibility into query patterns, latency distributions, and error rates without modifying Rocklake itself. For teams that cannot instrument DuckDB clients directly, the relay provides the observability layer.
 
 ## Further Reading
 

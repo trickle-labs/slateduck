@@ -1,6 +1,6 @@
 # CLI Reference
 
-SlateDuck is operated entirely through its command-line interface. The binary accepts a top-level command followed by any sub-commands and options. This page documents every command, sub-command, flag, and environment variable, along with examples showing typical usage.
+Rocklake is operated entirely through its command-line interface. The binary accepts a top-level command followed by any sub-commands and options. This page documents every command, sub-command, flag, and environment variable, along with examples showing typical usage.
 
 The guiding principle of the CLI design is that destructive or irreversible operations always require an explicit `apply` sub-command (or `--apply` flag) after a `plan` phase that shows what would happen. You can never accidentally delete or irrevocably modify catalog data with a single command — there is always a preview step.
 
@@ -28,10 +28,10 @@ The `--catalog` option accepts the following path formats:
 
 ### `serve` — Start the PG-Wire Sidecar
 
-Starts SlateDuck as a PostgreSQL wire protocol server. DuckDB clients connect to this server using the `ducklake` extension's `ATTACH` syntax. This is the primary command for all production deployments.
+Starts Rocklake as a PostgreSQL wire protocol server. DuckDB clients connect to this server using the `ducklake` extension's `ATTACH` syntax. This is the primary command for all production deployments.
 
 ```bash
-slateduck serve --catalog <path> [options]
+rocklake serve --catalog <path> [options]
 ```
 
 **Options:**
@@ -53,31 +53,31 @@ slateduck serve --catalog <path> [options]
 
 ```bash
 # Local development
-slateduck serve --catalog ./my-catalog --bind 127.0.0.1:5432
+rocklake serve --catalog ./my-catalog --bind 127.0.0.1:5432
 
 # Production with S3 and metrics
-slateduck serve \
+rocklake serve \
   --catalog s3://my-bucket/catalog/ \
   --bind 0.0.0.0:5432 \
   --metrics-bind 0.0.0.0:9090 \
   --max-sessions 128
 
 # Read-only replica
-slateduck serve \
+rocklake serve \
   --catalog s3://my-bucket/catalog/ \
   --bind 0.0.0.0:5432 \
   --read-only
 
 # With TLS and authentication
-slateduck serve \
+rocklake serve \
   --catalog s3://my-bucket/catalog/ \
   --bind 0.0.0.0:5432 \
-  --tls-cert /etc/ssl/certs/slateduck.crt \
-  --tls-key /etc/ssl/private/slateduck.key \
+  --tls-cert /etc/ssl/certs/rocklake.crt \
+  --tls-key /etc/ssl/private/rocklake.key \
   --auth-user ducklake
 
 # MinIO local development
-slateduck serve \
+rocklake serve \
   --catalog s3://my-bucket/catalog/ \
   --s3-endpoint http://localhost:9000 \
   --s3-path-style \
@@ -94,7 +94,7 @@ When `serve` starts, it:
 5. Starts the TCP listener
 6. Logs "Ready to accept connections"
 
-If the catalog is new (no SST files exist at the path), SlateDuck initializes it with the current format version and counters at zero. If the catalog exists, SlateDuck reads the existing state and resumes from where it left off.
+If the catalog is new (no SST files exist at the path), Rocklake initializes it with the current format version and counters at zero. If the catalog exists, Rocklake reads the existing state and resumes from where it left off.
 
 ---
 
@@ -103,7 +103,7 @@ If the catalog is new (no SST files exist at the path), SlateDuck initializes it
 Advances the `retain-from` horizon, making snapshots older than the specified threshold query-inaccessible. This does not physically delete any data — it only gates visibility. Physical deletion requires the `excise` command.
 
 ```bash
-slateduck gc plan|apply --catalog <path> [options]
+rocklake gc plan|apply --catalog <path> [options]
 ```
 
 #### `gc plan`
@@ -111,7 +111,7 @@ slateduck gc plan|apply --catalog <path> [options]
 Shows what GC would do without making any changes. Always run `plan` before `apply`.
 
 ```bash
-slateduck gc plan --catalog s3://my-bucket/catalog/ --retain-days 30
+rocklake gc plan --catalog s3://my-bucket/catalog/ --retain-days 30
 ```
 
 Output:
@@ -133,7 +133,7 @@ No changes made. Run 'gc apply' to proceed.
 Applies the retention policy:
 
 ```bash
-slateduck gc apply --catalog s3://my-bucket/catalog/ --retain-days 30
+rocklake gc apply --catalog s3://my-bucket/catalog/ --retain-days 30
 ```
 
 **Options for both `plan` and `apply`:**
@@ -158,7 +158,7 @@ You must provide exactly one of `--retain-days`, `--retain-snapshots`, or `--ret
 Physically deletes superseded catalog entries whose `end_snapshot` is before the current `retain-from` horizon. This is an irreversible operation. An audit entry is written to the `0xFF | "excised"` system key recording what was deleted, when, and by whom.
 
 ```bash
-slateduck excise plan|apply --catalog <path> [options]
+rocklake excise plan|apply --catalog <path> [options]
 ```
 
 #### `excise plan`
@@ -166,7 +166,7 @@ slateduck excise plan|apply --catalog <path> [options]
 Shows what excision would delete:
 
 ```bash
-slateduck excise plan --catalog s3://my-bucket/catalog/
+rocklake excise plan --catalog s3://my-bucket/catalog/
 ```
 
 Output:
@@ -193,7 +193,7 @@ Run 'excise apply' to proceed. This operation is irreversible.
 Performs the excision:
 
 ```bash
-slateduck excise apply --catalog s3://my-bucket/catalog/
+rocklake excise apply --catalog s3://my-bucket/catalog/
 ```
 
 !!! warning "Irreversible"
@@ -213,7 +213,7 @@ slateduck excise apply --catalog s3://my-bucket/catalog/
 Manages named checkpoints — persistent pointers to specific snapshot IDs that prevent GC from advancing past them. Use checkpoints to preserve the state of the catalog at a significant point in time (a quarterly close, a schema migration milestone, an audit snapshot).
 
 ```bash
-slateduck checkpoint create|list|restore --catalog <path> [options]
+rocklake checkpoint create|list|restore --catalog <path> [options]
 ```
 
 #### `checkpoint create`
@@ -222,13 +222,13 @@ Creates a named checkpoint at the current snapshot (or a specified snapshot):
 
 ```bash
 # Checkpoint at the current snapshot
-slateduck checkpoint create \
+rocklake checkpoint create \
   --catalog s3://my-bucket/catalog/ \
   --name "Q2-2024-close" \
   --description "End of Q2 2024 reporting period"
 
 # Checkpoint at a specific snapshot ID
-slateduck checkpoint create \
+rocklake checkpoint create \
   --catalog s3://my-bucket/catalog/ \
   --name "pre-migration" \
   --snapshot-id 1200
@@ -239,7 +239,7 @@ slateduck checkpoint create \
 Lists all existing checkpoints:
 
 ```bash
-slateduck checkpoint list --catalog s3://my-bucket/catalog/
+rocklake checkpoint list --catalog s3://my-bucket/catalog/
 ```
 
 Output:
@@ -255,7 +255,7 @@ annual-audit-2023 842          2024-01-01T00:00:00Z       Annual audit snapshot
 Rolls the catalog forward to a checkpoint state. This does not rewrite history — it creates a new snapshot whose contents match the checkpoint snapshot:
 
 ```bash
-slateduck checkpoint restore \
+rocklake checkpoint restore \
   --catalog s3://my-bucket/catalog/ \
   --name "pre-migration"
 ```
@@ -267,7 +267,7 @@ slateduck checkpoint restore \
 Exports the full catalog (or a subset) to NDJSON (Newline-Delimited JSON) format. Each line of the output file is a self-contained JSON object representing one catalog row. The export is point-in-time: it captures the catalog state at a specific snapshot and is not affected by concurrent writes.
 
 ```bash
-slateduck export --catalog <path> [options]
+rocklake export --catalog <path> [options]
 ```
 
 **Options:**
@@ -284,40 +284,40 @@ slateduck export --catalog <path> [options]
 
 ```bash
 # Export entire catalog to a file
-slateduck export \
+rocklake export \
   --catalog s3://my-bucket/catalog/ \
   --output catalog-backup.ndjson
 
 # Export at a specific snapshot
-slateduck export \
+rocklake export \
   --catalog s3://my-bucket/catalog/ \
   --at-snapshot 1000 \
   --output catalog-at-1000.ndjson
 
 # Export at a specific time
-slateduck export \
+rocklake export \
   --catalog s3://my-bucket/catalog/ \
   --at-time "2024-06-30T23:59:59Z" \
   --output q2-close.ndjson
 
 # Export only the analytics schema
-slateduck export \
+rocklake export \
   --catalog s3://my-bucket/catalog/ \
   --schema analytics \
   --output analytics.ndjson
 
 # Export to stdout and pipe to gzip
-slateduck export --catalog s3://my-bucket/catalog/ | gzip > catalog.ndjson.gz
+rocklake export --catalog s3://my-bucket/catalog/ | gzip > catalog.ndjson.gz
 ```
 
 ---
 
 ### `import` — Import Catalog from NDJSON
 
-Imports a catalog from an NDJSON export file. Used for migration between backends (e.g., PostgreSQL to SlateDuck), disaster recovery, or seeding a new catalog from an export.
+Imports a catalog from an NDJSON export file. Used for migration between backends (e.g., PostgreSQL to Rocklake), disaster recovery, or seeding a new catalog from an export.
 
 ```bash
-slateduck import --catalog <path> --input <file>
+rocklake import --catalog <path> --input <file>
 ```
 
 **Options:**
@@ -332,12 +332,12 @@ slateduck import --catalog <path> --input <file>
 
 ```bash
 # Import into a new catalog
-slateduck import \
+rocklake import \
   --catalog s3://new-bucket/catalog/ \
   --input catalog-backup.ndjson
 
 # Validate before importing
-slateduck import \
+rocklake import \
   --catalog s3://new-bucket/catalog/ \
   --input catalog-backup.ndjson \
   --dry-run
@@ -347,16 +347,16 @@ slateduck import \
 
 ### `pg-migrate` — Convert NDJSON to PostgreSQL INSERTs
 
-Converts an NDJSON catalog export to SQL `INSERT` statements that can be executed against a PostgreSQL database. This is the migration path from SlateDuck to a PostgreSQL-backed DuckLake catalog.
+Converts an NDJSON catalog export to SQL `INSERT` statements that can be executed against a PostgreSQL database. This is the migration path from Rocklake to a PostgreSQL-backed DuckLake catalog.
 
 ```bash
-slateduck pg-migrate --input <ndjson-file> --output <sql-file>
+rocklake pg-migrate --input <ndjson-file> --output <sql-file>
 ```
 
 **Example:**
 
 ```bash
-slateduck pg-migrate \
+rocklake pg-migrate \
   --input catalog-export.ndjson \
   --output catalog-inserts.sql
 
@@ -371,7 +371,7 @@ psql -h pg-host -U ducklake -d catalog_db -f catalog-inserts.sql
 Scans Parquet files in a data bucket and reconstructs catalog entries from the file metadata. Used when the catalog has been lost or corrupted but the underlying Parquet files are intact.
 
 ```bash
-slateduck rebuild --catalog <path> --data-path <data-uri>
+rocklake rebuild --catalog <path> --data-path <data-uri>
 ```
 
 !!! warning
@@ -384,7 +384,7 @@ slateduck rebuild --catalog <path> --data-path <data-uri>
 Shows the current state of the catalog in human-readable or JSON format. Useful for debugging, monitoring, and understanding what is in the catalog.
 
 ```bash
-slateduck inspect snapshot --latest --catalog <path> [options]
+rocklake inspect snapshot --latest --catalog <path> [options]
 ```
 
 **Options:**
@@ -423,7 +423,7 @@ Catalog size (SST): ~47 MB
 Checks the catalog for internal consistency and optionally verifies that referenced data files exist in object storage.
 
 ```bash
-slateduck verify catalog|data-files --catalog <path> [options]
+rocklake verify catalog|data-files --catalog <path> [options]
 ```
 
 #### `verify catalog`
@@ -431,7 +431,7 @@ slateduck verify catalog|data-files --catalog <path> [options]
 Checks catalog-internal consistency: key format validity, MVCC invariants (no row with end_snapshot ≤ begin_snapshot), counter consistency, and format version correctness:
 
 ```bash
-slateduck verify catalog --catalog s3://my-bucket/catalog/
+rocklake verify catalog --catalog s3://my-bucket/catalog/
 ```
 
 #### `verify data-files`
@@ -439,13 +439,13 @@ slateduck verify catalog --catalog s3://my-bucket/catalog/
 Checks that every data file registered in the catalog exists in object storage (does HEAD requests for each registered path):
 
 ```bash
-slateduck verify data-files --catalog s3://my-bucket/catalog/
+rocklake verify data-files --catalog s3://my-bucket/catalog/
 ```
 
 This can be slow for catalogs with many files. Use `--sample <n>` to verify a random sample instead:
 
 ```bash
-slateduck verify data-files --catalog s3://my-bucket/catalog/ --sample 1000
+rocklake verify data-files --catalog s3://my-bucket/catalog/ --sample 1000
 ```
 
 ---
@@ -455,7 +455,7 @@ slateduck verify data-files --catalog s3://my-bucket/catalog/ --sample 1000
 Applies automatic fixes for detectable catalog problems. Always run with `--dry-run` first to see what would be changed.
 
 ```bash
-slateduck repair --dry-run|--apply --catalog <path>
+rocklake repair --dry-run|--apply --catalog <path>
 ```
 
 **Options:**
@@ -483,20 +483,20 @@ All command-line flags have corresponding environment variables. Environment var
 
 | Environment Variable | Flag Equivalent | Description |
 |---------------------|-----------------|-------------|
-| `SLATEDUCK_CATALOG` | `--catalog` | Catalog path |
-| `SLATEDUCK_BIND` | `--bind` | Bind address |
-| `SLATEDUCK_MAX_SESSIONS` | `--max-sessions` | Maximum concurrent sessions |
-| `SLATEDUCK_READ_ONLY` | `--read-only` | Enable read-only mode (`true`/`false`) |
-| `SLATEDUCK_AUTH_USER` | `--auth-user` | Required authentication username |
-| `SLATEDUCK_AUTH_PASSWORD` | `--auth-password` | Authentication password |
-| `SLATEDUCK_TLS_CERT` | `--tls-cert` | TLS certificate path |
-| `SLATEDUCK_TLS_KEY` | `--tls-key` | TLS private key path |
-| `SLATEDUCK_METRICS_BIND` | `--metrics-bind` | Metrics endpoint address |
-| `SLATEDUCK_S3_PATH_STYLE` | `--s3-path-style` | Enable path-style S3 (`true`/`false`) |
-| `SLATEDUCK_S3_ENDPOINT` | `--s3-endpoint` | Override S3 endpoint URL |
-| `SLATEDUCK_CACHE_SIZE_MB` | `--cache-size-mb` | SlateDB block cache size in MiB |
-| `SLATEDUCK_LOG_LEVEL` | `--log-level` | Log level (`error`/`warn`/`info`/`debug`/`trace`) |
-| `SLATEDUCK_LOG_FORMAT` | `--log-format` | Log format (`text`/`json`) |
+| `ROCKLAKE_CATALOG` | `--catalog` | Catalog path |
+| `ROCKLAKE_BIND` | `--bind` | Bind address |
+| `ROCKLAKE_MAX_SESSIONS` | `--max-sessions` | Maximum concurrent sessions |
+| `ROCKLAKE_READ_ONLY` | `--read-only` | Enable read-only mode (`true`/`false`) |
+| `ROCKLAKE_AUTH_USER` | `--auth-user` | Required authentication username |
+| `ROCKLAKE_AUTH_PASSWORD` | `--auth-password` | Authentication password |
+| `ROCKLAKE_TLS_CERT` | `--tls-cert` | TLS certificate path |
+| `ROCKLAKE_TLS_KEY` | `--tls-key` | TLS private key path |
+| `ROCKLAKE_METRICS_BIND` | `--metrics-bind` | Metrics endpoint address |
+| `ROCKLAKE_S3_PATH_STYLE` | `--s3-path-style` | Enable path-style S3 (`true`/`false`) |
+| `ROCKLAKE_S3_ENDPOINT` | `--s3-endpoint` | Override S3 endpoint URL |
+| `ROCKLAKE_CACHE_SIZE_MB` | `--cache-size-mb` | SlateDB block cache size in MiB |
+| `ROCKLAKE_LOG_LEVEL` | `--log-level` | Log level (`error`/`warn`/`info`/`debug`/`trace`) |
+| `ROCKLAKE_LOG_FORMAT` | `--log-format` | Log format (`text`/`json`) |
 
 Object-store credentials are configured through the standard SDK environment variables for each provider:
 

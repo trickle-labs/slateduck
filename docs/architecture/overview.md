@@ -1,6 +1,6 @@
 # Architecture Overview
 
-SlateDuck is a bridge between DuckDB's DuckLake catalog protocol and SlateDB's cloud-native key-value storage. It accepts connections from DuckDB instances speaking the PostgreSQL wire protocol, translates their catalog SQL into key-value operations, and persists catalog state to object storage through SlateDB's LSM-tree engine. The entire system runs as a single Rust process with no external dependencies beyond an object store bucket — no PostgreSQL, no Redis, no ZooKeeper, no Kafka.
+Rocklake is a bridge between DuckDB's DuckLake catalog protocol and SlateDB's cloud-native key-value storage. It accepts connections from DuckDB instances speaking the PostgreSQL wire protocol, translates their catalog SQL into key-value operations, and persists catalog state to object storage through SlateDB's LSM-tree engine. The entire system runs as a single Rust process with no external dependencies beyond an object store bucket — no PostgreSQL, no Redis, no ZooKeeper, no Kafka.
 
 This page provides the bird's-eye view of the architecture: what the components are, how they fit together, how data flows through the system for reads and writes, and how the deployment topology works in practice. Subsequent pages in this section drill into each component in detail.
 
@@ -14,7 +14,7 @@ graph TB
         DB3[DuckDB Instance N]
         PT[pg-tide-relay]
     end
-    subgraph SlateDuck["SlateDuck Process"]
+    subgraph Rocklake["Rocklake Process"]
         PG[PG-Wire Server<br/>TCP + TLS + Auth]
         SESS[Session Manager<br/>Per-connection state]
         SQL[SQL Dispatcher<br/>Parse → Classify → Route]
@@ -82,7 +82,7 @@ The dispatcher is a pure function: it takes a SQL string and returns a classifie
 3. Extracts parameters (table names, column definitions, values, predicates) from the AST
 4. Returns a `StatementKind` enum variant with structured parameters
 
-The dispatcher is intentionally bounded. It does not implement a general-purpose SQL engine. If the incoming SQL does not match any known pattern, the dispatcher returns `StatementKind::Unknown`, which the executor rejects with an appropriate error. This design ensures that SlateDuck's behavior is predictable and auditable: there is a finite set of things it can do, and that set is enumerable.
+The dispatcher is intentionally bounded. It does not implement a general-purpose SQL engine. If the incoming SQL does not match any known pattern, the dispatcher returns `StatementKind::Unknown`, which the executor rejects with an appropriate error. This design ensures that Rocklake's behavior is predictable and auditable: there is a finite set of things it can do, and that set is enumerable.
 
 ### Executor
 
@@ -101,7 +101,7 @@ The deepest application layer, sitting directly above SlateDB. It manages:
 
 - **SlateDB database handle** — The embedded LSM-tree database that stores all key-value pairs
 - **Counter allocation** — Persistent counters for snapshot IDs, schema IDs, table IDs, column IDs, file IDs, and other entities that need unique monotonic identifiers
-- **Writer epoch fencing** — The mechanism that prevents split-brain writes when a new SlateDuck instance takes over from an old one
+- **Writer epoch fencing** — The mechanism that prevents split-brain writes when a new Rocklake instance takes over from an old one
 - **CatalogReader** — A snapshot-bound read interface that filters keys through the MVCC visibility rules
 - **CatalogWriter** — A write interface that constructs a SlateDB `WriteBatch` from a set of catalog mutations and commits it atomically
 
@@ -190,7 +190,7 @@ Key characteristics of the write path:
 
 - **Single-writer serialization.** A mutex (or equivalent locking mechanism) ensures only one transaction commits at a time. This eliminates write conflicts by construction.
 - **Batch atomicity.** All operations within a transaction are written as a single SlateDB `WriteBatch`, which maps to a single WAL entry, which maps to a single PUT to object storage. Either all operations are durable or none are.
-- **Epoch fencing.** Before committing, the writer verifies its epoch is still current. If another SlateDuck instance has taken over (incremented the epoch), the commit is rejected with a fencing error.
+- **Epoch fencing.** Before committing, the writer verifies its epoch is still current. If another Rocklake instance has taken over (incremented the epoch), the commit is rejected with a fencing error.
 - **Counter allocation.** Snapshot IDs, table IDs, and other entity IDs are allocated from persistent counters within the same atomic batch. This ensures no ID is ever reused, even across process restarts.
 
 ### Write Amplification
@@ -208,16 +208,16 @@ During compaction (which happens asynchronously), SlateDB may rewrite this data 
 
 ## Deployment Topologies
 
-SlateDuck supports several deployment patterns depending on your requirements:
+Rocklake supports several deployment patterns depending on your requirements:
 
 ### Network Sidecar (Primary)
 
-The most common deployment runs SlateDuck as a network process that DuckDB connects to via the PostgreSQL wire protocol:
+The most common deployment runs Rocklake as a network process that DuckDB connects to via the PostgreSQL wire protocol:
 
 ```mermaid
 graph LR
     subgraph "Machine A"
-        SD[SlateDuck]
+        SD[Rocklake]
     end
     subgraph "Machine B"
         DDB1[DuckDB]
@@ -234,12 +234,12 @@ Advantages: multiple DuckDB instances share one catalog, network isolation, inde
 
 ### In-Process Extension
 
-For single-machine deployments where network latency is unacceptable, the FFI crate (`slateduck-ffi`) provides a DuckDB native extension that embeds SlateDuck directly in the DuckDB process:
+For single-machine deployments where network latency is unacceptable, the FFI crate (`rocklake-ffi`) provides a DuckDB native extension that embeds Rocklake directly in the DuckDB process:
 
 ```mermaid
 graph LR
     subgraph "Single Process"
-        DDB[DuckDB] --> FFI[SlateDuck FFI]
+        DDB[DuckDB] --> FFI[Rocklake FFI]
         FFI --> SDB[SlateDB]
     end
     SDB -->|HTTPS| S3[(Object Storage)]
@@ -257,7 +257,7 @@ For Rust applications using Apache DataFusion:
 graph LR
     subgraph "Rust Application"
         APP[Application Code] --> DF[DataFusion]
-        DF --> CAT[SlateDuck CatalogProvider]
+        DF --> CAT[Rocklake CatalogProvider]
         CAT --> SDB[SlateDB]
     end
     SDB -->|HTTPS| S3[(Object Storage)]
@@ -267,7 +267,7 @@ Advantages: native Rust integration, no wire protocol overhead, direct access to
 
 ## Concurrency Model
 
-SlateDuck uses Tokio for async I/O with a task-per-connection model:
+Rocklake uses Tokio for async I/O with a task-per-connection model:
 
 - Each incoming connection spawns a Tokio task
 - Read operations are fully concurrent — no global locks
@@ -279,14 +279,14 @@ This model supports hundreds of concurrent read connections with minimal overhea
 
 ## Error Handling Philosophy
 
-SlateDuck follows a fail-fast philosophy:
+Rocklake follows a fail-fast philosophy:
 
 - Unknown SQL → immediate error response with SQLSTATE `42601` (syntax error)
 - Epoch mismatch → connection terminated with SQLSTATE `57P03` (cannot connect now)
 - Object storage failure → error propagated to client with SQLSTATE `58000` (system error)
 - Protocol violation → connection terminated immediately
 
-There is no retry logic within SlateDuck for transient failures. Retries are the responsibility of the client (DuckDB). This keeps the server's behavior deterministic and makes debugging straightforward: if an operation failed, it failed for a clear reason that is reported in the error response.
+There is no retry logic within Rocklake for transient failures. Retries are the responsibility of the client (DuckDB). This keeps the server's behavior deterministic and makes debugging straightforward: if an operation failed, it failed for a clear reason that is reported in the error response.
 
 ## Further Reading
 

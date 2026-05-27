@@ -1,6 +1,6 @@
 # The DuckLake Format
 
-DuckLake is the lakehouse catalog format that SlateDuck implements. Created by the DuckDB team, it defines a catalog as a set of 28 SQL tables — schemas, tables, columns, data files, statistics, snapshots, and more — versioned with monotonically increasing snapshot IDs and accessible over the PostgreSQL wire protocol. If you understand DuckLake, you understand what SlateDuck is implementing and why it makes the design choices it does. This page explains the format in full from SlateDuck's perspective: what the tables are, how versioning works, what the bounded query set looks like, and how the catalog plane separates from the data plane.
+DuckLake is the lakehouse catalog format that Rocklake implements. Created by the DuckDB team, it defines a catalog as a set of 28 SQL tables — schemas, tables, columns, data files, statistics, snapshots, and more — versioned with monotonically increasing snapshot IDs and accessible over the PostgreSQL wire protocol. If you understand DuckLake, you understand what Rocklake is implementing and why it makes the design choices it does. This page explains the format in full from Rocklake's perspective: what the tables are, how versioning works, what the bounded query set looks like, and how the catalog plane separates from the data plane.
 
 ## The 28 Catalog Tables
 
@@ -29,7 +29,7 @@ DuckLake's catalog is defined as 28 relational tables that together describe the
 
 - `ducklake_table_stats` — Table-level statistics: total row count, total file size, file count.
 
-The full set of 28 tables covers additional concerns like encryption keys, tags, and extended properties, but the tables listed above are the ones most relevant to understanding SlateDuck's implementation.
+The full set of 28 tables covers additional concerns like encryption keys, tags, and extended properties, but the tables listed above are the ones most relevant to understanding Rocklake's implementation.
 
 ## Snapshot-Based Versioning
 
@@ -43,7 +43,7 @@ The implications are profound. Because old versions of rows are never deleted (o
 
 ## The Bounded Query Set
 
-One of the most important things to understand about DuckLake — and about SlateDuck's implementation of it — is that the set of SQL queries that a DuckLake client (DuckDB's `ducklake` extension) issues against the catalog is finite and well-defined. DuckDB does not run arbitrary SQL against the catalog. It issues a specific set of queries that fall into predictable categories:
+One of the most important things to understand about DuckLake — and about Rocklake's implementation of it — is that the set of SQL queries that a DuckLake client (DuckDB's `ducklake` extension) issues against the catalog is finite and well-defined. DuckDB does not run arbitrary SQL against the catalog. It issues a specific set of queries that fall into predictable categories:
 
 **Point reads.** "Give me the table with ID 5 at the current snapshot." These are simple primary-key lookups that translate directly to key-value `GET` operations.
 
@@ -55,37 +55,37 @@ One of the most important things to understand about DuckLake — and about Slat
 
 **Session management.** `SET timezone = 'UTC'`, `SHOW server_version`, `SELECT current_schema()`. Protocol-level queries that DuckDB issues during connection setup.
 
-This bounded query set is what makes SlateDuck's bounded SQL dispatcher possible. Rather than implementing a general SQL engine (which would be an enormous undertaking), SlateDuck implements a pattern-matching classifier that recognizes each known query shape and dispatches it to the corresponding key-value operation. If a query does not match any known shape, it is rejected with `SQLSTATE 0A000` (feature not supported). This is not a limitation in practice — it is a deliberate security and correctness boundary that ensures no unexpected query can modify the catalog in unintended ways.
+This bounded query set is what makes Rocklake's bounded SQL dispatcher possible. Rather than implementing a general SQL engine (which would be an enormous undertaking), Rocklake implements a pattern-matching classifier that recognizes each known query shape and dispatches it to the corresponding key-value operation. If a query does not match any known shape, it is rejected with `SQLSTATE 0A000` (feature not supported). This is not a limitation in practice — it is a deliberate security and correctness boundary that ensures no unexpected query can modify the catalog in unintended ways.
 
 ## Catalog Plane vs. Data Plane
 
 DuckLake draws a clean line between two planes of operation:
 
-**The catalog plane** is everything SlateDuck manages: schema definitions, table metadata, column definitions, data file registrations, statistics, snapshot history. This is the "brain" of the lakehouse — it knows what exists and where to find it, but it never handles actual data.
+**The catalog plane** is everything Rocklake manages: schema definitions, table metadata, column definitions, data file registrations, statistics, snapshot history. This is the "brain" of the lakehouse — it knows what exists and where to find it, but it never handles actual data.
 
-**The data plane** is everything DuckDB manages directly: reading Parquet files, writing Parquet files, computing query results, applying predicates, performing joins and aggregations. DuckDB talks directly to the object store for all data operations — SlateDuck is not in the data path.
+**The data plane** is everything DuckDB manages directly: reading Parquet files, writing Parquet files, computing query results, applying predicates, performing joins and aggregations. DuckDB talks directly to the object store for all data operations — Rocklake is not in the data path.
 
-The connection between the two planes is the `data_path` field in catalog rows. When DuckDB asks "which files contain data for table `events`?", SlateDuck returns a list of `data_path` values — S3 URIs pointing to Parquet files. DuckDB then reads those files directly from S3. SlateDuck never reads or writes Parquet files, and DuckDB never reads or writes SlateDB's SST files.
+The connection between the two planes is the `data_path` field in catalog rows. When DuckDB asks "which files contain data for table `events`?", Rocklake returns a list of `data_path` values — S3 URIs pointing to Parquet files. DuckDB then reads those files directly from S3. Rocklake never reads or writes Parquet files, and DuckDB never reads or writes SlateDB's SST files.
 
 This separation has important consequences:
 
-**Performance.** SlateDuck is never in the hot path of query execution. A query that scans a terabyte of Parquet data involves SlateDuck only for the initial metadata lookup (milliseconds). The actual data scanning is between DuckDB and S3 directly.
+**Performance.** Rocklake is never in the hot path of query execution. A query that scans a terabyte of Parquet data involves Rocklake only for the initial metadata lookup (milliseconds). The actual data scanning is between DuckDB and S3 directly.
 
-**Security.** You can give SlateDuck credentials that only allow access to the catalog prefix (`s3://bucket/catalogs/`) and give DuckDB credentials that only allow access to the data prefix (`s3://bucket/data/`). A compromise of either component cannot affect the other.
+**Security.** You can give Rocklake credentials that only allow access to the catalog prefix (`s3://bucket/catalogs/`) and give DuckDB credentials that only allow access to the data prefix (`s3://bucket/data/`). A compromise of either component cannot affect the other.
 
-**Scalability.** Scaling the data plane (more DuckDB instances reading more data) does not require scaling the catalog plane (SlateDuck handles metadata lookups that are orders of magnitude smaller than data reads).
+**Scalability.** Scaling the data plane (more DuckDB instances reading more data) does not require scaling the catalog plane (Rocklake handles metadata lookups that are orders of magnitude smaller than data reads).
 
 ## The PostgreSQL Wire Protocol
 
 DuckLake communicates with its catalog backend over the PostgreSQL wire protocol — the same binary protocol that PostgreSQL itself uses. DuckDB's `ducklake` extension opens a TCP connection, performs a PostgreSQL startup handshake, and then sends SQL queries as PostgreSQL `Query` or `Parse/Bind/Execute` messages. The catalog backend responds with `RowDescription`, `DataRow`, and `CommandComplete` messages exactly as a PostgreSQL server would.
 
-SlateDuck implements this protocol faithfully enough that DuckDB cannot distinguish it from a real PostgreSQL server. The startup handshake includes the expected responses to DuckDB's probing queries (`pg_catalog.pg_type`, `current_schema()`, `server_version`). The type OIDs in column descriptions match PostgreSQL's standard type catalog. The error responses use standard SQLSTATE codes that DuckDB knows how to interpret.
+Rocklake implements this protocol faithfully enough that DuckDB cannot distinguish it from a real PostgreSQL server. The startup handshake includes the expected responses to DuckDB's probing queries (`pg_catalog.pg_type`, `current_schema()`, `server_version`). The type OIDs in column descriptions match PostgreSQL's standard type catalog. The error responses use standard SQLSTATE codes that DuckDB knows how to interpret.
 
-This is a deliberate compatibility choice. By implementing the wire protocol that DuckDB already speaks, SlateDuck becomes a drop-in replacement for any PostgreSQL-backed DuckLake catalog. The migration path is trivial: change the connection string in your `ATTACH` statement, and everything else stays the same.
+This is a deliberate compatibility choice. By implementing the wire protocol that DuckDB already speaks, Rocklake becomes a drop-in replacement for any PostgreSQL-backed DuckLake catalog. The migration path is trivial: change the connection string in your `ATTACH` statement, and everything else stays the same.
 
-## How SlateDuck Maps DuckLake to SlateDB
+## How Rocklake Maps DuckLake to SlateDB
 
-The core of SlateDuck's implementation is the mapping between DuckLake's 28 relational tables and SlateDB's key-value store. Each catalog table gets a unique 1-byte tag that prefixes all its keys. Within a table's key space, the key structure is designed to make the most common query pattern a single prefix scan:
+The core of Rocklake's implementation is the mapping between DuckLake's 28 relational tables and SlateDB's key-value store. Each catalog table gets a unique 1-byte tag that prefixes all its keys. Within a table's key space, the key structure is designed to make the most common query pattern a single prefix scan:
 
 - For `ducklake_column`, the key is `[tag][table_id][column_id][begin_snapshot]` — so "all columns for table 5" is a prefix scan on `[0x06][0x00000005]`.
 - For `ducklake_data_file`, the key is `[tag][table_id][file_id][begin_snapshot]` — so "all files for table 5" is a prefix scan on the data-file tag followed by the table ID.
@@ -93,21 +93,21 @@ The core of SlateDuck's implementation is the mapping between DuckLake's 28 rela
 
 The value for each key is a Protobuf-encoded message containing the row's non-key columns, prefixed with a 5-byte header (`encoding_version` byte + `SDKV` magic) for corruption detection and forward compatibility.
 
-This mapping is what makes SlateDuck efficient: the most common DuckLake operations (looking up files for a table, reading columns for a table, finding the current snapshot) translate to single prefix scans or point lookups in the key-value store — operations that SlateDB handles in a small number of object-store GET requests.
+This mapping is what makes Rocklake efficient: the most common DuckLake operations (looking up files for a table, reading columns for a table, finding the current snapshot) translate to single prefix scans or point lookups in the key-value store — operations that SlateDB handles in a small number of object-store GET requests.
 
 ## What DuckLake Does Not Require
 
-Understanding what DuckLake does not require helps clarify SlateDuck's design boundaries:
+Understanding what DuckLake does not require helps clarify Rocklake's design boundaries:
 
-**DuckLake does not require a general SQL engine.** The query set is bounded, so a pattern-matching dispatcher suffices. SlateDuck does not need a query planner, a cost optimizer, or a general expression evaluator.
+**DuckLake does not require a general SQL engine.** The query set is bounded, so a pattern-matching dispatcher suffices. Rocklake does not need a query planner, a cost optimizer, or a general expression evaluator.
 
-**DuckLake does not require multi-writer concurrency control.** The protocol assumes a single catalog connection at a time for writes (though reads can be concurrent). SlateDuck's single-writer model is a natural fit.
+**DuckLake does not require multi-writer concurrency control.** The protocol assumes a single catalog connection at a time for writes (though reads can be concurrent). Rocklake's single-writer model is a natural fit.
 
-**DuckLake does not require the catalog to understand Parquet.** The catalog stores file paths and statistics, but it never opens or parses Parquet files. SlateDuck has zero Parquet dependencies.
+**DuckLake does not require the catalog to understand Parquet.** The catalog stores file paths and statistics, but it never opens or parses Parquet files. Rocklake has zero Parquet dependencies.
 
 **DuckLake does not require real-time replication.** Readers open snapshots, and consistency is defined at the snapshot level. There is no need for streaming WAL replication or eventual consistency protocols.
 
-These non-requirements are what make SlateDuck possible as a lean, focused implementation rather than a general-purpose database. Every feature that DuckLake does not require is infrastructure that SlateDuck does not need to build or operate.
+These non-requirements are what make Rocklake possible as a lean, focused implementation rather than a general-purpose database. Every feature that DuckLake does not require is infrastructure that Rocklake does not need to build or operate.
 
 ## Further Reading
 

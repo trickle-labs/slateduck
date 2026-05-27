@@ -1,8 +1,8 @@
 # DuckLake v1.0 Query Specification
 
-This file documents every SQL query that SlateDuck must support as part of its
+This file documents every SQL query that Rocklake must support as part of its
 DuckLake v1.0 compatibility claim. These examples are the golden reference used
-by the conformance test suite in `crates/slateduck-pgwire/tests/`.
+by the conformance test suite in `crates/rocklake-pgwire/tests/`.
 
 Each query must:
 - Parse without error
@@ -12,7 +12,7 @@ Each query must:
 ## Catalog Setup
 
 ```sql
--- Attach a SlateDuck catalog via the DuckLake PG-Wire sidecar.
+-- Attach a Rocklake catalog via the DuckLake PG-Wire sidecar.
 ATTACH 'ducklake:postgres://127.0.0.1:5555/' AS my_lake;
 
 -- Create a schema inside the attached catalog.

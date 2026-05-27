@@ -1,34 +1,34 @@
-# SlateDuck
+# Rocklake
 
 **Your entire lakehouse — data, catalog, and streaming pipeline — in a single S3 bucket. No database server required.**
 
-[![CI](https://github.com/trickle-labs/slateduck/actions/workflows/ci.yml/badge.svg)](https://github.com/trickle-labs/slateduck/actions)
+[![CI](https://github.com/trickle-labs/rocklake/actions/workflows/ci.yml/badge.svg)](https://github.com/trickle-labs/rocklake/actions)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 
 ---
 
-![SlateDuck](images/logo.png)
+![Rocklake](images/logo.png)
 
-## What Is SlateDuck?
+## What Is Rocklake?
 
-Modern data teams are drowning in infrastructure. You want a lakehouse — fast analytical queries over Parquet files in object storage — but every existing solution demands a zoo of running services: a managed PostgreSQL for catalog metadata, a Kafka cluster for streaming, a Flink or Spark job for maintaining fresh aggregates, and a dedicated database to serve the results. SlateDuck makes the entire zoo disappear.
+Modern data teams are drowning in infrastructure. You want a lakehouse — fast analytical queries over Parquet files in object storage — but every existing solution demands a zoo of running services: a managed PostgreSQL for catalog metadata, a Kafka cluster for streaming, a Flink or Spark job for maintaining fresh aggregates, and a dedicated database to serve the results. Rocklake makes the entire zoo disappear.
 
-SlateDuck is a catalog backend for [DuckLake](https://ducklake.select/), the elegant open-source lakehouse format from the DuckDB team. Instead of routing catalog metadata through an external database, SlateDuck stores it directly in [SlateDB](https://slatedb.io/) — a battle-hardened, LSM-based embedded key-value store that runs entirely inside object storage. The result is a lakehouse where **both your Parquet data files and your catalog live in the same S3 bucket**, connected to DuckDB over the standard PostgreSQL wire protocol, requiring absolutely no servers beyond lightweight stateless binaries. Point at a bucket, start the sidecar, and you are querying within seconds.
+Rocklake is a catalog backend for [DuckLake](https://ducklake.select/), the elegant open-source lakehouse format from the DuckDB team. Instead of routing catalog metadata through an external database, Rocklake stores it directly in [SlateDB](https://slatedb.io/) — a battle-hardened, LSM-based embedded key-value store that runs entirely inside object storage. The result is a lakehouse where **both your Parquet data files and your catalog live in the same S3 bucket**, connected to DuckDB over the standard PostgreSQL wire protocol, requiring absolutely no servers beyond lightweight stateless binaries. Point at a bucket, start the sidecar, and you are querying within seconds.
 
 
 ---
 
-## Why SlateDuck?
+## Why Rocklake?
 
 ### Truly Serverless — All the Way Down
 
-There is no "catalog database" to operate. The entire durable state of your catalog — schemas, tables, columns, snapshots, and data-file references — is stored as SlateDB key-value pairs that live as ordinary objects in S3 (or GCS, Azure Blob Storage, or even the local filesystem for development). Every SlateDuck binary is stateless. If it crashes, you restart it; no recovery ceremony, no WAL replays, no replica promotion. The ground truth is always in object storage, and it always has been.
+There is no "catalog database" to operate. The entire durable state of your catalog — schemas, tables, columns, snapshots, and data-file references — is stored as SlateDB key-value pairs that live as ordinary objects in S3 (or GCS, Azure Blob Storage, or even the local filesystem for development). Every Rocklake binary is stateless. If it crashes, you restart it; no recovery ceremony, no WAL replays, no replica promotion. The ground truth is always in object storage, and it always has been.
 
 
 ### Immutability as the Load-Bearing Foundation
 
-SlateDuck makes a binding architectural promise: **committed facts are never physically deleted by normal operation.** Every schema change, every table creation, every file addition, every checkpoint advance is recorded as a versioned fact. The default `slateduck gc` command only advances the query-visibility floor — it never deletes bytes. Physical deletion is reserved for the explicit, audited `slateduck excise` command, which exists for compliance erasure and is designed to be rare. This immutability is not a safety blanket bolted on afterward; it is the principle that makes time travel trivial and read scale-out free.
+Rocklake makes a binding architectural promise: **committed facts are never physically deleted by normal operation.** Every schema change, every table creation, every file addition, every checkpoint advance is recorded as a versioned fact. The default `rocklake gc` command only advances the query-visibility floor — it never deletes bytes. Physical deletion is reserved for the explicit, audited `rocklake excise` command, which exists for compliance erasure and is designed to be rare. This immutability is not a safety blanket bolted on afterward; it is the principle that makes time travel trivial and read scale-out free.
 
 ### Time Travel That Actually Works
 
@@ -42,7 +42,7 @@ Because catalog keys are stable once written, an **unbounded number of stateless
 
 ## Architecture at a Glance
 
-SlateDuck operates as three logically separable planes, all sharing the same SlateDB/object-store substrate:
+Rocklake operates as three logically separable planes, all sharing the same SlateDB/object-store substrate:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -52,7 +52,7 @@ SlateDuck operates as three logically separable planes, all sharing the same Sla
                       │ PostgreSQL Wire Protocol
                       ▼
 ┌─────────────────────────────────────────────────────────────┐
-│               CONTROL PLANE: slateduck-pgwire               │
+│               CONTROL PLANE: rocklake-pgwire               │
 │   PG wire protocol · bounded SQL · catalog writer/reader    │
 └─────────────────────┬───────────────────────────────────────┘
                       │ catalog snapshots (SlateDB)
@@ -70,9 +70,9 @@ SlateDuck operates as three logically separable planes, all sharing the same Sla
                       └───────────────────────────────────────┘
 ```
 
-DuckDB speaks to SlateDuck using the PostgreSQL wire protocol — the same protocol it already uses for PostgreSQL-backed DuckLake. No changes to DuckDB, no patched extensions, no custom drivers.
+DuckDB speaks to Rocklake using the PostgreSQL wire protocol — the same protocol it already uses for PostgreSQL-backed DuckLake. No changes to DuckDB, no patched extensions, no custom drivers.
 
-The **control plane** (`slateduck-pgwire`) handles DDL and ingest. It implements exactly the finite set of SQL shapes that DuckDB's `ducklake` extension emits. The vocabulary is small, the conformance test suite is exhaustive, and the security profile is tight.
+The **control plane** (`rocklake-pgwire`) handles DDL and ingest. It implements exactly the finite set of SQL shapes that DuckDB's `ducklake` extension emits. The vocabulary is small, the conformance test suite is exhaustive, and the security profile is tight.
 
 
 ---
@@ -87,8 +87,8 @@ The **control plane** (`slateduck-pgwire`) handles DDL and ingest. It implements
 ### Build
 
 ```bash
-git clone https://github.com/trickle-labs/slateduck
-cd slateduck
+git clone https://github.com/trickle-labs/rocklake
+cd rocklake
 cargo build --release
 ```
 
@@ -96,13 +96,13 @@ cargo build --release
 
 ```bash
 # Start with a local catalog directory
-./target/release/slateduck serve --catalog /path/to/catalog
+./target/release/rocklake serve --catalog /path/to/catalog
 
 # Bind to a specific address
-./target/release/slateduck serve --catalog /path/to/catalog --bind 0.0.0.0:5432
+./target/release/rocklake serve --catalog /path/to/catalog --bind 0.0.0.0:5432
 
 # Limit concurrent sessions
-./target/release/slateduck serve --catalog /path/to/catalog --max-sessions 16
+./target/release/rocklake serve --catalog /path/to/catalog --max-sessions 16
 ```
 
 ### Connect with DuckDB
@@ -112,8 +112,8 @@ cargo build --release
 INSTALL ducklake;
 LOAD ducklake;
 
--- Attach SlateDuck as your catalog backend
-ATTACH 'ducklake:postgres:host=localhost port=5432 dbname=slateduck' AS my_lake (DATA_PATH '/tmp/ducklake');
+-- Attach Rocklake as your catalog backend
+ATTACH 'ducklake:postgres:host=localhost port=5432 dbname=rocklake' AS my_lake (DATA_PATH '/tmp/ducklake');
 USE my_lake;
 
 -- Create a base table
@@ -127,17 +127,17 @@ SELECT * FROM events;
 
 ## Workspace Layout
 
-SlateDuck is a Cargo workspace of focused crates, each with a clear responsibility boundary:
+Rocklake is a Cargo workspace of focused crates, each with a clear responsibility boundary:
 
 | Crate | Purpose |
 |---|---|
-| `slateduck-core` | Foundational types: binary key layout, MVCC visibility logic, protobuf encoding, counter allocation |
-| `slateduck-catalog` | All 28 DuckLake v1.0 catalog operations: schemas, tables, columns, snapshots, and data files |
-| `slateduck-sql` | Bounded SQL parser and AST dispatcher — only the shapes DuckDB actually emits |
-| `slateduck-pgwire` | PostgreSQL wire protocol sidecar binary (startup, simple query, extended query) |
-| `slateduck-datafusion` | DataFusion integration for query planning |
-| `slateduck-sqlite-vfs` | SQLite VFS layer (planned: native embedded extension path) |
-| `slateduck-ffi` | C/C++ FFI bindings (planned: native DuckDB extension) |
+| `rocklake-core` | Foundational types: binary key layout, MVCC visibility logic, protobuf encoding, counter allocation |
+| `rocklake-catalog` | All 28 DuckLake v1.0 catalog operations: schemas, tables, columns, snapshots, and data files |
+| `rocklake-sql` | Bounded SQL parser and AST dispatcher — only the shapes DuckDB actually emits |
+| `rocklake-pgwire` | PostgreSQL wire protocol sidecar binary (startup, simple query, extended query) |
+| `rocklake-datafusion` | DataFusion integration for query planning |
+| `rocklake-sqlite-vfs` | SQLite VFS layer (planned: native embedded extension path) |
+| `rocklake-ffi` | C/C++ FFI bindings (planned: native DuckDB extension) |
 
 ---
 
@@ -145,11 +145,11 @@ SlateDuck is a Cargo workspace of focused crates, each with a clear responsibili
 
 ## Design Principles
 
-SlateDuck is an opinionated piece of software. It makes strong bets and does not try to be all things to all people. These bets are worth stating plainly:
+Rocklake is an opinionated piece of software. It makes strong bets and does not try to be all things to all people. These bets are worth stating plainly:
 
 **Immutability everywhere.** No data, intermediate or final, is ever overwritten. State advances by appending new immutable batches; obsolete data is reclaimed only by retention-bounded compaction. This makes time travel and read scale-out fall out of the same substrate for free.
 
-**Stateless workers.** Every SlateDuck binary is designed to be killed and restarted at any time with no ceremony. All durable progress lives in the catalog in object storage. Killing a process loses no progress.
+**Stateless workers.** Every Rocklake binary is designed to be killed and restarted at any time with no ceremony. All durable progress lives in the catalog in object storage. Killing a process loses no progress.
 
 
 
@@ -178,10 +178,10 @@ See [ROADMAP.md](ROADMAP.md) for full milestone details.
 cargo test --all
 
 # Run the catalog integration tests specifically
-cargo test -p slateduck-catalog
+cargo test -p rocklake-catalog
 
 # Run benchmarks
-cargo bench -p slateduck-catalog
+cargo bench -p rocklake-catalog
 ```
 
 The test suite includes unit tests, property-based tests (via `proptest`), integration tests against real SlateDB instances, and golden-file conformance tests derived from actual DuckDB wire captures.

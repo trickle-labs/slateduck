@@ -1,8 +1,8 @@
 # Metrics Reference
 
-This page documents all Prometheus metrics exposed by SlateDuck's metrics endpoint. When enabled (via `SLATEDUCK_METRICS_BIND`), SlateDuck serves metrics in Prometheus exposition format at the `/metrics` path. These metrics provide comprehensive observability into catalog operations, storage performance, caching behavior, and system health.
+This page documents all Prometheus metrics exposed by Rocklake's metrics endpoint. When enabled (via `ROCKLAKE_METRICS_BIND`), Rocklake serves metrics in Prometheus exposition format at the `/metrics` path. These metrics provide comprehensive observability into catalog operations, storage performance, caching behavior, and system health.
 
-Monitoring is essential for production deployments. These metrics tell you whether SlateDuck is healthy, whether performance is within expectations, whether storage costs are growing, and whether capacity planning assumptions hold. Each metric includes its type (counter, gauge, histogram), labels, description, and guidance on what values are normal and what values indicate problems.
+Monitoring is essential for production deployments. These metrics tell you whether Rocklake is healthy, whether performance is within expectations, whether storage costs are growing, and whether capacity planning assumptions hold. Each metric includes its type (counter, gauge, histogram), labels, description, and guidance on what values are normal and what values indicate problems.
 
 ## Metric Types
 
@@ -16,7 +16,7 @@ Monitoring is essential for production deployments. These metrics tell you wheth
 
 ```bash
 # Enable metrics endpoint
-SLATEDUCK_METRICS_BIND=0.0.0.0:9090
+ROCKLAKE_METRICS_BIND=0.0.0.0:9090
 ```
 
 Once enabled, metrics are available at `http://<host>:9090/metrics`. The response is in Prometheus exposition format, compatible with Prometheus, Grafana Agent, Victoria Metrics, Datadog, and other Prometheus-compatible scrapers.
@@ -25,9 +25,9 @@ Once enabled, metrics are available at `http://<host>:9090/metrics`. The respons
 
 ```yaml
 scrape_configs:
-  - job_name: slateduck
+  - job_name: rocklake
     static_configs:
-      - targets: ['slateduck:9090']
+      - targets: ['rocklake:9090']
     scrape_interval: 15s
 ```
 
@@ -35,9 +35,9 @@ scrape_configs:
 
 ## Operation Metrics
 
-These metrics track catalog operations — the core business logic of SlateDuck.
+These metrics track catalog operations — the core business logic of Rocklake.
 
-### slateduck_operations_total
+### rocklake_operations_total
 
 **Type:** Counter
 
@@ -51,21 +51,21 @@ Total number of catalog operations completed, labeled by operation type.
 
 ```promql
 # Operations per second (rate over 5 minutes)
-rate(slateduck_operations_total[5m])
+rate(rocklake_operations_total[5m])
 
 # Write operations vs read operations
-sum(rate(slateduck_operations_total{operation=~"create_.*|drop_.*|rename_.*|register_.*"}[5m]))
-sum(rate(slateduck_operations_total{operation=~"list_.*|get_.*"}[5m]))
+sum(rate(rocklake_operations_total{operation=~"create_.*|drop_.*|rename_.*|register_.*"}[5m]))
+sum(rate(rocklake_operations_total{operation=~"list_.*|get_.*"}[5m]))
 
 # Most frequent operation type
-topk(5, sum by (operation) (rate(slateduck_operations_total[5m])))
+topk(5, sum by (operation) (rate(rocklake_operations_total[5m])))
 ```
 
 **Normal values:** Depends entirely on workload. A typical analytical workload produces 10–100 operations/second during active ingestion, near zero during idle periods.
 
 ---
 
-### slateduck_operation_duration_seconds
+### rocklake_operation_duration_seconds
 
 **Type:** Histogram
 
@@ -81,13 +81,13 @@ Latency distribution of catalog operations, labeled by operation type.
 
 ```promql
 # P99 latency for all operations
-histogram_quantile(0.99, rate(slateduck_operation_duration_seconds_bucket[5m]))
+histogram_quantile(0.99, rate(rocklake_operation_duration_seconds_bucket[5m]))
 
 # P50 latency by operation type
-histogram_quantile(0.50, sum by (le, operation) (rate(slateduck_operation_duration_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le, operation) (rate(rocklake_operation_duration_seconds_bucket[5m])))
 
 # Operations slower than 100ms
-sum(rate(slateduck_operation_duration_seconds_bucket{le="0.1"}[5m]))
+sum(rate(rocklake_operation_duration_seconds_bucket{le="0.1"}[5m]))
 ```
 
 **Normal values:**
@@ -98,7 +98,7 @@ sum(rate(slateduck_operation_duration_seconds_bucket{le="0.1"}[5m]))
 
 ---
 
-### slateduck_snapshots_created_total
+### rocklake_snapshots_created_total
 
 **Type:** Counter
 
@@ -108,17 +108,17 @@ Total number of snapshots (committed transactions) created since process start.
 
 ```promql
 # Snapshots per minute
-rate(slateduck_snapshots_created_total[5m]) * 60
+rate(rocklake_snapshots_created_total[5m]) * 60
 
 # Total snapshots in the last hour
-increase(slateduck_snapshots_created_total[1h])
+increase(rocklake_snapshots_created_total[1h])
 ```
 
 **Normal values:** One snapshot per write transaction. A busy catalog might create 1–10 snapshots per second during bulk operations.
 
 ---
 
-### slateduck_files_per_snapshot
+### rocklake_files_per_snapshot
 
 **Type:** Gauge
 
@@ -134,7 +134,7 @@ Number of data files registered in the latest snapshot. Indicates the "width" of
 
 These metrics track interactions with the underlying object storage (S3, GCS, Azure).
 
-### slateduck_object_store_requests_total
+### rocklake_object_store_requests_total
 
 **Type:** Counter
 
@@ -148,20 +148,20 @@ Total object storage requests by HTTP method.
 
 ```promql
 # Total requests per second
-sum(rate(slateduck_object_store_requests_total[5m]))
+sum(rate(rocklake_object_store_requests_total[5m]))
 
 # PUT vs GET ratio (write amplification indicator)
-rate(slateduck_object_store_requests_total{method="PUT"}[5m])
-  / rate(slateduck_object_store_requests_total{method="GET"}[5m])
+rate(rocklake_object_store_requests_total{method="PUT"}[5m])
+  / rate(rocklake_object_store_requests_total{method="GET"}[5m])
 
 # Cost estimation (approximate S3 costs)
-increase(slateduck_object_store_requests_total{method="PUT"}[24h]) * 0.000005
-  + increase(slateduck_object_store_requests_total{method="GET"}[24h]) * 0.0000004
+increase(rocklake_object_store_requests_total{method="PUT"}[24h]) * 0.000005
+  + increase(rocklake_object_store_requests_total{method="GET"}[24h]) * 0.0000004
 ```
 
 ---
 
-### slateduck_object_store_request_duration_seconds
+### rocklake_object_store_request_duration_seconds
 
 **Type:** Histogram
 
@@ -181,7 +181,7 @@ Object storage request latency by method.
 
 ---
 
-### slateduck_object_store_bytes_read_total
+### rocklake_object_store_bytes_read_total
 
 **Type:** Counter
 
@@ -191,15 +191,15 @@ Total bytes read from object storage since process start.
 
 ```promql
 # Read throughput (MB/s)
-rate(slateduck_object_store_bytes_read_total[5m]) / 1048576
+rate(rocklake_object_store_bytes_read_total[5m]) / 1048576
 
 # Total data read in the last 24h (for cost estimation)
-increase(slateduck_object_store_bytes_read_total[24h])
+increase(rocklake_object_store_bytes_read_total[24h])
 ```
 
 ---
 
-### slateduck_object_store_bytes_written_total
+### rocklake_object_store_bytes_written_total
 
 **Type:** Counter
 
@@ -207,7 +207,7 @@ Total bytes written to object storage since process start.
 
 ---
 
-### slateduck_object_store_throttles_total
+### rocklake_object_store_throttles_total
 
 **Type:** Counter
 
@@ -219,7 +219,7 @@ Number of HTTP 429 (Too Many Requests) or 503 (Service Unavailable) responses fr
 
 ---
 
-### slateduck_object_store_retries_total
+### rocklake_object_store_retries_total
 
 **Type:** Counter
 
@@ -231,7 +231,7 @@ Number of retried storage requests (after transient failures).
 
 ## Cache Metrics
 
-### slateduck_cache_hits_total
+### rocklake_cache_hits_total
 
 **Type:** Counter
 
@@ -241,15 +241,15 @@ Total cache hits (hot key cache + SlateDB block cache combined).
 
 ```promql
 # Cache hit ratio
-rate(slateduck_cache_hits_total[5m])
-  / (rate(slateduck_cache_hits_total[5m]) + rate(slateduck_cache_misses_total[5m]))
+rate(rocklake_cache_hits_total[5m])
+  / (rate(rocklake_cache_hits_total[5m]) + rate(rocklake_cache_misses_total[5m]))
 ```
 
 **Normal values:** Hit ratio > 90% indicates healthy caching. Below 80% suggests the cache is too small for the working set.
 
 ---
 
-### slateduck_cache_misses_total
+### rocklake_cache_misses_total
 
 **Type:** Counter
 
@@ -257,37 +257,37 @@ Total cache misses requiring a fetch from object storage.
 
 ---
 
-### slateduck_cache_size_bytes
+### rocklake_cache_size_bytes
 
 **Type:** Gauge
 
 Current memory usage of the block cache in bytes.
 
-**Normal values:** Should approach `SLATEDUCK_CACHE_SIZE_MB * 1048576` under load. If significantly below the configured maximum, the working set fits entirely in cache (good).
+**Normal values:** Should approach `ROCKLAKE_CACHE_SIZE_MB * 1048576` under load. If significantly below the configured maximum, the working set fits entirely in cache (good).
 
 ---
 
 ## Session Metrics
 
-### slateduck_active_sessions
+### rocklake_active_sessions
 
 **Type:** Gauge
 
 Number of currently connected client sessions.
 
-**Alert threshold:** When approaching `SLATEDUCK_MAX_SESSIONS`, new connections will be rejected.
+**Alert threshold:** When approaching `ROCKLAKE_MAX_SESSIONS`, new connections will be rejected.
 
 ---
 
-### slateduck_max_sessions
+### rocklake_max_sessions
 
 **Type:** Gauge
 
-The configured session limit (from `SLATEDUCK_MAX_SESSIONS`).
+The configured session limit (from `ROCKLAKE_MAX_SESSIONS`).
 
 ---
 
-### slateduck_sessions_total
+### rocklake_sessions_total
 
 **Type:** Counter
 
@@ -297,7 +297,7 @@ Total sessions created since process start (cumulative).
 
 ## Writer Metrics
 
-### slateduck_writer_epoch
+### rocklake_writer_epoch
 
 **Type:** Gauge
 
@@ -307,7 +307,7 @@ Current writer epoch. This value increments each time a new writer takes over.
 
 ---
 
-### slateduck_write_batch_size
+### rocklake_write_batch_size
 
 **Type:** Histogram
 
@@ -319,7 +319,7 @@ Number of key-value mutations per committed write batch.
 
 ---
 
-### slateduck_last_query_keys_scanned
+### rocklake_last_query_keys_scanned
 
 **Type:** Gauge
 
@@ -327,7 +327,7 @@ Number of keys scanned in the most recent read query. Useful for detecting expen
 
 ---
 
-### slateduck_mean_rows_scanned
+### rocklake_mean_rows_scanned
 
 **Type:** Gauge
 
@@ -337,7 +337,7 @@ Rolling average of rows scanned per read operation.
 
 ## Catalog Metrics
 
-### slateduck_schemas_count
+### rocklake_schemas_count
 
 **Type:** Gauge
 
@@ -345,7 +345,7 @@ Number of live (non-superseded) schemas in the catalog.
 
 ---
 
-### slateduck_tables_count
+### rocklake_tables_count
 
 **Type:** Gauge
 
@@ -353,7 +353,7 @@ Number of live tables across all schemas.
 
 ---
 
-### slateduck_latest_snapshot_id
+### rocklake_latest_snapshot_id
 
 **Type:** Gauge
 
@@ -361,7 +361,7 @@ The highest committed snapshot ID. Useful for monitoring ingestion progress.
 
 ---
 
-### slateduck_retain_from
+### rocklake_retain_from
 
 **Type:** Gauge
 
@@ -373,7 +373,7 @@ Current GC retention horizon. Snapshots below this value are no longer accessibl
 
 All metrics follow Prometheus naming best practices:
 
-- **Prefix:** `slateduck_` (distinguishes from other services' metrics)
+- **Prefix:** `rocklake_` (distinguishes from other services' metrics)
 - **Suffix conventions:**
     - `_total` for counters
     - `_seconds` for durations
@@ -398,85 +398,85 @@ All metrics follow Prometheus naming best practices:
 
 ```yaml
 groups:
-  - name: slateduck
+  - name: rocklake
     rules:
-      - alert: SlateDuckHighLatency
-        expr: histogram_quantile(0.99, rate(slateduck_operation_duration_seconds_bucket[5m])) > 1
+      - alert: RocklakeHighLatency
+        expr: histogram_quantile(0.99, rate(rocklake_operation_duration_seconds_bucket[5m])) > 1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "SlateDuck P99 latency exceeds 1 second"
+          summary: "Rocklake P99 latency exceeds 1 second"
           description: "Operation latency has been above 1s for 5 minutes. Check storage performance."
 
-      - alert: SlateDuckStorageThrottled
-        expr: rate(slateduck_object_store_throttles_total[5m]) > 0
+      - alert: RocklakeStorageThrottled
+        expr: rate(rocklake_object_store_throttles_total[5m]) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Object storage is throttling SlateDuck requests"
+          summary: "Object storage is throttling Rocklake requests"
           description: "Sustained 429/503 responses from storage. Consider S3 Express or request limit increase."
 
-      - alert: SlateDuckCacheMissRate
+      - alert: RocklakeCacheMissRate
         expr: |
-          rate(slateduck_cache_misses_total[5m]) /
-          (rate(slateduck_cache_hits_total[5m]) + rate(slateduck_cache_misses_total[5m])) > 0.3
+          rate(rocklake_cache_misses_total[5m]) /
+          (rate(rocklake_cache_hits_total[5m]) + rate(rocklake_cache_misses_total[5m])) > 0.3
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: "SlateDuck cache miss rate above 30%"
-          description: "Working set may exceed cache size. Consider increasing SLATEDUCK_CACHE_SIZE_MB."
+          summary: "Rocklake cache miss rate above 30%"
+          description: "Working set may exceed cache size. Consider increasing ROCKLAKE_CACHE_SIZE_MB."
 
-      - alert: SlateDuckSessionsNearLimit
-        expr: slateduck_active_sessions / slateduck_max_sessions > 0.8
+      - alert: RocklakeSessionsNearLimit
+        expr: rocklake_active_sessions / rocklake_max_sessions > 0.8
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "SlateDuck approaching session limit"
+          summary: "Rocklake approaching session limit"
           description: "Active sessions are above 80% of maximum. New connections may be rejected soon."
 ```
 
 ## Grafana Dashboard Configuration
 
-A recommended Grafana dashboard for SlateDuck should include these panels:
+A recommended Grafana dashboard for Rocklake should include these panels:
 
 ### Overview Row
 
 | Panel | Type | Query |
 |-------|------|-------|
-| Operations/sec | Stat | `sum(rate(slateduck_operations_total[5m]))` |
-| Active Sessions | Stat | `slateduck_active_sessions` |
-| Cache Hit Ratio | Stat | `rate(slateduck_cache_hits_total[5m]) / (rate(slateduck_cache_hits_total[5m]) + rate(slateduck_cache_misses_total[5m]))` |
-| Latest Snapshot | Stat | `slateduck_latest_snapshot_id` |
-| Writer Epoch | Stat | `slateduck_writer_epoch` |
+| Operations/sec | Stat | `sum(rate(rocklake_operations_total[5m]))` |
+| Active Sessions | Stat | `rocklake_active_sessions` |
+| Cache Hit Ratio | Stat | `rate(rocklake_cache_hits_total[5m]) / (rate(rocklake_cache_hits_total[5m]) + rate(rocklake_cache_misses_total[5m]))` |
+| Latest Snapshot | Stat | `rocklake_latest_snapshot_id` |
+| Writer Epoch | Stat | `rocklake_writer_epoch` |
 
 ### Latency Row
 
 | Panel | Type | Query |
 |-------|------|-------|
 | Operation Latency (P50/P99) | Time series | `histogram_quantile(0.5, ...)` and `histogram_quantile(0.99, ...)` |
-| Storage Latency by Method | Time series | `histogram_quantile(0.99, sum by (le, method) (rate(slateduck_object_store_request_duration_seconds_bucket[5m])))` |
+| Storage Latency by Method | Time series | `histogram_quantile(0.99, sum by (le, method) (rate(rocklake_object_store_request_duration_seconds_bucket[5m])))` |
 
 ### Storage Row
 
 | Panel | Type | Query |
 |-------|------|-------|
-| Requests/sec by Method | Time series (stacked) | `sum by (method) (rate(slateduck_object_store_requests_total[5m]))` |
-| Bytes Read/Written | Time series | `rate(slateduck_object_store_bytes_read_total[5m])` and `rate(...)_written_...` |
-| Throttles | Time series | `rate(slateduck_object_store_throttles_total[5m])` |
-| Retries | Time series | `rate(slateduck_object_store_retries_total[5m])` |
+| Requests/sec by Method | Time series (stacked) | `sum by (method) (rate(rocklake_object_store_requests_total[5m]))` |
+| Bytes Read/Written | Time series | `rate(rocklake_object_store_bytes_read_total[5m])` and `rate(...)_written_...` |
+| Throttles | Time series | `rate(rocklake_object_store_throttles_total[5m])` |
+| Retries | Time series | `rate(rocklake_object_store_retries_total[5m])` |
 
 ### Catalog Row
 
 | Panel | Type | Query |
 |-------|------|-------|
-| Schemas | Stat | `slateduck_schemas_count` |
-| Tables | Stat | `slateduck_tables_count` |
-| Retention Horizon | Stat | `slateduck_retain_from` |
-| Write Batch Size Distribution | Histogram | `slateduck_write_batch_size` |
+| Schemas | Stat | `rocklake_schemas_count` |
+| Tables | Stat | `rocklake_tables_count` |
+| Retention Horizon | Stat | `rocklake_retain_from` |
+| Write Batch Size Distribution | Histogram | `rocklake_write_batch_size` |
 
 ## Interpreting Metrics for Capacity Planning
 
@@ -487,9 +487,9 @@ Use the object store metrics to estimate monthly storage costs:
 ```promql
 # Estimated monthly S3 Standard costs (us-east-1 pricing)
 # PUT/POST requests: $0.005 per 1000
-(increase(slateduck_object_store_requests_total{method="PUT"}[30d]) / 1000) * 0.005
+(increase(rocklake_object_store_requests_total{method="PUT"}[30d]) / 1000) * 0.005
 # GET requests: $0.0004 per 1000
-+ (increase(slateduck_object_store_requests_total{method="GET"}[30d]) / 1000) * 0.0004
++ (increase(rocklake_object_store_requests_total{method="GET"}[30d]) / 1000) * 0.0004
 ```
 
 ### Working Set Estimation
@@ -499,9 +499,9 @@ If the cache hit ratio is below 90%, calculate the required cache size:
 ```promql
 # Approximate working set size (bytes)
 # = cache_size_bytes / cache_hit_ratio
-slateduck_cache_size_bytes / (
-  rate(slateduck_cache_hits_total[1h]) /
-  (rate(slateduck_cache_hits_total[1h]) + rate(slateduck_cache_misses_total[1h]))
+rocklake_cache_size_bytes / (
+  rate(rocklake_cache_hits_total[1h]) /
+  (rate(rocklake_cache_hits_total[1h]) + rate(rocklake_cache_misses_total[1h]))
 )
 ```
 
@@ -511,10 +511,10 @@ Use session metrics to right-size connection pools:
 
 ```promql
 # Peak concurrent sessions over the last week
-max_over_time(slateduck_active_sessions[7d])
+max_over_time(rocklake_active_sessions[7d])
 
 # Average utilization
-avg_over_time(slateduck_active_sessions[7d]) / slateduck_max_sessions
+avg_over_time(rocklake_active_sessions[7d]) / rocklake_max_sessions
 ```
 
 ## Further Reading

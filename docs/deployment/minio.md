@@ -1,24 +1,24 @@
 # Deploying with MinIO
 
-MinIO is a high-performance, S3-compatible object storage server that you can run on your own infrastructure. It is the ideal backend for SlateDuck when you cannot or do not want to use cloud storage: on-premises data centers, air-gapped environments, development workstations without cloud access, CI/CD pipelines, and edge deployments where data sovereignty prevents sending catalog metadata to a public cloud. Because MinIO implements the S3 API, SlateDuck treats it identically to Amazon S3 — the only difference is the endpoint URL.
+MinIO is a high-performance, S3-compatible object storage server that you can run on your own infrastructure. It is the ideal backend for Rocklake when you cannot or do not want to use cloud storage: on-premises data centers, air-gapped environments, development workstations without cloud access, CI/CD pipelines, and edge deployments where data sovereignty prevents sending catalog metadata to a public cloud. Because MinIO implements the S3 API, Rocklake treats it identically to Amazon S3 — the only difference is the endpoint URL.
 
-This guide covers running MinIO alongside SlateDuck for development, deploying MinIO in single-node and distributed configurations for production-like environments, configuring SlateDuck to connect to MinIO, and the common pitfalls that appear when using S3-compatible APIs.
+This guide covers running MinIO alongside Rocklake for development, deploying MinIO in single-node and distributed configurations for production-like environments, configuring Rocklake to connect to MinIO, and the common pitfalls that appear when using S3-compatible APIs.
 
 ## Why MinIO?
 
 MinIO occupies a specific niche: it is the best choice when you need S3 API compatibility without S3's cloud costs or data egress restrictions. The most common use cases are:
 
-**Local development.** Running a full lakehouse stack on a developer laptop with no cloud credentials, no network dependency, and no cost. MinIO starts in seconds and provides the full S3 API for testing SlateDuck, DuckDB, and data pipelines against a realistic object-store backend.
+**Local development.** Running a full lakehouse stack on a developer laptop with no cloud credentials, no network dependency, and no cost. MinIO starts in seconds and provides the full S3 API for testing Rocklake, DuckDB, and data pipelines against a realistic object-store backend.
 
 **CI/CD pipelines.** Integration tests that exercise the full storage stack need a real object store, not a mock. MinIO as a Docker service in a CI pipeline gives tests realistic latency and error modes without requiring cloud credentials in CI secrets.
 
 **On-premises production.** Organizations that require data to remain within their own data centers can deploy MinIO on bare metal or on-premises Kubernetes. MinIO's distributed mode provides erasure coding and cross-node redundancy comparable to cloud storage.
 
-**Edge and air-gapped environments.** Deployments where the SlateDuck sidecar runs alongside processing systems in environments without internet connectivity.
+**Edge and air-gapped environments.** Deployments where the Rocklake sidecar runs alongside processing systems in environments without internet connectivity.
 
 ## Quick Start: MinIO with Docker
 
-The fastest path to a working local environment combines MinIO and SlateDuck using Docker Compose:
+The fastest path to a working local environment combines MinIO and Rocklake using Docker Compose:
 
 ```yaml
 # docker-compose.yml
@@ -53,8 +53,8 @@ services:
         echo 'Buckets created';
       "
 
-  slateduck:
-    image: ghcr.io/slateduck/slateduck:latest
+  rocklake:
+    image: ghcr.io/rocklake/rocklake:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -71,7 +71,7 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
-      SLATEDUCK_S3_PATH_STYLE: "true"
+      ROCKLAKE_S3_PATH_STYLE: "true"
 
 volumes:
   minio-data:
@@ -85,14 +85,14 @@ docker compose up -d
 # Verify everything is running
 docker compose ps
 
-# Watch SlateDuck's logs
-docker compose logs -f slateduck
+# Watch Rocklake's logs
+docker compose logs -f rocklake
 ```
 
-Expected SlateDuck startup output:
+Expected Rocklake startup output:
 
 ```
-INFO  SlateDuck v0.8.0 starting
+INFO  Rocklake v0.8.0 starting
 INFO  Storage backend: aws-s3 (endpoint: http://minio:9000)
 INFO  Path-style addressing: enabled
 INFO  Catalog path: s3://my-lakehouse/catalog/
@@ -153,7 +153,7 @@ chmod +x mc
 ./mc mb local/my-lakehouse
 ```
 
-Start SlateDuck:
+Start Rocklake:
 
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:9000
@@ -161,7 +161,7 @@ export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
 export AWS_REGION=us-east-1
 
-slateduck serve \
+rocklake serve \
   --catalog s3://my-lakehouse/catalog/ \
   --bind 127.0.0.1:5432 \
   --s3-path-style
@@ -172,7 +172,7 @@ slateduck serve \
 !!! warning "Path-style is required for MinIO"
     MinIO requires **path-style addressing** (`http://localhost:9000/my-bucket/key`) rather than virtual-hosted-style (`http://my-bucket.localhost:9000/key`). Virtual-hosted-style requires DNS configuration that makes bucket names part of the hostname, which is not practical for local development.
 
-    Always set `--s3-path-style` (or `SLATEDUCK_S3_PATH_STYLE=true`) when using MinIO.
+    Always set `--s3-path-style` (or `ROCKLAKE_S3_PATH_STYLE=true`) when using MinIO.
 
 Without path-style addressing, you will see errors like:
 
@@ -180,11 +180,11 @@ Without path-style addressing, you will see errors like:
 Error: NoSuchBucket: The specified bucket does not exist
 ```
 
-or connection refused errors as SlateDuck tries to connect to a hostname like `my-lakehouse.localhost` that does not exist.
+or connection refused errors as Rocklake tries to connect to a hostname like `my-lakehouse.localhost` that does not exist.
 
 ## Endpoint Configuration
 
-SlateDuck needs to know MinIO's endpoint URL. There are two ways to configure this:
+Rocklake needs to know MinIO's endpoint URL. There are two ways to configure this:
 
 **Environment variable (recommended):**
 
@@ -195,14 +195,14 @@ export AWS_ENDPOINT_URL=http://localhost:9000
 **Command-line flag:**
 
 ```bash
-slateduck serve \
+rocklake serve \
   --catalog s3://my-lakehouse/catalog/ \
   --s3-endpoint http://localhost:9000 \
   --s3-path-style \
   --bind 127.0.0.1:5432
 ```
 
-For Docker deployments where SlateDuck and MinIO are on the same Docker network, use the service name as the hostname:
+For Docker deployments where Rocklake and MinIO are on the same Docker network, use the service name as the hostname:
 
 ```bash
 AWS_ENDPOINT_URL=http://minio:9000  # Inside Docker network
@@ -214,10 +214,10 @@ MinIO uses the same access key / secret key model as AWS S3. The credentials you
 
 ```bash
 # Using mc
-mc admin user add local slateduck-user slateduck-password
+mc admin user add local rocklake-user rocklake-password
 
 # Create a policy
-cat > slateduck-policy.json << 'EOF'
+cat > rocklake-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -230,15 +230,15 @@ cat > slateduck-policy.json << 'EOF'
 }
 EOF
 
-mc admin policy create local slateduck-policy slateduck-policy.json
-mc admin policy attach local slateduck-policy --user slateduck-user
+mc admin policy create local rocklake-policy rocklake-policy.json
+mc admin policy attach local rocklake-policy --user rocklake-user
 ```
 
-Then use the dedicated credentials for SlateDuck:
+Then use the dedicated credentials for Rocklake:
 
 ```bash
-export AWS_ACCESS_KEY_ID=slateduck-user
-export AWS_SECRET_ACCESS_KEY=slateduck-password
+export AWS_ACCESS_KEY_ID=rocklake-user
+export AWS_SECRET_ACCESS_KEY=rocklake-password
 ```
 
 ## Distributed MinIO for Production-Like Environments
@@ -312,8 +312,8 @@ services:
     networks:
       - minio-net
 
-  slateduck:
-    image: ghcr.io/slateduck/slateduck:latest
+  rocklake:
+    image: ghcr.io/rocklake/rocklake:latest
     depends_on:
       - haproxy
     command: >
@@ -327,7 +327,7 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
-      SLATEDUCK_S3_PATH_STYLE: "true"
+      ROCKLAKE_S3_PATH_STYLE: "true"
     networks:
       - minio-net
 
@@ -361,13 +361,13 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   --certs-dir ~/minio-certs
 ```
 
-Tell SlateDuck to use HTTPS and where to find the CA certificate:
+Tell Rocklake to use HTTPS and where to find the CA certificate:
 
 ```bash
 export AWS_ENDPOINT_URL=https://localhost:9000
 # For self-signed certificates, add the CA to the system trust store
 # or use the --tls-ca-bundle flag:
-slateduck serve \
+rocklake serve \
   --catalog s3://my-lakehouse/catalog/ \
   --s3-endpoint https://localhost:9000 \
   --s3-path-style \
@@ -401,12 +401,12 @@ MinIO is not running or the endpoint URL is wrong. Check `docker ps` or `./minio
 **Bucket names with uppercase letters or special characters:**
 MinIO follows S3's bucket naming rules: lowercase letters, numbers, and hyphens only. Bucket names with uppercase letters or dots cause signature calculation mismatches.
 
-**SlateDuck connects but reads/writes fail:**
+**Rocklake connects but reads/writes fail:**
 The bucket exists but the user does not have the required permissions. Check MinIO's access policies with `mc admin policy list local`.
 
 ## Further Reading
 
-- **[Docker Deployment](docker.md)** — Running SlateDuck and MinIO together with Docker Compose
+- **[Docker Deployment](docker.md)** — Running Rocklake and MinIO together with Docker Compose
 - **[AWS S3 Deployment](aws-s3.md)** — When you are ready to move from MinIO to AWS S3 in production
 - **[Credential Isolation](credential-isolation.md)** — Applying the least-privilege principle to MinIO deployments
 - **[Object Store Durability](../concepts/object-store-durability.md)** — The durability model and its implications for MinIO vs. cloud storage

@@ -1,0 +1,25 @@
+[package]
+name = "rocklake-datafusion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rocklake-core = { path = "../rocklake-core" }
+rocklake-catalog = { path = "../rocklake-catalog" }
+datafusion = "45"
+async-trait = { workspace = true }
+tokio = { workspace = true }
+object_store = { workspace = true }
+futures = "0.3"
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+parquet = { version = "54", features = ["arrow"] }
+arrow = { version = "54", features = ["ipc"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "datafusion_bridge"
+harness = false

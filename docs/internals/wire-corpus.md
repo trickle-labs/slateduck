@@ -1,12 +1,12 @@
 # Wire Corpus
 
-The wire corpus is SlateDuck's ground truth — a collection of real PostgreSQL wire protocol sessions captured from actual DuckDB interactions with DuckLake catalogs. Every SQL statement that DuckDB's `ducklake` extension has ever been observed to send is recorded in the corpus. SlateDuck's SQL classifier must correctly handle every statement in the corpus, making it both the specification and the test suite for SQL compatibility.
+The wire corpus is Rocklake's ground truth — a collection of real PostgreSQL wire protocol sessions captured from actual DuckDB interactions with DuckLake catalogs. Every SQL statement that DuckDB's `ducklake` extension has ever been observed to send is recorded in the corpus. Rocklake's SQL classifier must correctly handle every statement in the corpus, making it both the specification and the test suite for SQL compatibility.
 
 This page documents the purpose of the wire corpus, its structure, how new entries are captured, how corpus tests work, and the role it plays in maintaining compatibility across DuckDB versions. For contributors working on the SQL classifier, the wire corpus is the single most important artifact — it defines what "correct" means.
 
 ## Purpose
 
-SlateDuck does not implement a general SQL parser. It implements a pattern matcher (the SQL classifier) that recognizes specific SQL statement patterns and dispatches to appropriate handlers. But which patterns should it recognize? The answer is not "whatever SQL looks reasonable" — it is "exactly the patterns that DuckDB actually sends."
+Rocklake does not implement a general SQL parser. It implements a pattern matcher (the SQL classifier) that recognizes specific SQL statement patterns and dispatches to appropriate handlers. But which patterns should it recognize? The answer is not "whatever SQL looks reasonable" — it is "exactly the patterns that DuckDB actually sends."
 
 This distinction is critical. DuckDB's SQL generation may include:
 
@@ -21,13 +21,13 @@ Hand-writing test cases from documentation would miss these details. The wire co
 
 ### The Corpus as Specification
 
-The wire corpus serves as the authoritative specification of SlateDuck's SQL surface:
+The wire corpus serves as the authoritative specification of Rocklake's SQL surface:
 
-- **If a statement exists in the corpus:** SlateDuck MUST handle it correctly
-- **If a statement does NOT exist in the corpus:** SlateDuck is NOT required to handle it
-- **If a new DuckDB version generates a new pattern:** It must be added to the corpus, and SlateDuck must be updated to handle it
+- **If a statement exists in the corpus:** Rocklake MUST handle it correctly
+- **If a statement does NOT exist in the corpus:** Rocklake is NOT required to handle it
+- **If a new DuckDB version generates a new pattern:** It must be added to the corpus, and Rocklake must be updated to handle it
 
-This gives a precise, testable definition of "bounded SQL" — the set of SQL patterns that SlateDuck supports is exactly the set captured in the corpus.
+This gives a precise, testable definition of "bounded SQL" — the set of SQL patterns that Rocklake supports is exactly the set captured in the corpus.
 
 ## Structure
 
@@ -219,14 +219,14 @@ The corpus tracks compatibility across DuckDB versions:
 
 ## Relationship to Bounded SQL
 
-The wire corpus defines the exact boundary of SlateDuck's bounded SQL support:
+The wire corpus defines the exact boundary of Rocklake's bounded SQL support:
 
 1. **The corpus is the specification.** If a pattern is in the corpus, it is within bounds.
 2. **Everything else is out of bounds.** Statements not matching any corpus pattern are rejected with SQLSTATE 42601 (Syntax Error).
 3. **The boundary grows slowly.** New corpus entries are added only when a new DuckDB version introduces new patterns.
 4. **The boundary never shrinks.** Old patterns are never removed (backward compatibility with older DuckDB versions).
 
-This gives a precise answer to "what SQL does SlateDuck support?" — run the corpus and see what passes.
+This gives a precise answer to "what SQL does Rocklake support?" — run the corpus and see what passes.
 
 ## Corpus Maintenance
 
@@ -239,7 +239,7 @@ This gives a precise answer to "what SQL does SlateDuck support?" — run the co
 ### When NOT to Add Entries
 
 - Random SQL from psql that DuckDB would never generate
-- SQL patterns from other tools (Grafana, Metabase) that SlateDuck is not designed to handle
+- SQL patterns from other tools (Grafana, Metabase) that Rocklake is not designed to handle
 - Hypothetical patterns that might exist in future DuckDB versions
 
 ### Keeping the Corpus Clean
@@ -251,7 +251,7 @@ This gives a precise answer to "what SQL does SlateDuck support?" — run the co
 
 ## Corpus Analysis Tooling
 
-SlateDuck provides utilities for analyzing the wire corpus:
+Rocklake provides utilities for analyzing the wire corpus:
 
 ### Coverage Report
 
@@ -273,7 +273,7 @@ This quickly identifies what new operations a DuckDB version introduces, helping
 
 ### Statement Frequency Analysis
 
-In production, SlateDuck can log which classifier branches are actually hit. The corpus should reflect real usage patterns:
+In production, Rocklake can log which classifier branches are actually hit. The corpus should reflect real usage patterns:
 
 | Category | Typical Frequency | Corpus Files |
 |----------|------------------|-------------|
@@ -300,8 +300,8 @@ Case 2 should be rare and always tied to a DuckDB version upgrade with documente
 
 The bounded SQL design enforced by the wire corpus has security benefits:
 
-- **SQL injection surface is minimal.** SlateDuck only accepts patterns matching the corpus. Arbitrary SQL (even valid SQL) is rejected if it does not match a known pattern. An attacker who achieves SQL injection in a DuckDB client gains nothing — the injected SQL will not match any corpus pattern and will be rejected.
-- **No dynamic SQL execution.** SlateDuck never concatenates user input into SQL strings for execution. It pattern-matches incoming SQL and dispatches to typed handlers with validated parameters.
+- **SQL injection surface is minimal.** Rocklake only accepts patterns matching the corpus. Arbitrary SQL (even valid SQL) is rejected if it does not match a known pattern. An attacker who achieves SQL injection in a DuckDB client gains nothing — the injected SQL will not match any corpus pattern and will be rejected.
+- **No dynamic SQL execution.** Rocklake never concatenates user input into SQL strings for execution. It pattern-matches incoming SQL and dispatches to typed handlers with validated parameters.
 - **Audit trail.** Every classified statement is logged with its category, making anomaly detection straightforward.
 
 ## Historical Context

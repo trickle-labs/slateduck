@@ -1,8 +1,8 @@
 # Single-Writer Model
 
-At any given time, exactly one SlateDuck process is authorized to write to a catalog. Multiple readers are supported concurrently without coordination. Writer identity is enforced through an epoch counter stored in the catalog itself. This page documents the decision to use this single-writer concurrency model, examines the alternatives that were evaluated, and provides an honest accounting of the trade-offs involved.
+At any given time, exactly one Rocklake process is authorized to write to a catalog. Multiple readers are supported concurrently without coordination. Writer identity is enforced through an epoch counter stored in the catalog itself. This page documents the decision to use this single-writer concurrency model, examines the alternatives that were evaluated, and provides an honest accounting of the trade-offs involved.
 
-The single-writer model is perhaps SlateDuck's most opinionated architectural choice. It is the decision that most frequently surprises people who expect a modern system to support concurrent writes. Understanding why single-writer is correct for this use case — and when it would be wrong — is essential for evaluating whether SlateDuck fits your needs.
+The single-writer model is perhaps Rocklake's most opinionated architectural choice. It is the decision that most frequently surprises people who expect a modern system to support concurrent writes. Understanding why single-writer is correct for this use case — and when it would be wrong — is essential for evaluating whether Rocklake fits your needs.
 
 ## The Decision
 
@@ -18,7 +18,7 @@ Multiple writers coordinate via distributed locks. Before writing, a process acq
 
 **Why rejected:**
 
-- Introduces a dependency on an external coordination service. SlateDuck's promise is "object storage only" — no additional infrastructure. Adding a lock table or coordination service defeats this promise.
+- Introduces a dependency on an external coordination service. Rocklake's promise is "object storage only" — no additional infrastructure. Adding a lock table or coordination service defeats this promise.
 - Lock management introduces failure modes: lock expiration during long operations, split-brain if the lock service is partitioned, deadlocks if multiple locks are held across operations.
 - Adds latency: every write operation must acquire a lock (network round-trip to the lock service) before proceeding.
 - Operational burden: the lock service must be monitored, backed up, and maintained.
@@ -43,7 +43,7 @@ Multiple replicas agree on the order of mutations through a consensus protocol. 
 - Requires 3+ running instances for correctness (a minority tolerance of one failure requires three nodes). This is massively over-engineered for a metadata catalog that processes a few writes per minute.
 - Introduces consensus latency (2 round-trips per write in Raft, more in multi-region deployments).
 - Operational complexity: cluster membership management, leader election monitoring, split-brain detection, follower lag monitoring.
-- The entire point of SlateDuck is to avoid running a database cluster. Using consensus would make SlateDuck itself a distributed database — exactly what we are trying to avoid.
+- The entire point of Rocklake is to avoid running a database cluster. Using consensus would make Rocklake itself a distributed database — exactly what we are trying to avoid.
 
 ### Object Storage Conditional Writes
 
@@ -51,9 +51,9 @@ Use S3's conditional PUT (If-None-Match / If-Match) or DynamoDB-backed lease to 
 
 **Why partially considered:**
 
-This is the closest alternative to what SlateDuck actually does. SlateDB's manifest file is updated atomically — only one writer can successfully update it. SlateDB itself enforces single-writer semantics at the storage level.
+This is the closest alternative to what Rocklake actually does. SlateDB's manifest file is updated atomically — only one writer can successfully update it. SlateDB itself enforces single-writer semantics at the storage level.
 
-SlateDuck's epoch-based fencing builds on top of SlateDB's single-writer model to provide explicit writer identity and graceful failover (rather than relying on storage-level conflicts that produce opaque errors).
+Rocklake's epoch-based fencing builds on top of SlateDB's single-writer model to provide explicit writer identity and graceful failover (rather than relying on storage-level conflicts that produce opaque errors).
 
 ### CRDT-Based Eventual Consistency
 
@@ -78,7 +78,7 @@ A typical analytics workload writes to the catalog a few times per minute:
 | ALTER TABLE | A few per week | 5–20ms |
 | DROP TABLE | Rare | 5–20ms |
 
-A single writer handling 10–100 writes per second (SlateDuck's practical throughput on S3 Standard) is far more than sufficient for these access patterns. The writer is idle most of the time.
+A single writer handling 10–100 writes per second (Rocklake's practical throughput on S3 Standard) is far more than sufficient for these access patterns. The writer is idle most of the time.
 
 ### Catalog Writes Are Small
 
@@ -109,11 +109,11 @@ These questions have answers, but the answers are complex and the implementation
 
 There is no cluster to manage, no split-brain to resolve, no quorum to maintain, no leader election to monitor. The operational model is:
 
-1. Start one SlateDuck process
+1. Start one Rocklake process
 2. If it crashes, start a new one (it automatically fences the old one)
 3. Done
 
-This simplicity is not just a convenience — it is a product design goal. SlateDuck exists so that teams can have DuckLake catalogs without the operational burden of running a database. Adding multi-writer complexity would undermine this goal.
+This simplicity is not just a convenience — it is a product design goal. Rocklake exists so that teams can have DuckLake catalogs without the operational burden of running a database. Adding multi-writer complexity would undermine this goal.
 
 ## The Costs
 
@@ -148,7 +148,7 @@ For most workloads, this is acceptable. If you need to register 100,000 files an
 
 ### Writer Failover Is Not Automatic
 
-SlateDuck does not include built-in leader election or health checking. It relies on external mechanisms (Kubernetes liveness probes, systemd restart, monitoring alerts) to detect writer failure and start a replacement.
+Rocklake does not include built-in leader election or health checking. It relies on external mechanisms (Kubernetes liveness probes, systemd restart, monitoring alerts) to detect writer failure and start a replacement.
 
 **Why we don't build it in:**
 
@@ -181,12 +181,12 @@ The fencing is cooperative — the old writer detects it is fenced on its next w
 
 ## Multi-Writer via Partitioning
 
-For workloads that genuinely need concurrent writers, SlateDuck provides a partitioning strategy: one independent catalog per dataset, each with its own single writer.
+For workloads that genuinely need concurrent writers, Rocklake provides a partitioning strategy: one independent catalog per dataset, each with its own single writer.
 
 ```
-Dataset A ──→ SlateDuck Instance 1 ──→ s3://bucket/catalog-a/
-Dataset B ──→ SlateDuck Instance 2 ──→ s3://bucket/catalog-b/
-Dataset C ──→ SlateDuck Instance 3 ──→ s3://bucket/catalog-c/
+Dataset A ──→ Rocklake Instance 1 ──→ s3://bucket/catalog-a/
+Dataset B ──→ Rocklake Instance 2 ──→ s3://bucket/catalog-b/
+Dataset C ──→ Rocklake Instance 3 ──→ s3://bucket/catalog-c/
 ```
 
 Each catalog is fully independent — its own snapshot sequence, its own epoch, its own writer. This gives you write parallelism across datasets without any of the complexity of multi-writer within a single catalog.
@@ -197,14 +197,14 @@ The trade-off is that cross-catalog queries require attaching multiple catalogs 
 
 | System | Write Model | Complexity | Target Workload |
 |--------|-------------|-----------|-----------------|
-| SlateDuck | Single writer, epoch fencing | Low | Metadata catalog (few writes/min) |
+| Rocklake | Single writer, epoch fencing | Low | Metadata catalog (few writes/min) |
 | PostgreSQL | Single writer (primary) + replicas | Medium | General OLTP |
 | CockroachDB | Multi-writer, consensus | High | Distributed OLTP |
 | DynamoDB | Multi-writer, per-item OCC | Medium | Key-value at scale |
 | Apache Iceberg | Optimistic, file-level conflicts | Medium | Lakehouse metadata |
 | Delta Lake | Optimistic, log-based | Medium | Lakehouse metadata |
 
-Note that Apache Iceberg and Delta Lake use optimistic concurrency for their metadata — but their metadata is a single JSON/Avro file (the manifest), not a full catalog database. The conflict surface is much smaller (two writers both updating the same manifest file). SlateDuck's catalog has thousands of keys, making conflict detection far more complex.
+Note that Apache Iceberg and Delta Lake use optimistic concurrency for their metadata — but their metadata is a single JSON/Avro file (the manifest), not a full catalog database. The conflict surface is much smaller (two writers both updating the same manifest file). Rocklake's catalog has thousands of keys, making conflict detection far more complex.
 
 ## Further Reading
 

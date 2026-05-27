@@ -1,6 +1,6 @@
 # Benchmarks
 
-Performance claims without reproducible measurements are marketing. This page documents SlateDuck's benchmarking methodology, presents baseline results from controlled environments, explains how to reproduce benchmarks in your own infrastructure, and provides guidance on interpreting results. Every number on this page comes from automated benchmark suites that you can run yourself.
+Performance claims without reproducible measurements are marketing. This page documents Rocklake's benchmarking methodology, presents baseline results from controlled environments, explains how to reproduce benchmarks in your own infrastructure, and provides guidance on interpreting results. Every number on this page comes from automated benchmark suites that you can run yourself.
 
 The goal of benchmarking is not to produce impressive numbers for a slide deck. The goal is to characterize the system's behavior so that operators can predict performance for their specific workload and deployment configuration. Accordingly, this page includes both best-case numbers (warm cache, co-located, S3 Express) and realistic numbers (mixed cache state, S3 Standard, typical production conditions).
 
@@ -25,8 +25,8 @@ Baseline results on this page were produced on:
 | Region | us-east-1 |
 | Operating system | Amazon Linux 2023 |
 | Storage backend | S3 Standard (unless noted otherwise) |
-| Network | Same-AZ deployment (DuckDB and SlateDuck on same instance) |
-| SlateDuck version | 0.7.x |
+| Network | Same-AZ deployment (DuckDB and Rocklake on same instance) |
+| Rocklake version | 0.7.x |
 | SlateDB cache size | 64MB (default) |
 | Catalog size | 100 tables, 50 columns each, 10,000 total data files |
 
@@ -72,7 +72,7 @@ These numbers represent the worst case: every read requires fetching an SST bloc
 | Read single column | 45ms | 68ms | 92ms | 22 ops/s |
 | Read data file by ID | 50ms | 75ms | 105ms | 20 ops/s |
 
-The variance in cold reads comes from S3's own latency variability, not from SlateDuck's processing. Note that each cold read also populates the cache, so subsequent reads of nearby keys (same SST block) will be cache-hot.
+The variance in cold reads comes from S3's own latency variability, not from Rocklake's processing. Note that each cold read also populates the cache, so subsequent reads of nearby keys (same SST block) will be cache-hot.
 
 ## Baseline Results: Scan Operations
 
@@ -174,7 +174,7 @@ rustup update stable
 ### Running the Standard Suite
 
 ```bash
-cd crates/slateduck-catalog
+cd crates/rocklake-catalog
 cargo bench --bench catalog_bench
 ```
 
@@ -251,8 +251,8 @@ For a DuckLake catalog serving an analytics workload:
 
 We maintain a history of benchmark results to track performance over time:
 
-- **[Phase 2 Baseline](https://github.com/trickle-labs/slateduck/blob/main/benchmarks/phase-2-baseline.json)** — Initial benchmark results from the Phase 2 milestone
-- **[v0.7 Performance Report](https://github.com/trickle-labs/slateduck/blob/main/benchmarks/v07-performance-report.json)** — Current release benchmark data
+- **[Phase 2 Baseline](https://github.com/trickle-labs/rocklake/blob/main/benchmarks/phase-2-baseline.json)** — Initial benchmark results from the Phase 2 milestone
+- **[v0.7 Performance Report](https://github.com/trickle-labs/rocklake/blob/main/benchmarks/v07-performance-report.json)** — Current release benchmark data
 
 ## Further Reading
 

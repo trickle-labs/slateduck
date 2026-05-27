@@ -1,6 +1,6 @@
 # Extension Schema Registration
 
-SlateDuck uses an extension schema allowlist to control which PostgreSQL schemas can perform extension DDL and DML operations (e.g., creating extension tables and inserting extension rows). Any operation targeting an unregistered schema is rejected with SQLSTATE **42501** (permission denied).
+Rocklake uses an extension schema allowlist to control which PostgreSQL schemas can perform extension DDL and DML operations (e.g., creating extension tables and inserting extension rows). Any operation targeting an unregistered schema is rejected with SQLSTATE **42501** (permission denied).
 
 ## Default Schema
 
@@ -13,23 +13,23 @@ The default allowed schema is `pgtrickle`. Existing deployments require no confi
 Pass a comma-separated list to `--extension-schemas`:
 
 ```sh
-slateduck serve --extension-schemas pgtrickle,myextension
+rocklake serve --extension-schemas pgtrickle,myextension
 ```
 
 ### Environment Variable
 
-Set `SLATEDUCK_EXTENSION_SCHEMAS` before starting the server:
+Set `ROCKLAKE_EXTENSION_SCHEMAS` before starting the server:
 
 ```sh
-export SLATEDUCK_EXTENSION_SCHEMAS=pgtrickle,myextension
-slateduck serve
+export ROCKLAKE_EXTENSION_SCHEMAS=pgtrickle,myextension
+rocklake serve
 ```
 
 The CLI flag takes precedence over the environment variable.
 
 ## Error Behavior
 
-If a client attempts DDL or DML against an unregistered schema, SlateDuck returns:
+If a client attempts DDL or DML against an unregistered schema, Rocklake returns:
 
 ```
 ERROR:  permission denied for schema <schema_name> (SQLSTATE 42501)

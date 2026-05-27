@@ -42,7 +42,7 @@ When zone maps are implemented, the following changes will be required:
 1. SST footer: add a `ZoneMapBlock` containing per-column min/max byte
    arrays encoded with the same `values::` codec used for catalog data.
 2. Format version bump: increment `FORMAT_VERSION` in `init.rs` and add a
-   migration in `slateduck migrate`.
+   migration in `rocklake migrate`.
 3. Query dispatcher: pass column statistics to the DuckLake SQL dispatcher so
    it can inject `WHERE` predicates that eliminate SST files before scanning.
 4. Compaction: propagate zone maps from input files to merged output files.

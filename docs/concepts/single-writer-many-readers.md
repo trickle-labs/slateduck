@@ -1,6 +1,6 @@
 # Horizontal Read Scale-Out
 
-One of SlateDuck's most powerful operational properties is that you can add unlimited concurrent readers without any configuration change, any writer-side modification, any coordination protocol, or any additional infrastructure. This is not the "read replica" model from traditional databases where each replica must receive and apply a change stream from the primary. This is something fundamentally different: readers are independent processes that open immutable files directly from the object store, apply the MVCC visibility filter locally, and return results — with zero communication with the writer or with each other.
+One of Rocklake's most powerful operational properties is that you can add unlimited concurrent readers without any configuration change, any writer-side modification, any coordination protocol, or any additional infrastructure. This is not the "read replica" model from traditional databases where each replica must receive and apply a change stream from the primary. This is something fundamentally different: readers are independent processes that open immutable files directly from the object store, apply the MVCC visibility filter locally, and return results — with zero communication with the writer or with each other.
 
 This property is a direct mechanical consequence of the immutability guarantee. Because committed catalog entries occupy distinct, never-modified keys in immutable SST files, any process that can read from the object store can serve catalog queries. There is no shared mutable state, no lock to acquire, no lease to renew, no coordination message to send. The object store handles concurrent reads natively — that is literally what object stores are designed for.
 
@@ -10,11 +10,11 @@ This page explains why immutability enables this property, what the reader model
 
 In a traditional database with mutable rows (like PostgreSQL), a reader must coordinate with the writer because the data the reader is accessing might be changing underneath it. PostgreSQL solves this with MVCC at the heap level — readers see a snapshot of the data as of their transaction start time, and the buffer manager ensures that concurrent writes do not corrupt the reader's view. But this coordination has a cost: the buffer pool is shared, the lock manager maintains metadata about active readers, and replication to read replicas requires streaming WAL entries from the primary to each replica.
 
-In SlateDuck, there is no shared buffer pool and no streaming replication because there is nothing to replicate. The catalog data lives in immutable SST files in the object store. Once an SST file is written, its bytes never change. A reader that opens the current manifest (which points to the current set of SST files) can read those files for as long as it needs without worrying that they will be modified or deleted. The writer might be creating new SST files concurrently, but those new files contain new data at new snapshot IDs — they do not modify or replace the data that existing readers are accessing.
+In Rocklake, there is no shared buffer pool and no streaming replication because there is nothing to replicate. The catalog data lives in immutable SST files in the object store. Once an SST file is written, its bytes never change. A reader that opens the current manifest (which points to the current set of SST files) can read those files for as long as it needs without worrying that they will be modified or deleted. The writer might be creating new SST files concurrently, but those new files contain new data at new snapshot IDs — they do not modify or replace the data that existing readers are accessing.
 
 This means:
 
-**Adding readers does not load the writer.** In PostgreSQL's read-replica model, each replica adds load to the primary (WAL generation and streaming). In SlateDuck, the writer is completely unaware of readers. You can have one reader or ten thousand readers, and the writer's performance is unchanged.
+**Adding readers does not load the writer.** In PostgreSQL's read-replica model, each replica adds load to the primary (WAL generation and streaming). In Rocklake, the writer is completely unaware of readers. You can have one reader or ten thousand readers, and the writer's performance is unchanged.
 
 **Readers do not need to be in the same network as the writer.** A reader just needs access to the object-store bucket. It can be in a different region, a different cloud, a different continent — anywhere that can issue GET requests to the bucket.
 
@@ -24,7 +24,7 @@ This means:
 
 ## The Reader Model in Practice
 
-A SlateDuck reader process works like this:
+A Rocklake reader process works like this:
 
 1. **Open the manifest.** The reader fetches the SlateDB manifest file from the object store. This small file describes the current state of the database: which SST files exist and what key ranges they cover.
 
@@ -45,26 +45,26 @@ Readers do not see writes instantaneously. There is a brief window between when 
 - The writer commits a `DbTransaction` (the write is now durable in the WAL — it will survive a crash)
 - The writer calls `flush()` (the manifest is updated to include the new WAL entries, making them visible to readers who open the manifest after this point)
 
-Between the commit and the flush, the write is durable but not visible to new readers. SlateDuck calls `flush()` after every commit, so this window is typically the duration of a single object-store PUT (50–100 ms on S3 Standard).
+Between the commit and the flush, the write is durable but not visible to new readers. Rocklake calls `flush()` after every commit, so this window is typically the duration of a single object-store PUT (50–100 ms on S3 Standard).
 
-For readers that are already open (they fetched the manifest before the flush), they will not see the new write until they re-read the manifest. In SlateDuck's PG-wire sidecar deployment, readers periodically refresh their manifest view. The practical staleness for a continuously-running reader is typically 1–5 seconds.
+For readers that are already open (they fetched the manifest before the flush), they will not see the new write until they re-read the manifest. In Rocklake's PG-wire sidecar deployment, readers periodically refresh their manifest view. The practical staleness for a continuously-running reader is typically 1–5 seconds.
 
 For most analytical workloads, this freshness window is inconsequential. You loaded data five minutes ago; the reader seeing it 100 ms later versus 5 seconds later makes no practical difference to a planning query that takes 30 seconds to execute.
 
 ## Deployment Topology: One Writer, Many Readers
 
-The canonical SlateDuck deployment for high-read-throughput workloads looks like this:
+The canonical Rocklake deployment for high-read-throughput workloads looks like this:
 
 ```mermaid
 graph TB
     subgraph "Writer (1 instance)"
-        W[SlateDuck Writer]
+        W[Rocklake Writer]
     end
     subgraph "Readers (N instances)"
-        R1[SlateDuck Reader 1]
-        R2[SlateDuck Reader 2]
-        R3[SlateDuck Reader 3]
-        RN[SlateDuck Reader N]
+        R1[Rocklake Reader 1]
+        R2[Rocklake Reader 2]
+        R3[Rocklake Reader 3]
+        RN[Rocklake Reader N]
     end
     subgraph "Object Store"
         S3[S3 / GCS / Azure Blob]
@@ -90,9 +90,9 @@ Adding more readers is a pure scale-out operation: start more reader processes p
 
 ## How This Differs from PostgreSQL Read Replicas
 
-The difference between SlateDuck's reader model and PostgreSQL's read-replica model is worth understanding clearly, because they appear similar (one writer, many readers) but work fundamentally differently:
+The difference between Rocklake's reader model and PostgreSQL's read-replica model is worth understanding clearly, because they appear similar (one writer, many readers) but work fundamentally differently:
 
-| Property | PostgreSQL Read Replicas | SlateDuck Readers |
+| Property | PostgreSQL Read Replicas | Rocklake Readers |
 |----------|------------------------|-------------------|
 | Replication mechanism | Streaming WAL from primary to each replica | None — readers read directly from object store |
 | Primary awareness of replicas | Yes — must stream WAL, can be throttled by slow replicas | None — writer is unaware of readers |
@@ -103,11 +103,11 @@ The difference between SlateDuck's reader model and PostgreSQL's read-replica mo
 | Data consistency model | Each replica has a consistent but potentially stale view | Each reader has a consistent view at a specific manifest version |
 | Maximum replicas | Practically limited by primary WAL streaming capacity | Unlimited — bounded only by object-store read throughput |
 
-The fundamental difference is architectural: PostgreSQL replicas are dependent on the primary for their data (they receive a stream of changes), while SlateDuck readers are independent of the writer (they read directly from the same immutable files the writer produced).
+The fundamental difference is architectural: PostgreSQL replicas are dependent on the primary for their data (they receive a stream of changes), while Rocklake readers are independent of the writer (they read directly from the same immutable files the writer produced).
 
 ## The Single-Writer Constraint
 
-The flip side of unlimited readers is a single writer. SlateDuck enforces that at most one process may write to a given catalog at any time. This constraint is what makes the reader model possible — because there is one writer, the catalog evolves as a single linear sequence of snapshots, and readers can safely read any snapshot without worrying about concurrent conflicting writes from other writers.
+The flip side of unlimited readers is a single writer. Rocklake enforces that at most one process may write to a given catalog at any time. This constraint is what makes the reader model possible — because there is one writer, the catalog evolves as a single linear sequence of snapshots, and readers can safely read any snapshot without worrying about concurrent conflicting writes from other writers.
 
 The single-writer constraint is enforced by SlateDB's fencing mechanism (described in detail on the [Writer Fencing](writer-fencing.md) page). Briefly: when a writer opens the catalog, it registers itself with a fencing token in the manifest. If a second process tries to write, the first writer is fenced off and can no longer commit.
 
@@ -130,7 +130,7 @@ This is an explicit partitioning model, not transparent sharding. You choose par
 
 ## When Single-Writer Is Not Enough
 
-If your workload requires atomic multi-writer transactions against the same tables (multiple concurrent processes inserting data into the same table with transactional isolation between them), SlateDuck is not the right choice. Consider PostgreSQL-backed DuckLake instead, which provides full multi-writer SERIALIZABLE isolation through PostgreSQL's mature concurrency control.
+If your workload requires atomic multi-writer transactions against the same tables (multiple concurrent processes inserting data into the same table with transactional isolation between them), Rocklake is not the right choice. Consider PostgreSQL-backed DuckLake instead, which provides full multi-writer SERIALIZABLE isolation through PostgreSQL's mature concurrency control.
 
 However, in our experience, the vast majority of analytics catalog workloads are naturally single-writer (one pipeline loads data, many queries read it) or naturally partitionable (different datasets are independently managed). The single-writer constraint is a real constraint, but it is one that aligns with how most data platforms are actually structured.
 

@@ -1,14 +1,14 @@
 # Quickstart (Cloud)
 
-The local quickstart showed you how SlateDuck works on your machine with a local filesystem path. That is useful for experimentation, but the real value of SlateDuck emerges when you point it at cloud object storage. Once your catalog lives in S3, GCS, or Azure Blob Storage, you get eleven-nines durability without managing any disks, automatic replication across availability zones without any configuration, and the ability to scale readers across regions by simply starting additional SlateDuck instances pointed at the same prefix.
+The local quickstart showed you how Rocklake works on your machine with a local filesystem path. That is useful for experimentation, but the real value of Rocklake emerges when you point it at cloud object storage. Once your catalog lives in S3, GCS, or Azure Blob Storage, you get eleven-nines durability without managing any disks, automatic replication across availability zones without any configuration, and the ability to scale readers across regions by simply starting additional Rocklake instances pointed at the same prefix.
 
-This guide walks you through connecting SlateDuck to each major cloud provider, verifying that your data is durable, understanding the latency characteristics of object-store-backed catalogs, and optionally enabling TLS and authentication for production use. By the end, you will have a fully cloud-native lakehouse catalog that survives any single machine failure and costs fractions of a cent per month to store.
+This guide walks you through connecting Rocklake to each major cloud provider, verifying that your data is durable, understanding the latency characteristics of object-store-backed catalogs, and optionally enabling TLS and authentication for production use. By the end, you will have a fully cloud-native lakehouse catalog that survives any single machine failure and costs fractions of a cent per month to store.
 
 ## Prerequisites
 
 Before you begin, make sure you have:
 
-- **SlateDuck binary** installed and available on your `PATH` (see the [local quickstart](quickstart.md) for installation)
+- **Rocklake binary** installed and available on your `PATH` (see the [local quickstart](quickstart.md) for installation)
 - **DuckDB 1.2+** with the `ducklake` extension installed (`INSTALL ducklake; LOAD ducklake;`)
 - **A cloud storage bucket** with write access — one of:
     - An AWS S3 bucket (standard or Express One Zone)
@@ -16,11 +16,11 @@ Before you begin, make sure you have:
     - An Azure Blob Storage container
 - **Appropriate credentials** configured in your environment (details below)
 
-If you have not yet completed the local quickstart, we recommend doing so first. The cloud quickstart assumes familiarity with the basic SlateDuck workflow (start server, attach from DuckDB, create schemas and tables).
+If you have not yet completed the local quickstart, we recommend doing so first. The cloud quickstart assumes familiarity with the basic Rocklake workflow (start server, attach from DuckDB, create schemas and tables).
 
 ## Step 1: Configure Cloud Credentials
 
-SlateDuck uses the standard credential discovery mechanisms for each cloud provider. You do not pass credentials as command-line arguments to SlateDuck — instead, you configure them in your environment the same way you would for the AWS CLI, `gsutil`, or `az` commands. This means your existing cloud authentication setup works without modification.
+Rocklake uses the standard credential discovery mechanisms for each cloud provider. You do not pass credentials as command-line arguments to Rocklake — instead, you configure them in your environment the same way you would for the AWS CLI, `gsutil`, or `az` commands. This means your existing cloud authentication setup works without modification.
 
 ### AWS S3
 
@@ -32,9 +32,9 @@ export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 export AWS_REGION=us-east-1
 ```
 
-Alternatively, SlateDuck reads from `~/.aws/credentials` and `~/.aws/config` — the same files the AWS CLI uses. If you can run `aws s3 ls s3://your-bucket/` successfully, SlateDuck can access the same bucket.
+Alternatively, Rocklake reads from `~/.aws/credentials` and `~/.aws/config` — the same files the AWS CLI uses. If you can run `aws s3 ls s3://your-bucket/` successfully, Rocklake can access the same bucket.
 
-For production deployments on AWS infrastructure, SlateDuck automatically uses:
+For production deployments on AWS infrastructure, Rocklake automatically uses:
 
 - **EC2 instance profiles** (instance metadata service)
 - **ECS task roles** (container credential provider)
@@ -75,7 +75,7 @@ For production or CI environments, use a service account key:
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
 ```
 
-On GCE instances and GKE pods, the attached service account is used automatically via the metadata server. SlateDuck also supports Workload Identity on GKE.
+On GCE instances and GKE pods, the attached service account is used automatically via the metadata server. Rocklake also supports Workload Identity on GKE.
 
 **Minimum IAM role:** `roles/storage.objectAdmin` on the target bucket.
 
@@ -97,11 +97,11 @@ export AZURE_CLIENT_SECRET=...
 export AZURE_STORAGE_ACCOUNT=myaccount
 ```
 
-On Azure VMs and AKS, managed identity is used automatically when no explicit credentials are set. SlateDuck also supports Workload Identity on AKS.
+On Azure VMs and AKS, managed identity is used automatically when no explicit credentials are set. Rocklake also supports Workload Identity on AKS.
 
 ### Verifying Credentials
 
-Before starting SlateDuck, verify that your credentials work with your cloud provider's CLI:
+Before starting Rocklake, verify that your credentials work with your cloud provider's CLI:
 
 ```bash
 # AWS
@@ -114,42 +114,42 @@ gsutil ls gs://my-lakehouse-bucket/
 az storage blob list --account-name myaccount --container-name my-container
 ```
 
-If the listing succeeds, SlateDuck will be able to access the same location.
+If the listing succeeds, Rocklake will be able to access the same location.
 
-## Step 2: Start SlateDuck with Cloud Storage
+## Step 2: Start Rocklake with Cloud Storage
 
-Point SlateDuck at your cloud storage location using the appropriate URI scheme:
+Point Rocklake at your cloud storage location using the appropriate URI scheme:
 
 === "AWS S3"
 
     ```bash
-    slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+    rocklake serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
     ```
 
 === "Google Cloud Storage"
 
     ```bash
-    slateduck serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+    rocklake serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
     ```
 
 === "Azure Blob Storage"
 
     ```bash
-    slateduck serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
+    rocklake serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
     ```
 
-On first start against an empty prefix, SlateDuck initializes a new catalog. This creates the SlateDB manifest file, the initial WAL entry, and the system keys (counters, configuration). The initialization involves approximately 3–5 PUT requests and completes in under a second on all major providers.
+On first start against an empty prefix, Rocklake initializes a new catalog. This creates the SlateDB manifest file, the initial WAL entry, and the system keys (counters, configuration). The initialization involves approximately 3–5 PUT requests and completes in under a second on all major providers.
 
 You should see output like:
 
 ```
-SlateDuck v0.8.0
+Rocklake v0.8.0
 Catalog: s3://my-lakehouse-bucket/catalog/
 Listening: 0.0.0.0:5432
 Writer epoch: 1
 ```
 
-On subsequent starts against the same prefix, SlateDuck reads the existing manifest and resumes from the latest state. If another SlateDuck instance is currently running against the same prefix, the new instance fences the old one (see [Writer Fencing](../concepts/writer-fencing.md)) and takes over as the single writer.
+On subsequent starts against the same prefix, Rocklake reads the existing manifest and resumes from the latest state. If another Rocklake instance is currently running against the same prefix, the new instance fences the old one (see [Writer Fencing](../concepts/writer-fencing.md)) and takes over as the single writer.
 
 ### Choosing a Prefix
 
@@ -157,7 +157,7 @@ The `--storage` path determines where all catalog data lives within the bucket. 
 
 ```
 s3://my-lakehouse-bucket/
-├── catalog/           ← SlateDuck catalog data (SlateDB SSTs, WAL, manifest)
+├── catalog/           ← Rocklake catalog data (SlateDB SSTs, WAL, manifest)
 ├── data/              ← Parquet data files written by DuckDB
 └── staging/           ← Temporary staging area
 ```
@@ -173,7 +173,7 @@ The connection workflow is identical to the local quickstart — only the `host`
 INSTALL ducklake;
 LOAD ducklake;
 
--- Connect to SlateDuck
+-- Connect to Rocklake
 ATTACH '' AS lakehouse (TYPE ducklake, PG 'host=127.0.0.1 port=5432');
 USE lakehouse;
 ```
@@ -240,16 +240,16 @@ catalog/
         └── 00000000000000000001.sst  ← Sorted string table (compacted data)
 ```
 
-You never need to interact with these files directly. They are managed entirely by SlateDuck and SlateDB. But knowing they exist in your bucket — alongside your Parquet data files — helps reinforce the mental model: everything is in one bucket, nothing is on a server's local disk.
+You never need to interact with these files directly. They are managed entirely by Rocklake and SlateDB. But knowing they exist in your bucket — alongside your Parquet data files — helps reinforce the mental model: everything is in one bucket, nothing is on a server's local disk.
 
 ## Step 5: Test Durability
 
-To prove that the catalog is truly durable, stop SlateDuck and restart it:
+To prove that the catalog is truly durable, stop Rocklake and restart it:
 
 ```bash
-# Stop SlateDuck (Ctrl+C or kill the process)
+# Stop Rocklake (Ctrl+C or kill the process)
 # Start it again
-slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 Reconnect from DuckDB and verify your data is still there:
@@ -260,19 +260,19 @@ SELECT count(*) FROM lakehouse.production.events;
 -- Returns: 3
 ```
 
-Your catalog survived a full process restart because all state lives in object storage. You can start SlateDuck from a completely different machine — even in a different region — and it will read the same catalog state.
+Your catalog survived a full process restart because all state lives in object storage. You can start Rocklake from a completely different machine — even in a different region — and it will read the same catalog state.
 
 ## Understanding Cloud Latency
 
 Cloud object storage has higher latency than local filesystem access. A typical S3 GET or PUT request takes 20–80ms depending on region, object size, and current load. This means individual catalog operations (creating a table, listing schemas) take 50–200ms when backed by S3.
 
-SlateDuck mitigates this latency through several techniques:
+Rocklake mitigates this latency through several techniques:
 
-**Batched writes.** Multiple catalog changes within a single DuckDB transaction (which maps to a single SlateDuck transaction) are written as a single SlateDB batch. This batch becomes one WAL PUT regardless of how many catalog entries change. A transaction that creates a table with 20 columns writes one ~2 KB object to S3, not 20+ separate objects.
+**Batched writes.** Multiple catalog changes within a single DuckDB transaction (which maps to a single Rocklake transaction) are written as a single SlateDB batch. This batch becomes one WAL PUT regardless of how many catalog entries change. A transaction that creates a table with 20 columns writes one ~2 KB object to S3, not 20+ separate objects.
 
 **Hot key optimization.** Frequently-accessed metadata (current snapshot ID, table file counts, system configuration) is cached in memory after the first read. Cold start requires reading the manifest and a small number of SST files — typically 3–5 GETs — after which all common operations are served from the in-memory cache.
 
-**Prefix-bounded scans.** When DuckDB queries `SELECT * FROM ducklake_table`, SlateDuck does not scan all keys in the catalog. It uses a prefix range query that bounds the scan to only the keys for that specific table type, reducing the number of SST blocks that need to be read.
+**Prefix-bounded scans.** When DuckDB queries `SELECT * FROM ducklake_table`, Rocklake does not scan all keys in the catalog. It uses a prefix range query that bounds the scan to only the keys for that specific table type, reducing the number of SST blocks that need to be read.
 
 ### Latency by Provider
 
@@ -291,25 +291,25 @@ For interactive workloads (running queries in a notebook, exploring schemas), S3
 If you need the lowest possible latency on AWS, S3 Express One Zone (directory buckets) provides single-digit millisecond access. This is particularly valuable for interactive development workflows where you want catalog operations to feel instantaneous.
 
 ```bash
-slateduck serve --catalog s3express://my-express-bucket--use1-az1--x-s3/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog s3express://my-express-bucket--use1-az1--x-s3/catalog/ --bind 0.0.0.0:5432
 ```
 
 Express One Zone costs more per GB stored and per request than S3 Standard, but for a catalog that typically occupies less than 100 MB, the cost difference is negligible (cents per month). The latency improvement — from ~100ms per operation to ~10ms — dramatically improves the interactive experience.
 
-Note that Express One Zone stores data in a single availability zone. For the catalog, this is acceptable because SlateDB's manifest provides crash consistency, and the single-writer model means there is no split-brain risk. If the AZ experiences an outage, you can start a new SlateDuck instance in a different AZ pointed at a replicated copy of the bucket, or simply wait for the AZ to recover (your data is not lost, only temporarily inaccessible).
+Note that Express One Zone stores data in a single availability zone. For the catalog, this is acceptable because SlateDB's manifest provides crash consistency, and the single-writer model means there is no split-brain risk. If the AZ experiences an outage, you can start a new Rocklake instance in a different AZ pointed at a replicated copy of the bucket, or simply wait for the AZ to recover (your data is not lost, only temporarily inaccessible).
 
 ## Enabling TLS and Authentication
 
 For any deployment accessible over a network (not just localhost), you should enable TLS encryption and client authentication:
 
 ```bash
-slateduck \
+rocklake \
     --catalog s3://my-lakehouse-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
-    --tls-cert /etc/ssl/certs/slateduck.crt \
-    --tls-key /etc/ssl/private/slateduck.key \
+    --tls-cert /etc/ssl/certs/rocklake.crt \
+    --tls-key /etc/ssl/private/rocklake.key \
     --auth-user ducklake \
-    --auth-password "${SLATEDUCK_PASSWORD}"
+    --auth-password "${ROCKLAKE_PASSWORD}"
 ```
 
 DuckDB connects with credentials in the connection string:
@@ -326,26 +326,26 @@ The `sslmode=require` parameter ensures the connection uses TLS. For production 
 ### Certificate Options
 
 - **Self-signed certificates** work fine for internal deployments where you control both the server and client configuration.
-- **Let's Encrypt / ACME** certificates work if your SlateDuck instance is reachable from the internet (e.g., deployed on Fly.io with a public domain).
+- **Let's Encrypt / ACME** certificates work if your Rocklake instance is reachable from the internet (e.g., deployed on Fly.io with a public domain).
 - **Private CA certificates** are recommended for enterprise deployments where you manage your own PKI.
 
 ## Multi-Region Readers
 
-One of the most powerful features of a cloud-native catalog is the ability to deploy readers in multiple regions. Because SlateDuck's immutability model means readers never write to the catalog, you can start read-only SlateDuck instances in any region where your cloud provider has infrastructure:
+One of the most powerful features of a cloud-native catalog is the ability to deploy readers in multiple regions. Because Rocklake's immutability model means readers never write to the catalog, you can start read-only Rocklake instances in any region where your cloud provider has infrastructure:
 
 ```bash
 # Writer in us-east-1
-slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Reader in eu-west-1 (using cross-region S3 access or bucket replication)
-slateduck serve --catalog s3://my-lakehouse-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only
+rocklake serve --catalog s3://my-lakehouse-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only
 ```
 
 Readers in different regions see a slightly stale view of the catalog (the staleness is bounded by object storage replication lag, typically seconds). For analytics workloads, this is perfectly acceptable and provides dramatically lower query latency for users in distant regions.
 
 ## Cost Estimation
 
-One of the pleasant surprises of running SlateDuck in the cloud is how inexpensive it is. A catalog is just key-value data in object storage — there are no provisioned instances, no reserved capacity, no minimum charges:
+One of the pleasant surprises of running Rocklake in the cloud is how inexpensive it is. A catalog is just key-value data in object storage — there are no provisioned instances, no reserved capacity, no minimum charges:
 
 | Workload | Catalog Size | Monthly Storage Cost | Monthly Request Cost |
 |----------|--------------|---------------------|---------------------|
@@ -369,15 +369,15 @@ aws s3 rm s3://my-lakehouse-bucket/catalog/.test
 
 ### "Bucket not found" or "Container does not exist"
 
-The bucket/container must be created before starting SlateDuck. SlateDuck creates objects within the bucket but does not create the bucket itself.
+The bucket/container must be created before starting Rocklake. Rocklake creates objects within the bucket but does not create the bucket itself.
 
 ### High latency on first query after restart
 
-This is expected. On cold start, SlateDuck reads the manifest and loads the current state from SST files. Subsequent queries use the in-memory cache and are much faster. The cold start typically takes 200–500ms for a small catalog, scaling linearly with catalog size.
+This is expected. On cold start, Rocklake reads the manifest and loads the current state from SST files. Subsequent queries use the in-memory cache and are much faster. The cold start typically takes 200–500ms for a small catalog, scaling linearly with catalog size.
 
 ### "Writer fenced" error
 
-Another SlateDuck instance has taken over as the writer for this catalog. This happens when you start a new instance without stopping the old one. The old instance will refuse further write operations. See [Writer Fencing](../concepts/writer-fencing.md) for details.
+Another Rocklake instance has taken over as the writer for this catalog. This happens when you start a new instance without stopping the old one. The old instance will refuse further write operations. See [Writer Fencing](../concepts/writer-fencing.md) for details.
 
 ## Next Steps
 

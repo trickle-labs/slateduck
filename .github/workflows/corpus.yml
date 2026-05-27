@@ -21,14 +21,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build slateduck
-        run: cargo build --release -p slateduck-pgwire
+      - name: Build rocklake
+        run: cargo build --release -p rocklake-pgwire
 
       - name: Run corpus validate
         id: validate
         run: |
           set +e
-          OUTPUT=$(./target/release/slateduck corpus validate \
+          OUTPUT=$(./target/release/rocklake corpus validate \
               --corpus tests/fixtures/wire-corpus 2>&1)
           EXIT_CODE=$?
           echo "output<<EOF" >> "$GITHUB_OUTPUT"
@@ -44,7 +44,7 @@ jobs:
               > /tmp/base-corpus 2>/dev/null || true
           set +e
           if [ -s /tmp/base-corpus ]; then
-            DIFF_OUTPUT=$(./target/release/slateduck corpus diff \
+            DIFF_OUTPUT=$(./target/release/rocklake corpus diff \
                 --old /tmp/base-corpus \
                 --new tests/fixtures/wire-corpus 2>&1)
           else

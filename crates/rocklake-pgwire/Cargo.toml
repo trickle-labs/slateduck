@@ -1,0 +1,42 @@
+[package]
+name = "rocklake-pgwire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rocklake"
+path = "src/main.rs"
+
+[dependencies]
+rocklake-core = { path = "../rocklake-core" }
+rocklake-catalog = { path = "../rocklake-catalog" }
+rocklake-sql = { path = "../rocklake-sql" }
+slatedb = { workspace = true }
+pgwire = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+sqlparser = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+rcgen = "0.13"
+tokio-rustls = "0.26"
+serde_json = { workspace = true }
+object_store = { workspace = true }
+parquet = { version = "54", features = ["arrow"] }
+arrow = { version = "54" }

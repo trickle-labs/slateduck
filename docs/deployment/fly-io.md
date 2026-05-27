@@ -1,19 +1,19 @@
 # Deploying on Fly.io
 
-Fly.io is a global application platform that runs containers close to users with automatic TLS, global anycast networking, and Machines that boot in milliseconds. SlateDuck is an excellent fit for Fly.io: it is a small, stateless binary with fast startup time, low resource requirements, and no need for persistent local storage. You can have a globally-distributed lakehouse catalog running in production for under $5/month.
+Fly.io is a global application platform that runs containers close to users with automatic TLS, global anycast networking, and Machines that boot in milliseconds. Rocklake is an excellent fit for Fly.io: it is a small, stateless binary with fast startup time, low resource requirements, and no need for persistent local storage. You can have a globally-distributed lakehouse catalog running in production for under $5/month.
 
 This page covers the complete setup: creating the Fly app, configuring the deployment, managing secrets, connecting DuckDB clients, scaling to multiple regions, and operational patterns specific to Fly.io's platform.
 
-## Why Fly.io for SlateDuck
+## Why Fly.io for Rocklake
 
-Fly.io offers several properties that align perfectly with SlateDuck's architecture:
+Fly.io offers several properties that align perfectly with Rocklake's architecture:
 
-- **Fast boot:** Fly Machines start in <300ms. Combined with SlateDuck's ~200ms startup, you get cold-start times under 500ms.
+- **Fast boot:** Fly Machines start in <300ms. Combined with Rocklake's ~200ms startup, you get cold-start times under 500ms.
 - **Auto-stop/start:** Machines can scale to zero when idle and wake on incoming connections — perfect for infrequently-accessed catalogs.
 - **Global anycast:** A single hostname routes clients to the nearest region automatically.
 - **Built-in TLS:** Fly terminates TLS at the edge, so DuckDB clients get encryption without managing certificates.
 - **Simple deployment:** Push a Docker image with `fly deploy` — no Kubernetes, no Terraform, no infrastructure to manage.
-- **Low cost:** A shared-cpu-1x machine with 256 MB RAM runs SlateDuck comfortably for ~$2–5/month.
+- **Low cost:** A shared-cpu-1x machine with 256 MB RAM runs Rocklake comfortably for ~$2–5/month.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ fly auth login
 
 ```bash
 # Create a new Fly app
-fly apps create my-slateduck --org personal
+fly apps create my-rocklake --org personal
 
 # Create the fly.toml configuration
 ```
@@ -44,16 +44,16 @@ fly apps create my-slateduck --org personal
 Create `fly.toml` in your project directory:
 
 ```toml
-app = "my-slateduck"
+app = "my-rocklake"
 primary_region = "iad"
 
 [build]
-  image = "ghcr.io/slateduck/slateduck:0.8.0"
+  image = "ghcr.io/rocklake/rocklake:0.8.0"
 
 [env]
   AWS_REGION = "us-east-1"
-  RUST_LOG = "slateduck=info"
-  SLATEDUCK_LOG_FORMAT = "json"
+  RUST_LOG = "rocklake=info"
+  ROCKLAKE_LOG_FORMAT = "json"
 
 # TCP service for PostgreSQL wire protocol
 [[services]]
@@ -119,8 +119,8 @@ Never put credentials in `fly.toml`. Use Fly secrets:
 fly secrets set AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 fly secrets set AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
-# SlateDuck password authentication
-fly secrets set SLATEDUCK_PASSWORD=your-secure-random-password
+# Rocklake password authentication
+fly secrets set ROCKLAKE_PASSWORD=your-secure-random-password
 
 # Verify secrets are set (values are not shown)
 fly secrets list
@@ -151,7 +151,7 @@ fly checks list
 Connect using the Fly app hostname:
 
 ```sql
-ATTACH 'ducklake:host=my-slateduck.fly.dev;port=5432;user=ducklake;password=your-password' AS lake;
+ATTACH 'ducklake:host=my-rocklake.fly.dev;port=5432;user=ducklake;password=your-password' AS lake;
 ```
 
 ### With TLS (Recommended)
@@ -167,7 +167,7 @@ Fly.io can terminate TLS at the edge. Configure TLS handlers:
 Then connect with SSL:
 
 ```sql
-ATTACH 'ducklake:host=my-slateduck.fly.dev;port=5432;user=ducklake;password=your-password;sslmode=require' AS lake;
+ATTACH 'ducklake:host=my-rocklake.fly.dev;port=5432;user=ducklake;password=your-password;sslmode=require' AS lake;
 ```
 
 ### From Within Fly Network (Private)
@@ -175,7 +175,7 @@ ATTACH 'ducklake:host=my-slateduck.fly.dev;port=5432;user=ducklake;password=your
 If your DuckDB application also runs on Fly, use the internal DNS:
 
 ```sql
-ATTACH 'ducklake:host=my-slateduck.internal;port=5432;user=ducklake;password=your-password' AS lake;
+ATTACH 'ducklake:host=my-rocklake.internal;port=5432;user=ducklake;password=your-password' AS lake;
 ```
 
 Internal connections are free (no bandwidth charges) and lower latency.
@@ -190,23 +190,23 @@ Deploy one writer in the primary region and readers in secondary regions:
 
 ```bash
 # Primary writer in Washington DC
-fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
+fly machine run ghcr.io/rocklake/rocklake:0.8.0 \
     --region iad \
-    --env SLATEDUCK_STORAGE=s3://my-bucket/catalog/ \
+    --env ROCKLAKE_STORAGE=s3://my-bucket/catalog/ \
     --env AWS_REGION=us-east-1 \
     -- --catalog s3://my-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake
 
 # Read replica in Paris
-fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
+fly machine run ghcr.io/rocklake/rocklake:0.8.0 \
     --region cdg \
-    --env SLATEDUCK_STORAGE=s3://my-bucket-eu/catalog/ \
+    --env ROCKLAKE_STORAGE=s3://my-bucket-eu/catalog/ \
     --env AWS_REGION=eu-west-1 \
     -- --catalog s3://my-bucket-eu/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
 
 # Read replica in Singapore
-fly machine run ghcr.io/slateduck/slateduck:0.8.0 \
+fly machine run ghcr.io/rocklake/rocklake:0.8.0 \
     --region sin \
-    --env SLATEDUCK_STORAGE=s3://my-bucket-ap/catalog/ \
+    --env ROCKLAKE_STORAGE=s3://my-bucket-ap/catalog/ \
     --env AWS_REGION=ap-southeast-1 \
     -- --catalog s3://my-bucket-ap/catalog/ --bind 0.0.0.0:5432 --read-only --auth-user ducklake
 ```
@@ -227,19 +227,19 @@ Note: This works for HTTP protocols. For TCP/PostgreSQL wire protocol, you need 
 
 ## Volumes (Optional)
 
-SlateDuck does not need local storage (all state is in object storage). However, if you want to cache frequently-accessed catalog data locally for performance:
+Rocklake does not need local storage (all state is in object storage). However, if you want to cache frequently-accessed catalog data locally for performance:
 
 ```bash
-fly volumes create slateduck_cache --region iad --size 1
+fly volumes create rocklake_cache --region iad --size 1
 ```
 
 ```toml
 [mounts]
-  source = "slateduck_cache"
+  source = "rocklake_cache"
   destination = "/cache"
 ```
 
-This is rarely necessary — SlateDuck's hot key cache in memory is sufficient for most workloads.
+This is rarely necessary — Rocklake's hot key cache in memory is sufficient for most workloads.
 
 ## Monitoring
 
@@ -255,7 +255,7 @@ Access via `fly dashboard` or the Fly web console.
 
 ### Custom Metrics with Prometheus
 
-Export SlateDuck metrics to a Prometheus-compatible endpoint:
+Export Rocklake metrics to a Prometheus-compatible endpoint:
 
 ```toml
 [metrics]
@@ -277,7 +277,7 @@ fly checks create tcp \
 
 ## Cost Analysis
 
-Fly.io pricing for SlateDuck deployments:
+Fly.io pricing for Rocklake deployments:
 
 | Configuration | Monthly Cost | Use Case |
 |---------------|-------------|----------|
@@ -291,7 +291,7 @@ Additional costs:
 - Outbound bandwidth: $0.02/GB (first 100 GB/month free)
 - Volumes (if used): $0.15/GB/month
 
-For comparison, the equivalent on AWS (EC2 t3.micro + NLB) costs ~$25/month. Fly.io is significantly more cost-effective for small SlateDuck deployments.
+For comparison, the equivalent on AWS (EC2 t3.micro + NLB) costs ~$25/month. Fly.io is significantly more cost-effective for small Rocklake deployments.
 
 ## Operational Patterns
 
@@ -344,7 +344,7 @@ Fly.io offers Tigris — an S3-compatible object store integrated into their pla
 fly storage create my-lakehouse
 
 # Set storage URL
-fly secrets set SLATEDUCK_STORAGE=s3://my-lakehouse/catalog/
+fly secrets set ROCKLAKE_STORAGE=s3://my-lakehouse/catalog/
 fly secrets set AWS_ENDPOINT_URL=https://fly.storage.tigris.dev
 ```
 
@@ -364,7 +364,7 @@ fly logs --no-tail | grep -i "error\|panic\|fatal"
 
 Common causes:
 
-- **Missing secrets:** SlateDuck cannot authenticate to S3 without credentials. Verify with `fly secrets list`.
+- **Missing secrets:** Rocklake cannot authenticate to S3 without credentials. Verify with `fly secrets list`.
 - **Wrong storage URL:** A typo in the bucket name or region causes immediate failure on the first read.
 - **Port conflict:** Ensure `internal_port` in `fly.toml` matches the `--bind` port in the process command.
 
@@ -397,7 +397,7 @@ Fly machines communicate with AWS S3 over the public internet. Each SlateDB read
 **Symptom:** Writer epoch keeps incrementing, or machines show multiple recent starts.
 
 - **OOM kills:** Check if the machine runs out of memory. Increase `memory_mb` in `fly.toml`.
-- **Health check failures:** If the TCP health check fails, Fly restarts the machine. Increase `grace_period` if SlateDuck needs more startup time.
+- **Health check failures:** If the TCP health check fails, Fly restarts the machine. Increase `grace_period` if Rocklake needs more startup time.
 - **Auto-stop/start cycling:** If traffic arrives in bursts with gaps just long enough to trigger auto-stop, the machine oscillates. Either disable auto-stop or increase the idle timeout.
 
 ## Complete Example: Production Setup
@@ -411,13 +411,13 @@ kill_signal = "SIGTERM"
 kill_timeout = "30s"
 
 [build]
-  image = "ghcr.io/slateduck/slateduck:0.8.0"
+  image = "ghcr.io/rocklake/rocklake:0.8.0"
 
 [env]
   AWS_REGION = "us-east-1"
-  RUST_LOG = "slateduck=info,slateduck_pgwire=warn"
-  SLATEDUCK_LOG_FORMAT = "json"
-  SLATEDUCK_METRICS_PORT = "9090"
+  RUST_LOG = "rocklake=info,rocklake_pgwire=warn"
+  ROCKLAKE_LOG_FORMAT = "json"
+  ROCKLAKE_METRICS_PORT = "9090"
 
 [processes]
   app = "--catalog s3://my-production-bucket/catalog/ --bind 0.0.0.0:5432 --auth-user ducklake"

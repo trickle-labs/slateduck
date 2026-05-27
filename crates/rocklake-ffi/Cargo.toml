@@ -1,0 +1,17 @@
+[package]
+name = "rocklake-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+rocklake-core = { path = "../rocklake-core" }
+rocklake-catalog = { path = "../rocklake-catalog" }
+object_store = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

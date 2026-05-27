@@ -17,11 +17,11 @@ jobs:
       - name: Run with ASAN
         env:
           RUSTFLAGS: "-Z sanitizer=address"
-        run: cargo test -p slateduck-ffi --target x86_64-unknown-linux-gnu
+        run: cargo test -p rocklake-ffi --target x86_64-unknown-linux-gnu
       - name: Run with UBSAN
         env:
           RUSTFLAGS: "-Z sanitizer=undefined"
-        run: cargo test -p slateduck-ffi --target x86_64-unknown-linux-gnu
+        run: cargo test -p rocklake-ffi --target x86_64-unknown-linux-gnu
 
   miri:
     name: Miri
@@ -31,7 +31,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      - name: Run Miri (slateduck-ffi)
-        run: cargo miri test -p slateduck-ffi
-      - name: Run Miri (slateduck-core key and value encode/decode)
-        run: cargo miri test -p slateduck-core
+      - name: Run Miri (rocklake-ffi)
+        run: cargo miri test -p rocklake-ffi
+      - name: Run Miri (rocklake-core key and value encode/decode)
+        run: cargo miri test -p rocklake-core

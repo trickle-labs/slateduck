@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-This page describes the tested compatibility between SlateDuck and various ecosystem components.
+This page describes the tested compatibility between Rocklake and various ecosystem components.
 
 ## DuckDB Client Versions
 
@@ -100,7 +100,7 @@ This page describes the tested compatibility between SlateDuck and various ecosy
 
 ## Version Policy
 
-SlateDuck follows [Semantic Versioning](https://semver.org/).
+Rocklake follows [Semantic Versioning](https://semver.org/).
 
 - **Major (1.x.x)**: Breaking changes to the pg-wire API, catalog format, or FFI.
 - **Minor (0.x.0)**: New features, backward-compatible changes.

@@ -1,6 +1,6 @@
 # Reference
 
-This section provides lookup-oriented reference material for SlateDuck. Unlike the conceptual documentation (which explains WHY things work the way they do) or the architecture documentation (which explains HOW components fit together), reference pages are designed for quick answers to specific questions. You come here when you need to know what error code 42P01 means, what environment variable controls the cache size, what fields a table row contains, or what SQL patterns DuckDB sends.
+This section provides lookup-oriented reference material for Rocklake. Unlike the conceptual documentation (which explains WHY things work the way they do) or the architecture documentation (which explains HOW components fit together), reference pages are designed for quick answers to specific questions. You come here when you need to know what error code 42P01 means, what environment variable controls the cache size, what fields a table row contains, or what SQL patterns DuckDB sends.
 
 The reference section is exhaustive rather than instructive. Every supported SQL statement is listed. Every error code is documented. Every environment variable is described. Every metric is named and explained. This is the section you bookmark and return to repeatedly during development, debugging, and operations.
 
@@ -14,37 +14,37 @@ Each page covers a single reference domain:
 
     ---
 
-    Complete list of all 28 catalog table types stored in the SlateDuck catalog. For each table: the tag byte, protobuf message fields, key encoding format, sort behavior, and relationship to other tables. This is the authoritative specification of the catalog schema.
+    Complete list of all 28 catalog table types stored in the Rocklake catalog. For each table: the tag byte, protobuf message fields, key encoding format, sort behavior, and relationship to other tables. This is the authoritative specification of the catalog schema.
 
 -   **[Supported SQL](sql-supported.md)**
 
     ---
 
-    Exhaustive list of every SQL statement pattern that SlateDuck's bounded classifier recognizes. Organized by category (schema operations, table operations, column operations, data file operations, transaction management). Includes the exact SQL format DuckDB sends and what catalog operation it maps to.
+    Exhaustive list of every SQL statement pattern that Rocklake's bounded classifier recognizes. Organized by category (schema operations, table operations, column operations, data file operations, transaction management). Includes the exact SQL format DuckDB sends and what catalog operation it maps to.
 
 -   **[Error Codes](error-codes.md)**
 
     ---
 
-    All SQLSTATE error codes returned by SlateDuck, organized by error class. For each code: name, description, common causes, and recommended handling. Stable across versions — safe for programmatic error handling.
+    All SQLSTATE error codes returned by Rocklake, organized by error class. For each code: name, description, common causes, and recommended handling. Stable across versions — safe for programmatic error handling.
 
 -   **[Environment Variables](environment-vars.md)**
 
     ---
 
-    Complete configuration reference. Every environment variable recognized by SlateDuck: purpose, type, default value, and examples. Includes storage credentials, server settings, TLS, logging, and performance tuning.
+    Complete configuration reference. Every environment variable recognized by Rocklake: purpose, type, default value, and examples. Includes storage credentials, server settings, TLS, logging, and performance tuning.
 
 -   **[Metrics](metrics.md)**
 
     ---
 
-    All Prometheus metrics exposed by SlateDuck's `/metrics` endpoint. For each metric: type (counter, gauge, histogram), labels, description, and what it tells you about system health and performance.
+    All Prometheus metrics exposed by Rocklake's `/metrics` endpoint. For each metric: type (counter, gauge, histogram), labels, description, and what it tells you about system health and performance.
 
 -   **[Glossary](glossary.md)**
 
     ---
 
-    Definitions of all terms used throughout the documentation. If you encounter an unfamiliar word in any SlateDuck page, look it up here. Alphabetically organized for quick lookup.
+    Definitions of all terms used throughout the documentation. If you encounter an unfamiliar word in any Rocklake page, look it up here. Alphabetically organized for quick lookup.
 
 </div>
 

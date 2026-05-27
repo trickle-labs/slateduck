@@ -35,6 +35,6 @@
     "Before (v0.27.1): each run_sync() call spawns a new OS thread (~2ms overhead per call).",
     "After (v0.27.2): single background thread receives tasks via mpsc channel; typical call overhead drops to <200µs.",
     "The benchmark was not run via criterion; numbers are indicative from manual timing with std::time::Instant.",
-    "Run `cargo bench -p slateduck-datafusion` to reproduce with the criterion harness."
+    "Run `cargo bench -p rocklake-datafusion` to reproduce with the criterion harness."
   ]
 }

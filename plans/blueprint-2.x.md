@@ -1,4 +1,4 @@
-# SlateDuck v2.x: A World-Class Fact Store on Object Storage
+# Rocklake v2.x: A World-Class Fact Store on Object Storage
 
 > Status: **Exploration / Design**. This document is a forward-looking design
 > blueprint for the v2.x line. It builds on the architectural compass in
@@ -12,7 +12,7 @@
 
 ## Introduction (for a non-technical audience)
 
-SlateDuck v1.x ships a **lakehouse catalog**: a way to store metadata about
+Rocklake v1.x ships a **lakehouse catalog**: a way to store metadata about
 data files in cloud object storage. The interesting thing about how it does
 that is not the catalog itself — it is the **storage engine underneath the
 catalog**. That engine treats every change as an immutable *fact* with a
@@ -152,7 +152,7 @@ tiered index design, query compilation, and honest workload scoping.
                                                    │
                                                    ▼
                                               [excised]
-                                          (only via slateduck excise,
+                                          (only via rocklake excise,
                                             audited, irreversible)
 ```
 
@@ -165,15 +165,15 @@ that need bi-temporal semantics.
 
 ---
 
-## 3. Storage Substrate (extracted from `slateduck-core`)
+## 3. Storage Substrate (extracted from `rocklake-core`)
 
 ### 3.1 Crate extraction
 
-v2.0 promotes the schema-agnostic primitives from `slateduck-core` into a
-new top-level crate, `slateduck-factstore`. The boundary is defined in
+v2.0 promotes the schema-agnostic primitives from `rocklake-core` into a
+new top-level crate, `rocklake-factstore`. The boundary is defined in
 [`plans/blueprint.md` §5.29](blueprint.md):
 
-| Moves into `slateduck-factstore`             | Stays in `slateduck-catalog` |
+| Moves into `rocklake-factstore`             | Stays in `rocklake-catalog` |
 |----------------------------------------------|------------------------------|
 | Key encoding utilities                       | 28-table tag allocation      |
 | Value header + version byte + Protobuf dispatch | Lakehouse MVCC filter      |
@@ -302,7 +302,7 @@ avoids S3 round-trips is the *disk* size, not RAM. Configuration:
 |-----------|---------|------------------|
 | `memory_capacity` | 1 GiB | Hot blocks in RAM |
 | `disk_capacity` | 90 GiB | Warm blocks on NVMe |
-| `disk_path` | `/var/cache/slateduck` | On-disk tier location |
+| `disk_path` | `/var/cache/rocklake` | On-disk tier location |
 | `write_policy` | `WriteOnInsertion` | When to promote to disk tier |
 
 The disk tier is ephemeral — the system operates correctly without it (pure
@@ -420,9 +420,9 @@ if storage costs are a concern.
 
 | Interface | When to use it                                          | Crate |
 |-----------|---------------------------------------------------------|-------|
-| Typed Rust API | Embedded use, hot paths, library consumers         | `slateduck-factstore` |
-| SQL (PG-wire) | Existing SQL tooling, BI dashboards, ad-hoc analysis | `slateduck-pgwire` (extended) |
-| Rule-based queries | Recursive, graph-shaped, exploratory queries       | `slateduck-rules` (new) |
+| Typed Rust API | Embedded use, hot paths, library consumers         | `rocklake-factstore` |
+| SQL (PG-wire) | Existing SQL tooling, BI dashboards, ad-hoc analysis | `rocklake-pgwire` (extended) |
+| Rule-based queries | Recursive, graph-shaped, exploratory queries       | `rocklake-rules` (new) |
 
 All three compile to the same physical operators over the four indexes
 (§3.3). A rule-based query and a SQL query that express the same logical
@@ -686,13 +686,13 @@ together.
 
 ### 5.4 Excision
 
-Inherited from v1.x unchanged. `slateduck excise --before V --apply`
+Inherited from v1.x unchanged. `rocklake excise --before V --apply`
 remains the only path to byte-level deletion, with the same audit
 requirements (operator identity + reason, recorded as an immutable fact
 under tag `0xFF`).
 
 v2.x adds **per-entity excision** for compliance use cases (right-to-be-
-forgotten): `slateduck excise --entity 12345 --apply` removes all facts
+forgotten): `rocklake excise --entity 12345 --apply` removes all facts
 for entity 12345 across all indexes and writes a compliance audit record.
 
 ### 5.5 Checkpoints and branches
@@ -709,8 +709,8 @@ or impossible:
 - **Point-in-time restore.** Roll back to a known-good version after a bad
   bulk import or a runaway migration:
   ```
-  slateduck checkpoint create --name pre-migration-v42
-  slateduck checkpoint restore --name pre-migration-v42   # dry-run by default
+  rocklake checkpoint create --name pre-migration-v42
+  rocklake checkpoint restore --name pre-migration-v42   # dry-run by default
   ```
 - **Test and staging branches.** Developers take a checkpoint of production
   data, open it in a read-only reader, and run the migration script against
@@ -720,8 +720,8 @@ or impossible:
   committing at full speed; the pinned reader sees a frozen view.
 
 A checkpoint is purely a manifest reference — it does not copy any SST
-files. `slateduck checkpoint list` shows all named checkpoints and their
-generation numbers; `slateduck checkpoint drop` releases the GC hold when
+files. `rocklake checkpoint list` shows all named checkpoints and their
+generation numbers; `rocklake checkpoint drop` releases the GC hold when
 the checkpoint is no longer needed.
 
 ---
@@ -745,7 +745,7 @@ sees a stable view that no concurrent writer can perturb. This means:
 This is the strongest scale-out story possible: linear throughput by
 adding processes, no coordination overhead, no consistency protocol.
 
-### 6.2 The `slateduck reader` binary
+### 6.2 The `rocklake reader` binary
 
 A new binary that serves either the lakehouse schema or any registered
 application schema, with three deployment modes:
@@ -993,7 +993,7 @@ behind a load balancer where retries are routine.
 
 ### 8.7 Stateless multi-producer ingestion (Buffer pattern)
 
-The direct write path routes all clients through the single SlateDuck writer
+The direct write path routes all clients through the single Rocklake writer
 process. For deployments with application instances spread across
 availability zones this means cross-zone transfer costs and write
 unavailability during writer restarts.
@@ -1013,7 +1013,7 @@ availability using an object-storage queue:
            └──────────┬──────────┘
                       │  poll
            ┌──────────▼──────────┐
-           │  SlateDuck Writer  │
+           │  Rocklake Writer  │
            │  BufferConsumer    │
            │  → FactStore.write │
            └────────────────────┘
@@ -1023,7 +1023,7 @@ Key properties:
 
 - **Multi-producer, single consumer.** Any number of app instances append
   to the queue manifest concurrently via compare-and-swap. Only the
-  SlateDuck writer consumes. This preserves the single-writer guarantee
+  Rocklake writer consumes. This preserves the single-writer guarantee
   on the fact store.
 - **Epoch-based consumer fencing.** On writer restart, the consumer
   increments the manifest epoch, fencing any zombie consumer from a
@@ -1056,7 +1056,7 @@ Key properties:
   parses the length-prefixed record entries. This makes it safe to add new
   compression codecs or record types without breaking existing consumers.
 - **Write availability decoupled from writer availability.** Apps continue
-  writing to object storage even while SlateDuck is down or deploying.
+  writing to object storage even while Rocklake is down or deploying.
 
 Trade-off: a fact is not queryable until the producer flushes its batch
 (default 100 ms), the consumer polls the manifest (default 1 s), and the
@@ -1303,7 +1303,7 @@ query latency against analytical compatibility and storage cost.
 
 - View state stored as memory-mapped Arrow IPC files on the local NVMe
   PVC (the same disk used by the SlateDB block cache).
-- Zero-copy in-process reads: DuckDB, DataFusion, and the SlateDuck SQL
+- Zero-copy in-process reads: DuckDB, DataFusion, and the Rocklake SQL
   layer can query the view without deserialisation.
 - SIMD-friendly columnar layout — sub-millisecond point lookups for most
   entity snapshot queries.
@@ -1395,13 +1395,13 @@ disaggregated compaction model (§3.8) and the Buffer queue pattern (§8.7).
 The `dbsp` crate (from the Feldera project) provides a complete Rust
 implementation of the DBSP incremental computation model:
 
-| Capability | Relevance to SlateDuck |
+| Capability | Relevance to Rocklake |
 |------------|------------------------|
 | Full SQL incrementally (joins, aggregates, window functions, recursion) | Enables arbitrary SQL-declared views without hand-writing operators |
 | Datasets larger than RAM via NVMe spill (`FallbackZSet`, `FallbackKeyBatch`) | Handles large entity snapshots without memory pressure |
 | Multi-worker scale-out via timely dataflow | Long-term horizontal partitioning of expensive views |
 | LATENESS annotations for time-series GC | Bounds storage for event/metric views over sliding windows |
-| Ad-hoc queries against materialised state via DataFusion | Consistent with SlateDuck's existing DataFusion integration |
+| Ad-hoc queries against materialised state via DataFusion | Consistent with Rocklake's existing DataFusion integration |
 | MIT licensed, written in Rust | Fits the crate dependency model |
 
 For Phase 2.2, a hand-written Z-set operator set (filter, project, group-by)
@@ -1453,7 +1453,7 @@ else in v2.x: a bucket and a binary, nothing more.
 
 ## 13. Extraction Boundary and API Surface
 
-### 13.1 The `slateduck-factstore` crate
+### 13.1 The `rocklake-factstore` crate
 
 ```rust
 pub struct FactStore { /* ... */ }
@@ -1493,8 +1493,8 @@ impl Reader {
 
 ### 13.2 The lakehouse adapter
 
-The existing `slateduck-catalog` crate becomes a thin **adapter** on top
-of `slateduck-factstore`. Each of the 28 lakehouse tables maps to a
+The existing `rocklake-catalog` crate becomes a thin **adapter** on top
+of `rocklake-factstore`. Each of the 28 lakehouse tables maps to a
 schema with attributes named for the spec columns. The adapter exposes
 the v1.x API unchanged for backward compatibility.
 
@@ -1506,15 +1506,15 @@ cleanly on the generic substrate, every other schema can too.
 - v1.x lakehouse catalogs **upgrade in place** to v2.0 — the on-disk
   format is identical, the adapter speaks the same wire protocol.
 - v1.x APIs are preserved through the entire v2.x line.
-- The generic API is **independently versioned**: `slateduck-factstore`
-  may reach 1.0 before or after SlateDuck v2.0 ships.
+- The generic API is **independently versioned**: `rocklake-factstore`
+  may reach 1.0 before or after Rocklake v2.0 ships.
 
 ### 13.4 Possible standalone-project promotion
 
-Once `slateduck-factstore` stabilises (no breaking changes for two minor
+Once `rocklake-factstore` stabilises (no breaking changes for two minor
 releases, ≥ 2 production users beyond the lakehouse adapter), the crate
 can be promoted to a **standalone project** with its own repository,
-governance, and release cadence. SlateDuck would then depend on it as an
+governance, and release cadence. Rocklake would then depend on it as an
 external crate. This is explicitly *not* required for v2.0 to ship —
 in-workspace extraction is sufficient.
 
@@ -1524,8 +1524,8 @@ in-workspace extraction is sufficient.
 
 ### Phase 2.0 — Extraction (foundational)
 
-- [ ] Carve `slateduck-factstore` out of `slateduck-core`.
-- [ ] Re-implement the lakehouse catalog as a `slateduck-factstore`
+- [ ] Carve `rocklake-factstore` out of `rocklake-core`.
+- [ ] Re-implement the lakehouse catalog as a `rocklake-factstore`
       adapter.
 - [ ] All v1.x tests pass against the adapter.
 - [ ] Zero on-disk format changes; in-place upgrade verified.
@@ -1563,7 +1563,7 @@ in-workspace extraction is sufficient.
 
 ### Phase 2.3 — Read scale-out
 
-- [ ] `slateduck reader` binary with three deployment modes.
+- [ ] `rocklake reader` binary with three deployment modes.
 - [ ] CDN cache contract documentation and validated proxy configurations.
 - [ ] Linear-scaling benchmark to ≥ 100 reader pods.
 - [ ] Lambda / edge cold-start guide.
@@ -1681,7 +1681,7 @@ land.
 
 v2.x succeeds when:
 
-1. The `slateduck-factstore` crate publishes a 1.0 API and the lakehouse
+1. The `rocklake-factstore` crate publishes a 1.0 API and the lakehouse
    adapter uses it in production with zero regressions.
 2. At least one non-lakehouse schema is built on the substrate (internal
    or external) and reaches a usable state.
@@ -1701,7 +1701,7 @@ v2.x succeeds when:
 - What is the right "tag block" allocation policy for user-defined
   schemas? (Tag ranges, dynamic registration, or both?)
 - Should the rule-based query language be standardised (e.g. to an
-  existing dialect) or stay SlateDuck-specific to leave room for novel
+  existing dialect) or stay Rocklake-specific to leave room for novel
   features?
 - How much of the value-type system should be extensible (custom types
   via plugin?) versus closed (the §3.5 list and no more)?
@@ -1725,7 +1725,7 @@ v2.x succeeds when:
   the assertion version and the excision version.
 - Should entity-level bloom filters and block-level record counts (§3.7) be
   proposed as upstream SlateDB enhancements, or implemented via a
-  SlateDuck-specific SST extension? The former is the right long-term path
+  Rocklake-specific SST extension? The former is the right long-term path
   but requires coordination with SlateDB maintainers.
 - Should the Buffer front-end (§8.7) use an existing open-source
   object-storage queue crate (lower maintenance, proven) or be

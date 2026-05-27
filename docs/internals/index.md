@@ -1,8 +1,8 @@
 # Internals
 
-Welcome to the engine room. This section documents SlateDuck's internal implementation details — the mechanisms, data structures, and algorithms that make the catalog work. These pages are for contributors who need to modify the code, advanced operators who need to debug unusual behavior, and the technically curious who want to understand exactly how the system achieves its guarantees.
+Welcome to the engine room. This section documents Rocklake's internal implementation details — the mechanisms, data structures, and algorithms that make the catalog work. These pages are for contributors who need to modify the code, advanced operators who need to debug unusual behavior, and the technically curious who want to understand exactly how the system achieves its guarantees.
 
-You do not need to read this section to use SlateDuck effectively. The concepts, architecture, and operations sections cover everything needed for productive use. But if you have ever wondered "how does MVCC actually work at the key-value level?" or "what happens to crash safety when the process dies mid-write?" — this section provides precise, implementation-level answers.
+You do not need to read this section to use Rocklake effectively. The concepts, architecture, and operations sections cover everything needed for productive use. But if you have ever wondered "how does MVCC actually work at the key-value level?" or "what happens to crash safety when the process dies mid-write?" — this section provides precise, implementation-level answers.
 
 The internals are documented honestly: where the implementation is elegant, we explain why. Where it involves trade-offs or complexity, we explain what drove those choices. The goal is to make the codebase accessible to new contributors — to reduce the time between "I want to contribute" and "I understand enough to make changes."
 
@@ -77,16 +77,16 @@ For contributors who want to dive into the source code, here is a map from inter
 
 | Concept | Primary Crate | Key Module |
 |---------|--------------|-----------|
-| MVCC filter | `slateduck-core` | `src/mvcc.rs` |
-| Tag allocation | `slateduck-core` | `src/tags.rs` |
-| Key encoding/decoding | `slateduck-core` | `src/keys.rs` |
-| Value encoding (protobuf) | `slateduck-core` | `src/values.rs` |
-| Type-aware statistics | `slateduck-core` | `src/types.rs` |
-| SQL classification | `slateduck-sql` | `src/classifier.rs` |
-| SQLSTATE mapping | `slateduck-pgwire` | `src/error.rs` |
-| Wire protocol handling | `slateduck-pgwire` | `src/protocol.rs` |
-| Catalog operations | `slateduck-catalog` | `src/` |
-| Inlined data | `slateduck-catalog` | `src/inline.rs` |
+| MVCC filter | `rocklake-core` | `src/mvcc.rs` |
+| Tag allocation | `rocklake-core` | `src/tags.rs` |
+| Key encoding/decoding | `rocklake-core` | `src/keys.rs` |
+| Value encoding (protobuf) | `rocklake-core` | `src/values.rs` |
+| Type-aware statistics | `rocklake-core` | `src/types.rs` |
+| SQL classification | `rocklake-sql` | `src/classifier.rs` |
+| SQLSTATE mapping | `rocklake-pgwire` | `src/error.rs` |
+| Wire protocol handling | `rocklake-pgwire` | `src/protocol.rs` |
+| Catalog operations | `rocklake-catalog` | `src/` |
+| Inlined data | `rocklake-catalog` | `src/inline.rs` |
 
 ## Prerequisites
 

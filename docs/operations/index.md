@@ -1,6 +1,6 @@
 # Operations
 
-This section covers the operational procedures for running SlateDuck in production. A well-operated SlateDuck deployment needs minimal intervention — the system is designed to run unattended for weeks or months — but when you do need to interact with it (cleaning up old data, investigating a problem, performing a backup), having clear procedures matters.
+This section covers the operational procedures for running Rocklake in production. A well-operated Rocklake deployment needs minimal intervention — the system is designed to run unattended for weeks or months — but when you do need to interact with it (cleaning up old data, investigating a problem, performing a backup), having clear procedures matters.
 
 Each guide provides step-by-step instructions, explains what happens internally during each operation, and gives guidance on when to use it and what can go wrong.
 

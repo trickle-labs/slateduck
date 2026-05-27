@@ -1,10 +1,10 @@
-site_name: SlateDuck Documentation
-site_url: https://trickle-labs.github.io/slateduck/
+site_name: Rocklake Documentation
+site_url: https://trickle-labs.github.io/rocklake/
 site_description: >-
   A DuckLake catalog on SlateDB — your entire lakehouse in a single S3 bucket,
   no database server required.
-repo_name: trickle-labs/slateduck
-repo_url: https://github.com/trickle-labs/slateduck
+repo_name: trickle-labs/rocklake
+repo_url: https://github.com/trickle-labs/rocklake
 edit_uri: edit/main/docs/
 
 theme:
@@ -107,7 +107,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/trickle-labs/slateduck
+      link: https://github.com/trickle-labs/rocklake
   generator: false
   status:
     new: Recently added
@@ -124,7 +124,7 @@ nav:
   - Home: index.md
   - Getting Started:
     - getting-started/index.md
-    - What is SlateDuck?: getting-started/what-is-slateduck.md
+    - What is Rocklake?: getting-started/what-is-rocklake.md
     - Quickstart (Local): getting-started/quickstart.md
     - Quickstart (Cloud): getting-started/quickstart-cloud.md
     - Your First Lakehouse: getting-started/first-lakehouse.md
@@ -202,14 +202,14 @@ nav:
     - Immutability Trade-offs: design-decisions/immutability-tradeoffs.md
     - Single-Writer Model: design-decisions/single-writer.md
     - Key Design Rationale: design-decisions/key-design-rationale.md
-    - What SlateDuck Is Not: design-decisions/what-slateduck-is-not.md
+    - What Rocklake Is Not: design-decisions/what-rocklake-is-not.md
     - Value Encoding (FlatBuffers): design-decisions/value-encoding.md
   - Performance:
     - performance/index.md
     - Latency Model: performance/latency-model.md
     - Benchmarks: performance/benchmarks.md
     - Tuning: performance/tuning.md
-    - When to Use SlateDuck: performance/when-to-use.md
+    - When to Use Rocklake: performance/when-to-use.md
     - vs. Alternatives: performance/vs-alternatives.md
     - Cost Analysis: performance/cost-analysis.md
     - SlateDB Tuning: performance/slatedb-tuning.md

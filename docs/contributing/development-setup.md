@@ -1,6 +1,6 @@
 # Development Setup
 
-This page walks you through setting up a complete local development environment for SlateDuck. By the end, you will be able to build all crates, run the full test suite, start a local SlateDuck instance, connect to it with DuckDB, and make changes with confidence that the test suite will catch regressions. The process is straightforward — if you can compile Rust code and have basic command-line skills, you can be contributing within 30 minutes.
+This page walks you through setting up a complete local development environment for Rocklake. By the end, you will be able to build all crates, run the full test suite, start a local Rocklake instance, connect to it with DuckDB, and make changes with confidence that the test suite will catch regressions. The process is straightforward — if you can compile Rust code and have basic command-line skills, you can be contributing within 30 minutes.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ This page walks you through setting up a complete local development environment 
 
 | Tool | Minimum Version | Purpose | Installation |
 |------|----------------|---------|-------------|
-| Rust toolchain | 1.80+ | Build SlateDuck | [rustup.rs](https://rustup.rs) |
+| Rust toolchain | 1.80+ | Build Rocklake | [rustup.rs](https://rustup.rs) |
 | Git | 2.30+ | Version control | System package manager |
 | C compiler | Any recent | Build native dependencies | Xcode CLI (macOS), gcc (Linux) |
 
@@ -54,7 +54,7 @@ cargo --version    # Should show corresponding cargo version
 | DuckDB | End-to-end protocol testing | Verifying DuckLake compatibility |
 | Python 3.10+ | Documentation builds | When editing docs |
 | MinIO CLI (mc) | Object storage inspection | Debugging storage issues |
-| psql | Manual protocol testing | Sending raw SQL to SlateDuck |
+| psql | Manual protocol testing | Sending raw SQL to Rocklake |
 
 **DuckDB installation:**
 
@@ -79,8 +79,8 @@ curl -fsSL https://get.docker.com | sh
 
 ```bash
 # Clone the repository
-git clone https://github.com/slateduck/slateduck.git
-cd slateduck
+git clone https://github.com/rocklake/rocklake.git
+cd rocklake
 
 # Build all crates in debug mode (faster compile, slower runtime)
 cargo build
@@ -96,15 +96,15 @@ The first build downloads and compiles all dependencies. This takes 2–5 minute
 After cloning, the workspace contains:
 
 ```
-slateduck/
+rocklake/
 ├── Cargo.toml            # Workspace manifest (lists all member crates)
 ├── crates/
-│   ├── slateduck-core/       # Foundation: types, keys, values, MVCC
-│   ├── slateduck-catalog/    # Persistence: read/write operations, GC
-│   ├── slateduck-sql/        # SQL classifier (pattern matching)
-│   ├── slateduck-pgwire/     # PG wire protocol server (binary lives here)
-│   ├── slateduck-ffi/        # C FFI for native DuckDB extension
-│   ├── slateduck-datafusion/ # DataFusion catalog provider
+│   ├── rocklake-core/       # Foundation: types, keys, values, MVCC
+│   ├── rocklake-catalog/    # Persistence: read/write operations, GC
+│   ├── rocklake-sql/        # SQL classifier (pattern matching)
+│   ├── rocklake-pgwire/     # PG wire protocol server (binary lives here)
+│   ├── rocklake-ffi/        # C FFI for native DuckDB extension
+│   ├── rocklake-datafusion/ # DataFusion catalog provider
 ├── tests/
 │   ├── fixtures/             # Wire corpus and test data
 │   └── golden/               # Golden test runner
@@ -119,11 +119,11 @@ Crates depend on each other in a strict hierarchy:
 
 ```mermaid
 graph TD
-    pgwire[slateduck-pgwire<br/>Binary + protocol] --> sql[slateduck-sql<br/>SQL classifier]
-    sql --> catalog[slateduck-catalog<br/>Persistence]
-    catalog --> core[slateduck-core<br/>Types + encoding]
-    ffi[slateduck-ffi<br/>C FFI] --> catalog
-    datafusion[slateduck-datafusion<br/>DataFusion] --> catalog
+    pgwire[rocklake-pgwire<br/>Binary + protocol] --> sql[rocklake-sql<br/>SQL classifier]
+    sql --> catalog[rocklake-catalog<br/>Persistence]
+    catalog --> core[rocklake-core<br/>Types + encoding]
+    ffi[rocklake-ffi<br/>C FFI] --> catalog
+    datafusion[rocklake-datafusion<br/>DataFusion] --> catalog
 ```
 
 You only need to understand the crates relevant to your change. Most contributions touch one or two crates.
@@ -135,10 +135,10 @@ You only need to understand the crates relevant to your change. Most contributio
 cargo test
 
 # Run tests for a specific crate
-cargo test -p slateduck-core
-cargo test -p slateduck-catalog
-cargo test -p slateduck-sql
-cargo test -p slateduck-pgwire
+cargo test -p rocklake-core
+cargo test -p rocklake-catalog
+cargo test -p rocklake-sql
+cargo test -p rocklake-pgwire
 
 # Run a specific test by name
 cargo test test_schema_key_roundtrip
@@ -147,10 +147,10 @@ cargo test test_schema_key_roundtrip
 cargo test -- --nocapture
 
 # Run only integration tests
-cargo test -p slateduck-catalog --test integration_tests
+cargo test -p rocklake-catalog --test integration_tests
 
 # Run property-based tests
-cargo test -p slateduck-core --test property_tests
+cargo test -p rocklake-core --test property_tests
 ```
 
 The complete test suite should pass on a fresh clone without any additional configuration. Tests use local filesystem storage by default (no S3 access required). If a test requires external services (MinIO, DuckDB), it is gated behind a feature flag or environment variable.
@@ -166,19 +166,19 @@ The complete test suite should pass on a fresh clone without any additional conf
 | Benchmark suite | 1–5 minutes | No (cargo bench) |
 | S3 integration tests | 30–120 seconds | No (requires S3) |
 
-## Running SlateDuck Locally
+## Running Rocklake Locally
 
-For end-to-end testing, run a local SlateDuck instance:
+For end-to-end testing, run a local Rocklake instance:
 
 ```bash
-# Start SlateDuck with local filesystem storage
+# Start Rocklake with local filesystem storage
 cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5432
 
 # In another terminal, connect with psql
-psql -h 127.0.0.1 -p 5432 -U slateduck
+psql -h 127.0.0.1 -p 5432 -U rocklake
 
 # Or connect with DuckDB
-duckdb -c "ATTACH 'ducklake:postgresql://localhost:5432/slateduck' AS lake;"
+duckdb -c "ATTACH 'ducklake:postgresql://localhost:5432/rocklake' AS lake;"
 ```
 
 The local filesystem storage is perfect for development — zero latency, no cloud credentials needed, and you can inspect the catalog files directly.
@@ -196,13 +196,13 @@ docker run -p 9000:9000 -p 9001:9001 \
 
 # Create a bucket
 mc alias set local http://localhost:9000 minioadmin minioadmin
-mc mb local/slateduck-dev
+mc mb local/rocklake-dev
 
-# Start SlateDuck pointing to MinIO
+# Start Rocklake pointing to MinIO
 AWS_ACCESS_KEY_ID=minioadmin \
 AWS_SECRET_ACCESS_KEY=minioadmin \
 AWS_ENDPOINT_URL=http://localhost:9000 \
-cargo run -- serve --catalog s3://slateduck-dev/catalog/ --bind 127.0.0.1:5432
+cargo run -- serve --catalog s3://rocklake-dev/catalog/ --bind 127.0.0.1:5432
 ```
 
 ## Editor Setup
@@ -301,7 +301,7 @@ Open a Pull Request on GitHub. The PR template asks for:
 
 ## Documentation Development
 
-SlateDuck's documentation is built with MkDocs Material:
+Rocklake's documentation is built with MkDocs Material:
 
 ```bash
 # Install Python dependencies
@@ -335,7 +335,7 @@ sudo dnf install openssl-devel # Fedora/RHEL
 If tests fail immediately after cloning, verify:
 - Rust version: `rustc --version` (must be 1.80+)
 - Clean build: `cargo clean && cargo build`
-- No conflicting environment variables (`AWS_*`, `SLATEDUCK_*`)
+- No conflicting environment variables (`AWS_*`, `ROCKLAKE_*`)
 
 ### Slow Compilation
 
@@ -357,7 +357,7 @@ pkg-config --modversion openssl
 
 ### Port Already in Use
 
-If SlateDuck fails to start with "address already in use":
+If Rocklake fails to start with "address already in use":
 
 ```bash
 # Check what is using port 5432
@@ -374,12 +374,12 @@ cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5433
 When you need to capture new SQL patterns from DuckDB:
 
 ```bash
-# Start SlateDuck with verbose protocol logging
-RUST_LOG=slateduck_pgwire=trace cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5433
+# Start Rocklake with verbose protocol logging
+RUST_LOG=rocklake_pgwire=trace cargo run -- serve --catalog ./dev-catalog --bind 127.0.0.1:5433
 
 # In another terminal, run DuckDB with the new operation
 duckdb -c "
-ATTACH 'ducklake:postgresql://localhost:5433/slateduck' AS lake;
+ATTACH 'ducklake:postgresql://localhost:5433/rocklake' AS lake;
 USE lake;
 CREATE SCHEMA test_schema;
 "
@@ -409,12 +409,12 @@ cargo flamegraph --bench catalog_bench -- --bench prefix_scan
 
 # Or profile the running server
 cargo build --release
-flamegraph -- ./target/release/slateduck serve --catalog ./bench-catalog
+flamegraph -- ./target/release/rocklake serve --catalog ./bench-catalog
 ```
 
 ### Inspecting Storage Contents
 
-During development, it can be useful to inspect what SlateDuck has written to storage:
+During development, it can be useful to inspect what Rocklake has written to storage:
 
 ```bash
 # For local filesystem storage
@@ -422,7 +422,7 @@ ls -la ./dev-catalog/
 find ./dev-catalog/ -type f | head -20
 
 # For MinIO
-mc ls local/slateduck-dev/ --recursive
+mc ls local/rocklake-dev/ --recursive
 ```
 
 ## Further Reading

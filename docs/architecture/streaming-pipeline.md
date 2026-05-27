@@ -1,15 +1,15 @@
 # Streaming Pipeline Architecture
 
-This document describes the end-to-end streaming pipeline when SlateDuck v0.10
+This document describes the end-to-end streaming pipeline when Rocklake v0.10
 (streaming ingest + CDC output) is deployed.
 
 ## Overview
 
 ```
                       ┌─────────────────────────────────────────┐
-                      │           SlateDuck Node                │
+                      │           Rocklake Node                │
                       │                                         │
-Kafka / NATS ─────────►  SlateDuckSink  ─── commit_batch() ──►│
+Kafka / NATS ─────────►  RocklakeSink  ─── commit_batch() ──►│
                       │        │                                │
                       │        ▼                                │
                       │  DuckLake Snapshot ◄── atomic tx ──────│
@@ -30,7 +30,7 @@ Kafka / NATS ─────────►  SlateDuckSink  ─── commit_bat
 
 ## Component Responsibilities
 
-### SlateDuckSink (v0.10)
+### RocklakeSink (v0.10)
 
 Accepts record batches from Kafka/NATS and commits them atomically:
 1. Write Parquet files to S3 (outside the catalog)
@@ -76,7 +76,7 @@ t=10ms:  Parquet file written to S3 (10ms S3 put)
 t=25ms:  Catalog commit: register data file + advance offset (15ms)
 t=125ms: CdcTailer polls: detects new snapshot (100ms interval)
 t=135ms: CDC JSONL written to S3 (10ms)
-t=135ms: Kafka CDC producer publishes diff to "slateduck.cdc" topic
+t=135ms: Kafka CDC producer publishes diff to "rocklake.cdc" topic
          Downstream analytics service receives row count change
 ```
 
@@ -95,7 +95,7 @@ poll_interval_ms = 100
 # Enable Kafka CDC output
 [cdc.kafka]
 bootstrap_servers = "kafka:9092"
-topic = "slateduck.cdc"
+topic = "rocklake.cdc"
 
 # Enable webhook CDC output
 [cdc.webhook]
@@ -103,7 +103,7 @@ url = "https://my-service/cdc-hook"
 timeout_ms = 5000
 ```
 
-### SlateDuckSink
+### RocklakeSink
 
 ```toml
 [streaming]

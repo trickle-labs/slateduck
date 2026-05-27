@@ -12,13 +12,13 @@
 # Requirements:
 #   - DuckDB CLI installed (duckdb >= 1.2)
 #   - ducklake extension loadable by DuckDB (LOAD ducklake)
-#   - SLATEDUCK_COMPAT_FIXTURES env var pointing to corpus dir
+#   - ROCKLAKE_COMPAT_FIXTURES env var pointing to corpus dir
 #     (default: tests/fixtures/corpus/)
 #
 # Environment variables:
 #   DUCKDB_BIN           path to duckdb binary (default: duckdb)
-#   SLATEDUCK_COMPAT_FIXTURES  path to corpus fixtures dir
-#   SLATEDUCK_COMPAT_FAIL_FAST  set to 1 to stop on first failure (default: 0)
+#   ROCKLAKE_COMPAT_FIXTURES  path to corpus fixtures dir
+#   ROCKLAKE_COMPAT_FAIL_FAST  set to 1 to stop on first failure (default: 0)
 #
 # Exit codes:
 #   0  all corpus statements executed without error
@@ -28,8 +28,8 @@
 set -euo pipefail
 
 DUCKDB_BIN="${DUCKDB_BIN:-duckdb}"
-FIXTURES_DIR="${SLATEDUCK_COMPAT_FIXTURES:-tests/fixtures/corpus}"
-FAIL_FAST="${SLATEDUCK_COMPAT_FAIL_FAST:-0}"
+FIXTURES_DIR="${ROCKLAKE_COMPAT_FIXTURES:-tests/fixtures/corpus}"
+FAIL_FAST="${ROCKLAKE_COMPAT_FAIL_FAST:-0}"
 
 # ── Preflight ──────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ echo "ducklake extension: available"
 
 if [[ ! -d "$FIXTURES_DIR" ]]; then
     echo "ERROR: corpus fixtures directory '$FIXTURES_DIR' not found." >&2
-    echo "Capture corpus first by running: cargo test -p slateduck-pgwire corpus" >&2
+    echo "Capture corpus first by running: cargo test -p rocklake-pgwire corpus" >&2
     exit 2
 fi
 
@@ -70,7 +70,7 @@ echo "Running ${#CORPUS_FILES[@]} corpus file(s) against DuckDB $DUCKDB_VERSION�
 # ── Run each corpus file ───────────────────────────────────────────────────────
 
 FAILURES=0
-TMPDB=$(mktemp /tmp/slateduck-compat-XXXXXX.db)
+TMPDB=$(mktemp /tmp/rocklake-compat-XXXXXX.db)
 trap 'rm -f "$TMPDB"' EXIT
 
 for corpus_file in "${CORPUS_FILES[@]}"; do

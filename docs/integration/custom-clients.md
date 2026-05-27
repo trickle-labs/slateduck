@@ -1,12 +1,12 @@
 # Custom Clients
 
-Because SlateDuck speaks the PostgreSQL wire protocol, any PostgreSQL-compatible client library can connect to it. This opens the door to building custom tooling, monitoring dashboards, migration scripts, administrative interfaces, and CI/CD integrations in any language with a PostgreSQL driver — which is effectively every programming language in existence.
+Because Rocklake speaks the PostgreSQL wire protocol, any PostgreSQL-compatible client library can connect to it. This opens the door to building custom tooling, monitoring dashboards, migration scripts, administrative interfaces, and CI/CD integrations in any language with a PostgreSQL driver — which is effectively every programming language in existence.
 
-This page covers the protocol details, language-specific examples for Python, Go, Node.js, Java, Ruby, and Rust, the important limitations of what SQL SlateDuck actually accepts, and practical patterns for building production-quality custom clients.
+This page covers the protocol details, language-specific examples for Python, Go, Node.js, Java, Ruby, and Rust, the important limitations of what SQL Rocklake actually accepts, and practical patterns for building production-quality custom clients.
 
 ## Connection Details
 
-SlateDuck accepts standard PostgreSQL protocol connections:
+Rocklake accepts standard PostgreSQL protocol connections:
 
 | Property | Value |
 |----------|-------|
@@ -26,8 +26,8 @@ Standard PostgreSQL connection string format works:
 postgresql://username:password@hostname:port/database
 
 # Examples:
-postgresql://localhost:5432/slateduck
-postgresql://reader@slateduck.internal:5432/catalog?sslmode=require
+postgresql://localhost:5432/rocklake
+postgresql://reader@rocklake.internal:5432/catalog?sslmode=require
 ```
 
 ## Language Examples
@@ -41,7 +41,7 @@ import psycopg2
 conn = psycopg2.connect(
     host="localhost",
     port=5432,
-    dbname="slateduck",
+    dbname="rocklake",
     user="admin",
     password="secret"  # Only if authentication is configured
 )
@@ -81,7 +81,7 @@ async def main():
     conn = await asyncpg.connect(
         host='localhost',
         port=5432,
-        database='slateduck',
+        database='rocklake',
         user='admin'
     )
     
@@ -114,7 +114,7 @@ import (
 func main() {
     ctx := context.Background()
     
-    conn, err := pgx.Connect(ctx, "postgres://localhost:5432/slateduck")
+    conn, err := pgx.Connect(ctx, "postgres://localhost:5432/rocklake")
     if err != nil {
         log.Fatal(err)
     }
@@ -165,7 +165,7 @@ async function main() {
     const client = new Client({
         host: 'localhost',
         port: 5432,
-        database: 'slateduck',
+        database: 'rocklake',
         user: 'admin',
     });
     
@@ -202,9 +202,9 @@ main().catch(console.error);
 ```java
 import java.sql.*;
 
-public class SlateDuckClient {
+public class RocklakeClient {
     public static void main(String[] args) throws SQLException {
-        String url = "jdbc:postgresql://localhost:5432/slateduck";
+        String url = "jdbc:postgresql://localhost:5432/rocklake";
         
         try (Connection conn = DriverManager.getConnection(url, "admin", "")) {
             // List schemas
@@ -242,7 +242,7 @@ public class SlateDuckClient {
 ```ruby
 require 'pg'
 
-conn = PG.connect(host: 'localhost', port: 5432, dbname: 'slateduck', user: 'admin')
+conn = PG.connect(host: 'localhost', port: 5432, dbname: 'rocklake', user: 'admin')
 
 # List schemas
 result = conn.exec_params(
@@ -265,7 +265,7 @@ use tokio_postgres::{NoTls, Error};
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let (client, connection) = tokio_postgres::connect(
-        "host=localhost port=5432 dbname=slateduck user=admin",
+        "host=localhost port=5432 dbname=rocklake user=admin",
         NoTls
     ).await?;
     
@@ -291,7 +291,7 @@ async fn main() -> Result<(), Error> {
 
 ### Bounded SQL Only
 
-Custom clients can send only the specific SQL statements that SlateDuck's bounded SQL dispatcher recognizes. These are the catalog metadata queries that DuckDB's `ducklake` extension emits. Arbitrary SQL will be rejected:
+Custom clients can send only the specific SQL statements that Rocklake's bounded SQL dispatcher recognizes. These are the catalog metadata queries that DuckDB's `ducklake` extension emits. Arbitrary SQL will be rejected:
 
 ```python
 # This works (recognized pattern):
@@ -306,11 +306,11 @@ cur.execute("SELECT * FROM my_custom_table")
 
 ### No Data Access
 
-SlateDuck only manages catalog metadata. You cannot query actual data through the PG-wire connection. Data files (Parquet) must be accessed directly from object storage using appropriate libraries (PyArrow, DuckDB, DataFusion, etc.).
+Rocklake only manages catalog metadata. You cannot query actual data through the PG-wire connection. Data files (Parquet) must be accessed directly from object storage using appropriate libraries (PyArrow, DuckDB, DataFusion, etc.).
 
 ### No Prepared Statement Caching
 
-SlateDuck does not maintain server-side prepared statements across requests. Each query is parsed independently. Client-side connection pools that rely on prepared statement caching should disable this feature.
+Rocklake does not maintain server-side prepared statements across requests. Each query is parsed independently. Client-side connection pools that rely on prepared statement caching should disable this feature.
 
 ### Transaction Semantics
 
@@ -337,13 +337,13 @@ def check_catalog_health(conn):
     cur = conn.cursor()
     
     # Check writer epoch (high value = many restarts)
-    cur.execute("SELECT value FROM slateduck_system WHERE key = 'epoch'")
+    cur.execute("SELECT value FROM rocklake_system WHERE key = 'epoch'")
     epoch = cur.fetchone()[0]
     if epoch > 10:
         alert(f"High writer epoch: {epoch}")
     
     # Check latest snapshot (should be advancing)
-    cur.execute("SELECT value FROM slateduck_system WHERE key = 'latest_snapshot'")
+    cur.execute("SELECT value FROM rocklake_system WHERE key = 'latest_snapshot'")
     snapshot = cur.fetchone()[0]
     
     return {"epoch": epoch, "snapshot": snapshot}
@@ -355,7 +355,7 @@ def check_catalog_health(conn):
 def rename_schema_across_environments(old_name, new_name, environments):
     """Rename a schema consistently across dev, staging, prod."""
     for env in environments:
-        conn = psycopg2.connect(host=env['host'], port=5432, dbname='slateduck')
+        conn = psycopg2.connect(host=env['host'], port=5432, dbname='rocklake')
         cur = conn.cursor()
         cur.execute(
             "UPDATE ducklake_schemas SET schema_name = %s WHERE schema_name = %s AND end_snapshot_id IS NULL",
@@ -371,7 +371,7 @@ def rename_schema_across_environments(old_name, new_name, environments):
 ```python
 def verify_table_exists(host, schema_name, table_name):
     """CI check: verify expected tables exist before deploying ETL."""
-    conn = psycopg2.connect(host=host, port=5432, dbname='slateduck')
+    conn = psycopg2.connect(host=host, port=5432, dbname='rocklake')
     cur = conn.cursor()
     
     # Find schema
@@ -435,7 +435,7 @@ connection_pool = pool.ThreadedConnectionPool(
     maxconn=10,
     host='localhost',
     port=5432,
-    dbname='slateduck'
+    dbname='rocklake'
 )
 
 def query_catalog():
@@ -451,14 +451,14 @@ def query_catalog():
 ### Go (pgxpool)
 
 ```go
-pool, err := pgxpool.New(ctx, "postgres://localhost:5432/slateduck?pool_max_conns=10")
+pool, err := pgxpool.New(ctx, "postgres://localhost:5432/rocklake?pool_max_conns=10")
 conn, err := pool.Acquire(ctx)
 defer conn.Release()
 ```
 
 ## Error Handling
 
-SlateDuck returns standard SQLSTATE error codes:
+Rocklake returns standard SQLSTATE error codes:
 
 | SQLSTATE | Meaning | Action |
 |----------|---------|--------|
@@ -474,7 +474,7 @@ try:
     cur.execute(sql)
 except psycopg2.errors.SyntaxError:
     # SQL not recognized by bounded dispatcher
-    print("This SQL pattern is not supported by SlateDuck")
+    print("This SQL pattern is not supported by Rocklake")
 except psycopg2.errors.AdminShutdown:
     # Writer fenced
     reconnect()
@@ -534,9 +534,9 @@ Set aggressive timeouts to avoid hanging on unresponsive instances:
 
 ```python
 conn = psycopg2.connect(
-    host="slateduck.internal",
+    host="rocklake.internal",
     port=5432,
-    dbname="slateduck",
+    dbname="rocklake",
     connect_timeout=5,         # 5 second connection timeout
     options="-c statement_timeout=10000"  # 10 second query timeout
 )
@@ -549,7 +549,7 @@ Log every catalog interaction for debugging:
 ```python
 import logging
 
-logger = logging.getLogger("slateduck-client")
+logger = logging.getLogger("rocklake-client")
 
 def execute_with_logging(cur, sql, params=None):
     start = time.monotonic()
@@ -568,5 +568,5 @@ def execute_with_logging(cur, sql, params=None):
 
 - **[DuckDB Compatibility](duckdb-compatibility.md)** — What SQL patterns are recognized
 - **[Architecture: PG Wire Protocol](../architecture/pg-wire-protocol.md)** — Protocol implementation details
-- **[pg-tide-relay](pg-tide-relay.md)** — Adding routing/auth in front of SlateDuck
+- **[pg-tide-relay](pg-tide-relay.md)** — Adding routing/auth in front of Rocklake
 - **[Deployment: TLS](../deployment/tls.md)** — Securing connections

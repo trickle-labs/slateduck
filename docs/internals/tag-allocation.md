@@ -1,6 +1,6 @@
 # Tag Allocation
 
-Every key in SlateDuck begins with a single byte — the tag — that identifies which catalog table the key belongs to. This one byte is the most important byte in the entire key: it determines which prefix scan range the key lives in, which decoder to use for the value, and which operational category (DuckLake protocol, internal, or system) the key belongs to. This page documents the complete tag allocation scheme, the rationale behind the grouping strategy, and the rules for allocating new tags.
+Every key in Rocklake begins with a single byte — the tag — that identifies which catalog table the key belongs to. This one byte is the most important byte in the entire key: it determines which prefix scan range the key lives in, which decoder to use for the value, and which operational category (DuckLake protocol, internal, or system) the key belongs to. This page documents the complete tag allocation scheme, the rationale behind the grouping strategy, and the rules for allocating new tags.
 
 ## The Tag Space
 
@@ -14,7 +14,7 @@ Tags are divided into four major ranges, each serving a distinct purpose:
 
 ### DuckLake Protocol Tables (0x01–0x1F)
 
-These tags correspond to the catalog tables defined by DuckDB's DuckLake extension. They store the metadata that DuckDB expects to find when it connects to a DuckLake catalog. The structure, semantics, and content of these tables are defined by the DuckLake protocol specification — SlateDuck implements them but does not invent them.
+These tags correspond to the catalog tables defined by DuckDB's DuckLake extension. They store the metadata that DuckDB expects to find when it connects to a DuckLake catalog. The structure, semantics, and content of these tables are defined by the DuckLake protocol specification — Rocklake implements them but does not invent them.
 
 | Tag | Table Name | Key Structure | Description |
 |-----|-----------|---------------|-------------|
@@ -39,7 +39,7 @@ These tags correspond to the catalog tables defined by DuckDB's DuckLake extensi
 
 ### Extended Tables (0x20–0x7F)
 
-This range is reserved for future DuckLake protocol extensions or SlateDuck-specific catalog extensions that are semantically "data" rather than "infrastructure." None are currently allocated. The range provides 96 additional tag values — far more than any foreseeable protocol expansion.
+This range is reserved for future DuckLake protocol extensions or Rocklake-specific catalog extensions that are semantically "data" rather than "infrastructure." None are currently allocated. The range provides 96 additional tag values — far more than any foreseeable protocol expansion.
 
 **Potential future uses:**
 
@@ -50,7 +50,7 @@ This range is reserved for future DuckLake protocol extensions or SlateDuck-spec
 
 ### Internal Tables (0x80–0xFD)
 
-These tags are for SlateDuck's internal use — data structures that exist to support SlateDuck's operation but are not part of the DuckLake protocol. DuckDB does not know about these tables and never queries them directly.
+These tags are for Rocklake's internal use — data structures that exist to support Rocklake's operation but are not part of the DuckLake protocol. DuckDB does not know about these tables and never queries them directly.
 
 | Tag | Table Name | Key Structure | Description |
 |-----|-----------|---------------|-------------|
@@ -59,13 +59,13 @@ These tags are for SlateDuck's internal use — data structures that exist to su
 | 0xFD | inlined_insert | tag \| table_id \| file_id \| begin_snapshot | Inlined small data files |
 | 0x82–0xFC | (reserved) | — | Future internal tables |
 
-**Why internal tags start at 0x80:** The 0x80 boundary (bit 7 set) provides a visual distinction in hex dumps. Any tag with the high bit set is internal; any tag with the high bit clear is a protocol table. This makes debugging easier — you can immediately tell whether a key is "DuckLake data" or "SlateDuck internals" by glancing at the first byte.
+**Why internal tags start at 0x80:** The 0x80 boundary (bit 7 set) provides a visual distinction in hex dumps. Any tag with the high bit set is internal; any tag with the high bit clear is a protocol table. This makes debugging easier — you can immediately tell whether a key is "DuckLake data" or "Rocklake internals" by glancing at the first byte.
 
 **Why 0xFD for inlined inserts:** Inlined data is conceptually "almost system" — it is stored for performance optimization rather than protocol compliance. Placing it at 0xFD (adjacent to the system range) reflects this positioning.
 
 ### System Space (0xFE–0xFF)
 
-The highest two tag values are reserved for system-level keys that manage SlateDuck's own state:
+The highest two tag values are reserved for system-level keys that manage Rocklake's own state:
 
 | Tag | Table Name | Key Structure | Description |
 |-----|-----------|---------------|-------------|

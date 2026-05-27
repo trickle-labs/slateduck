@@ -1,18 +1,18 @@
 # Crate Structure
 
-SlateDuck is organized as a Rust workspace with seven crates, each with a distinct responsibility and clear dependency boundaries. This structure is not merely organizational — it enforces separation of concerns at the compilation level. A crate cannot accidentally depend on another crate's internals without an explicit dependency declaration in `Cargo.toml`. If a developer tries to import the PG-Wire server's session type from within the catalog store, the code will not compile. This makes architectural violations impossible rather than merely discouraged.
+Rocklake is organized as a Rust workspace with seven crates, each with a distinct responsibility and clear dependency boundaries. This structure is not merely organizational — it enforces separation of concerns at the compilation level. A crate cannot accidentally depend on another crate's internals without an explicit dependency declaration in `Cargo.toml`. If a developer tries to import the PG-Wire server's session type from within the catalog store, the code will not compile. This makes architectural violations impossible rather than merely discouraged.
 
-This page documents each crate's purpose, its key modules, its dependencies, and the layering rules that govern the overall workspace structure. Understanding the crate structure is essential for contributors who want to know where new code belongs, and valuable for users who want to embed specific SlateDuck functionality (like the catalog store) without pulling in the entire binary.
+This page documents each crate's purpose, its key modules, its dependencies, and the layering rules that govern the overall workspace structure. Understanding the crate structure is essential for contributors who want to know where new code belongs, and valuable for users who want to embed specific Rocklake functionality (like the catalog store) without pulling in the entire binary.
 
 ## Workspace Dependency Graph
 
 ```mermaid
 graph TD
-    CORE["slateduck-core<br/><small>Types, keys, values, MVCC</small>"] --> CAT["slateduck-catalog<br/><small>Persistence, GC, export</small>"]
-    CORE --> SQL["slateduck-sql<br/><small>SQL classification</small>"]
-    CORE --> FFI["slateduck-ffi<br/><small>C/C++ FFI for DuckDB</small>"]
-    CAT --> PG["slateduck-pgwire<br/><small>PG wire server + CLI binary</small>"]
-    CAT --> DF["slateduck-datafusion<br/><small>DataFusion integration</small>"]
+    CORE["rocklake-core<br/><small>Types, keys, values, MVCC</small>"] --> CAT["rocklake-catalog<br/><small>Persistence, GC, export</small>"]
+    CORE --> SQL["rocklake-sql<br/><small>SQL classification</small>"]
+    CORE --> FFI["rocklake-ffi<br/><small>C/C++ FFI for DuckDB</small>"]
+    CAT --> PG["rocklake-pgwire<br/><small>PG wire server + CLI binary</small>"]
+    CAT --> DF["rocklake-datafusion<br/><small>DataFusion integration</small>"]
     CAT --> FFI
     SQL --> PG
 
@@ -24,13 +24,13 @@ graph TD
     style FFI fill:#e0f7fa
 ```
 
-The arrows point from dependency to dependent. `slateduck-core` is the leaf (depends on no other workspace crate). `slateduck-pgwire` is the root (produces the main binary and depends on multiple crates). No circular dependencies exist — Cargo's resolver would reject them.
+The arrows point from dependency to dependent. `rocklake-core` is the leaf (depends on no other workspace crate). `rocklake-pgwire` is the root (produces the main binary and depends on multiple crates). No circular dependencies exist — Cargo's resolver would reject them.
 
-## slateduck-core
+## rocklake-core
 
 **Role:** Foundation types shared across all other crates. This is the "vocabulary" of the system — every other crate speaks in terms of types defined here.
 
-**Why it exists separately:** By isolating types into their own crate with no heavy dependencies (no SlateDB, no Tokio, no async runtime), the types can be used anywhere: in the catalog store, in the SQL classifier, in the FFI layer, in test utilities, and in external tools. If these types were defined inside `slateduck-catalog`, then `slateduck-sql` would need to depend on the catalog (and transitively on SlateDB), which would defeat the separation.
+**Why it exists separately:** By isolating types into their own crate with no heavy dependencies (no SlateDB, no Tokio, no async runtime), the types can be used anywhere: in the catalog store, in the SQL classifier, in the FFI layer, in test utilities, and in external tools. If these types were defined inside `rocklake-catalog`, then `rocklake-sql` would need to depend on the catalog (and transitively on SlateDB), which would defeat the separation.
 
 **Key modules:**
 
@@ -48,7 +48,7 @@ The arrows point from dependency to dependent. `slateduck-core` is the leaf (dep
 
 **External dependencies:** `prost` (protobuf code generation), `thiserror` (ergonomic error types), `bytes` (byte buffer utilities). Deliberately minimal — no async runtime, no network I/O, no file I/O.
 
-## slateduck-catalog
+## rocklake-catalog
 
 **Role:** The core persistence and operational layer. This crate owns the SlateDB database handle and provides all catalog operations: reads, writes, garbage collection, excision, export, import, verification, repair, metrics, and more.
 
@@ -75,9 +75,9 @@ The arrows point from dependency to dependent. `slateduck-core` is the leaf (dep
 | `performance.rs` | Performance optimizations: hot key maintenance (packed current state for cold-start), secondary index management, bloom filter hints. |
 | `cleanup.rs` | Orphaned file detection: identifies Parquet files in the data path that are not referenced by any catalog entry (possible after failed writes or excision). |
 
-**External dependencies:** `slateduck-core`, `slatedb`, `object_store`, `tokio`, `prost`, `serde_json`, `chrono`, `prometheus`. This crate has the heaviest dependency footprint because it orchestrates actual I/O.
+**External dependencies:** `rocklake-core`, `slatedb`, `object_store`, `tokio`, `prost`, `serde_json`, `chrono`, `prometheus`. This crate has the heaviest dependency footprint because it orchestrates actual I/O.
 
-## slateduck-sql
+## rocklake-sql
 
 **Role:** Bounded SQL classification. Takes a SQL string and produces a typed `StatementKind` enum variant. Pure function, no side effects, no I/O.
 
@@ -94,11 +94,11 @@ The arrows point from dependency to dependent. `slateduck-core` is the leaf (dep
 | `classifier.rs` | The main classification logic: approximately 50 match arms covering all supported DuckLake SQL patterns. Each match arm extracts parameters from the AST and constructs a `StatementKind` variant. |
 | `lib.rs` | Public API: `classify_statement(sql, params) -> Result<StatementKind, SqlDispatchError>`. Single entry point for the entire crate. |
 
-**External dependencies:** `slateduck-core` (for types like `StatementKind`), `sqlparser` (SQL parsing with PostgreSQL dialect). Does NOT depend on `slateduck-catalog`.
+**External dependencies:** `rocklake-core` (for types like `StatementKind`), `sqlparser` (SQL parsing with PostgreSQL dialect). Does NOT depend on `rocklake-catalog`.
 
-## slateduck-pgwire
+## rocklake-pgwire
 
-**Role:** PostgreSQL wire protocol server. This crate produces the main `slateduck` binary. It accepts DuckDB connections, manages sessions, dispatches classified SQL to the catalog store, and encodes results as PG-Wire messages.
+**Role:** PostgreSQL wire protocol server. This crate produces the main `rocklake` binary. It accepts DuckDB connections, manages sessions, dispatches classified SQL to the catalog store, and encodes results as PG-Wire messages.
 
 **Why it exists as the top-level binary crate:** It integrates all other crates into a running server. It is the only crate that "knows about" all the other crates simultaneously (core types, SQL classification, and catalog operations).
 
@@ -114,73 +114,73 @@ The arrows point from dependency to dependent. `slateduck-core` is the leaf (dep
 | `types.rs` | PostgreSQL OID mapping: converts internal types to PG type OIDs and formats values as text for wire transmission. |
 | `error.rs` | SQLSTATE error mapping: converts internal error types to PostgreSQL ErrorResponse messages with appropriate severity, code, and message. |
 
-**External dependencies:** `slateduck-core`, `slateduck-catalog`, `slateduck-sql`, `pgwire`, `tokio`, `tokio-rustls`, `clap`, `tracing`.
+**External dependencies:** `rocklake-core`, `rocklake-catalog`, `rocklake-sql`, `pgwire`, `tokio`, `tokio-rustls`, `clap`, `tracing`.
 
-## slateduck-datafusion
+## rocklake-datafusion
 
-**Role:** Apache DataFusion integration. Exposes SlateDuck catalogs as DataFusion catalog providers, enabling query planning against SlateDuck-managed tables from pure Rust applications.
+**Role:** Apache DataFusion integration. Exposes Rocklake catalogs as DataFusion catalog providers, enabling query planning against Rocklake-managed tables from pure Rust applications.
 
-**Why it exists:** DataFusion is a popular embeddable query engine for Rust applications. By providing a `CatalogProvider` implementation, any DataFusion-based application can read from SlateDuck catalogs without going through the PG-Wire protocol or depending on DuckDB.
-
-**Key modules:**
-
-| Module | Contents |
-|--------|----------|
-| `catalog_provider.rs` | `SlateDuckCatalogProvider`: implements DataFusion's `CatalogProvider` trait. Lists schemas. |
-| `schema_provider.rs` | `SlateDuckSchemaProvider`: implements `SchemaProvider`. Lists tables within a schema and provides `TableProvider` instances. |
-| `table_provider.rs` | `SlateDuckTableProvider`: implements `TableProvider`. Returns the Arrow schema (mapped from DuckLake column types) and provides scan execution plans that read from the registered Parquet files. |
-
-**External dependencies:** `slateduck-core`, `slateduck-catalog`, `datafusion`, `arrow`.
-
-## slateduck-ffi
-
-**Role:** C/C++ foreign function interface for embedding SlateDuck directly in DuckDB as a native extension. Provides `extern "C"` functions with C-compatible types and opaque handle-based resource management.
-
-**Why it exists:** The FFI crate enables "Strategy C" — running SlateDuck as a DuckDB extension rather than a network server. This eliminates network round-trips entirely, reducing catalog operation latency from milliseconds (network) to microseconds (in-process function calls).
+**Why it exists:** DataFusion is a popular embeddable query engine for Rust applications. By providing a `CatalogProvider` implementation, any DataFusion-based application can read from Rocklake catalogs without going through the PG-Wire protocol or depending on DuckDB.
 
 **Key modules:**
 
 | Module | Contents |
 |--------|----------|
-| `lib.rs` | Complete FFI surface: `slateduck_open(path) -> Handle`, `slateduck_close(handle)`, `slateduck_list_schemas(handle) -> SchemaArray`, `slateduck_list_tables(handle, schema_id) -> TableArray`, `slateduck_describe_table(handle, table_id) -> ColumnArray`, `slateduck_list_data_files(handle, table_id) -> FileArray`, plus error retrieval and memory deallocation functions. |
+| `catalog_provider.rs` | `RocklakeCatalogProvider`: implements DataFusion's `CatalogProvider` trait. Lists schemas. |
+| `schema_provider.rs` | `RocklakeSchemaProvider`: implements `SchemaProvider`. Lists tables within a schema and provides `TableProvider` instances. |
+| `table_provider.rs` | `RocklakeTableProvider`: implements `TableProvider`. Returns the Arrow schema (mapped from DuckLake column types) and provides scan execution plans that read from the registered Parquet files. |
 
-**External dependencies:** `slateduck-core`, `slateduck-catalog`, `tokio` (for async bridge — the FFI creates a Tokio runtime internally to drive SlateDB's async operations).
+**External dependencies:** `rocklake-core`, `rocklake-catalog`, `datafusion`, `arrow`.
+
+## rocklake-ffi
+
+**Role:** C/C++ foreign function interface for embedding Rocklake directly in DuckDB as a native extension. Provides `extern "C"` functions with C-compatible types and opaque handle-based resource management.
+
+**Why it exists:** The FFI crate enables "Strategy C" — running Rocklake as a DuckDB extension rather than a network server. This eliminates network round-trips entirely, reducing catalog operation latency from milliseconds (network) to microseconds (in-process function calls).
+
+**Key modules:**
+
+| Module | Contents |
+|--------|----------|
+| `lib.rs` | Complete FFI surface: `rocklake_open(path) -> Handle`, `rocklake_close(handle)`, `rocklake_list_schemas(handle) -> SchemaArray`, `rocklake_list_tables(handle, schema_id) -> TableArray`, `rocklake_describe_table(handle, table_id) -> ColumnArray`, `rocklake_list_data_files(handle, table_id) -> FileArray`, plus error retrieval and memory deallocation functions. |
+
+**External dependencies:** `rocklake-core`, `rocklake-catalog`, `tokio` (for async bridge — the FFI creates a Tokio runtime internally to drive SlateDB's async operations).
 
 ## Dependency Layering Rules
 
 The crates follow strict layering rules enforced by Cargo's dependency resolver:
 
-1. **`slateduck-core`** — depends on no workspace crates (the foundation leaf)
-2. **`slateduck-catalog`** — depends only on `slateduck-core`
-3. **`slateduck-sql`** — depends only on `slateduck-core`
+1. **`rocklake-core`** — depends on no workspace crates (the foundation leaf)
+2. **`rocklake-catalog`** — depends only on `rocklake-core`
+3. **`rocklake-sql`** — depends only on `rocklake-core`
 4. **Higher-level crates** (`pgwire`, `datafusion`, `ffi`) — depend on `core` + `catalog` and optionally `sql`
 5. **No circular dependencies** — enforced by Cargo (compile error if violated)
 
 This layering provides concrete benefits:
 
-- You can use `slateduck-core` + `slateduck-catalog` in a custom application without the PG-Wire server
-- You can use `slateduck-sql` as a standalone SQL classifier without any catalog or network code
-- Changes to `slateduck-pgwire` never require recompiling `slateduck-catalog` or `slateduck-core`
+- You can use `rocklake-core` + `rocklake-catalog` in a custom application without the PG-Wire server
+- You can use `rocklake-sql` as a standalone SQL classifier without any catalog or network code
+- Changes to `rocklake-pgwire` never require recompiling `rocklake-catalog` or `rocklake-core`
 - Test suites for lower crates run faster because they don't compile higher-level dependencies
 
 ## Build Characteristics
 
 | Crate | Lines of Code (approx) | Compile Time | Binary Contribution |
 |-------|----------------------|--------------|-------------------|
-| slateduck-core | ~5,000 | Fast (no proc macros except prost) | Shared types |
-| slateduck-catalog | ~8,000 | Medium (SlateDB + async) | Core logic |
-| slateduck-sql | ~3,000 | Fast (only sqlparser) | SQL classifier |
-| slateduck-pgwire | ~4,000 | Medium (network + TLS) | Binary entry point |
-| slateduck-datafusion | ~1,500 | Medium (DataFusion is large) | Optional feature |
-| slateduck-ffi | ~1,000 | Fast (thin wrapper) | Shared library |
+| rocklake-core | ~5,000 | Fast (no proc macros except prost) | Shared types |
+| rocklake-catalog | ~8,000 | Medium (SlateDB + async) | Core logic |
+| rocklake-sql | ~3,000 | Fast (only sqlparser) | SQL classifier |
+| rocklake-pgwire | ~4,000 | Medium (network + TLS) | Binary entry point |
+| rocklake-datafusion | ~1,500 | Medium (DataFusion is large) | Optional feature |
+| rocklake-ffi | ~1,000 | Fast (thin wrapper) | Shared library |
 
-The total workspace compiles in approximately 60–90 seconds on a modern machine (M1/M2 Mac or equivalent). Incremental builds after changing a single file in `slateduck-pgwire` take 5–10 seconds because only the changed crate and its dependents need recompilation.
+The total workspace compiles in approximately 60–90 seconds on a modern machine (M1/M2 Mac or equivalent). Incremental builds after changing a single file in `rocklake-pgwire` take 5–10 seconds because only the changed crate and its dependents need recompilation.
 
 ## Removed Crates
 
-### `slateduck-sqlite-vfs` (removed in v0.27.2)
+### `rocklake-sqlite-vfs` (removed in v0.27.2)
 
-An experimental crate that aimed to expose the SlateDuck catalog via an
+An experimental crate that aimed to expose the Rocklake catalog via an
 [SQLite VFS](https://www.sqlite.org/vfs.html) shim was removed in v0.27.2.
 The crate contained no functional code — it was a speculative placeholder
 without a planned near-term implementation. Retaining it inflated the

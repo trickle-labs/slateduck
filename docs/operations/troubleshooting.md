@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This page provides a comprehensive guide to diagnosing and resolving problems with SlateDuck. It is organized by symptom — start with what you observe, then follow the diagnostic steps to identify root causes and apply fixes.
+This page provides a comprehensive guide to diagnosing and resolving problems with Rocklake. It is organized by symptom — start with what you observe, then follow the diagnostic steps to identify root causes and apply fixes.
 
 ## Quick Diagnostic Checklist
 
@@ -8,10 +8,10 @@ Before diving into specific symptoms, run these three commands to establish base
 
 ```bash
 # 1. Can we reach the catalog at all?
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 
 # 2. What does the error log say?
-slateduck logs --last 50 --level error
+rocklake logs --last 50 --level error
 
 # 3. Is there a network/permission issue?
 aws s3 ls s3://bucket/catalog/ --region us-east-1
@@ -27,48 +27,48 @@ If `inspect` succeeds, the catalog is healthy and the problem is likely on the c
 
 **Possible Causes:**
 
-1. SlateDuck is not running
-2. SlateDuck is listening on a different address or port
+1. Rocklake is not running
+2. Rocklake is listening on a different address or port
 3. A firewall or security group is blocking the connection
 4. The DuckDB extension is using the wrong host/port
 
 **Diagnostic Steps:**
 
 ```bash
-# Is SlateDuck running?
-ps aux | grep slateduck
+# Is Rocklake running?
+ps aux | grep rocklake
 
 # What address is it listening on?
-ss -tlnp | grep slateduck
+ss -tlnp | grep rocklake
 # or on macOS:
-lsof -i -P | grep slateduck
+lsof -i -P | grep rocklake
 
 # Can we reach the port from the client?
 nc -zv <hostname> 5432
 
-# Check SlateDuck's startup log for the actual bind address
-slateduck logs --last 10 | grep "listening"
+# Check Rocklake's startup log for the actual bind address
+rocklake logs --last 10 | grep "listening"
 ```
 
 **Solutions:**
 
-- If SlateDuck is not running, start it: `slateduck serve --catalog s3://bucket/catalog/`
+- If Rocklake is not running, start it: `rocklake serve --catalog s3://bucket/catalog/`
 - If it is listening on `127.0.0.1`, change to `0.0.0.0` for remote access: `--bind 0.0.0.0:5432`
 - If a security group blocks port 5432, add an inbound rule for the client's IP range
 - Verify the DuckDB connection string matches: `ATTACH 'dbname=ducklake host=<correct-host> port=<correct-port>' AS lake (TYPE ducklake)`
 
 ### "WriterFenced" Error (SQLSTATE 57P04)
 
-**Symptom:** DuckDB queries fail with `WriterFenced` error. SlateDuck logs show "fenced by newer epoch."
+**Symptom:** DuckDB queries fail with `WriterFenced` error. Rocklake logs show "fenced by newer epoch."
 
 **What This Means:**
 
-Another SlateDuck instance has taken over the writer role by incrementing the writer epoch in SlateDB. The fenced instance can no longer write — it is permanently blocked until restarted.
+Another Rocklake instance has taken over the writer role by incrementing the writer epoch in SlateDB. The fenced instance can no longer write — it is permanently blocked until restarted.
 
 **Common Causes:**
 
 1. **Intentional failover.** You deployed a new instance and the old one was fenced. Expected behavior.
-2. **Duplicate processes.** Two SlateDuck processes are pointing at the same catalog storage path.
+2. **Duplicate processes.** Two Rocklake processes are pointing at the same catalog storage path.
 3. **Kubernetes pod restart.** A crashed pod restarted and the new pod fenced the old one (which hadn't fully terminated yet).
 4. **Misconfigured health check.** The orchestrator killed a "unhealthy" instance and started a replacement.
 
@@ -76,13 +76,13 @@ Another SlateDuck instance has taken over the writer role by incrementing the wr
 
 ```bash
 # Check the current epoch
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
 
-# Check how many SlateDuck processes exist
-ps aux | grep slateduck | grep -v grep
+# Check how many Rocklake processes exist
+ps aux | grep rocklake | grep -v grep
 
 # In Kubernetes
-kubectl get pods -l app=slateduck
+kubectl get pods -l app=rocklake
 ```
 
 **Solutions:**
@@ -93,20 +93,20 @@ kubectl get pods -l app=slateduck
 
 ### "FormatVersionMismatch" on Startup
 
-**Symptom:** SlateDuck refuses to start, logging `FormatVersionMismatch: catalog requires format version 2, binary supports version 1`.
+**Symptom:** Rocklake refuses to start, logging `FormatVersionMismatch: catalog requires format version 2, binary supports version 1`.
 
 **What This Means:**
 
-The catalog was created or migrated by a newer version of SlateDuck that uses a format version your current binary does not understand.
+The catalog was created or migrated by a newer version of Rocklake that uses a format version your current binary does not understand.
 
 **Solutions:**
 
-- **Upgrade** to the SlateDuck version that created the catalog (check release notes for format version changes)
+- **Upgrade** to the Rocklake version that created the catalog (check release notes for format version changes)
 - **If you recently downgraded:** you cannot downgrade across format version boundaries without restoring from an NDJSON backup taken before the upgrade
 
 ### "ObjectStore: 403 Forbidden"
 
-**Symptom:** SlateDuck fails to start or intermittently fails with `ObjectStore: 403 Forbidden`.
+**Symptom:** Rocklake fails to start or intermittently fails with `ObjectStore: 403 Forbidden`.
 
 **Cause:** Insufficient IAM permissions for the configured storage path.
 
@@ -153,7 +153,7 @@ S3 is throttling requests. S3 supports 3,500 PUT/COPY/POST/DELETE and 5,500 GET/
 
 **Solutions:**
 
-- SlateDuck retries automatically with exponential backoff (usually self-resolving)
+- Rocklake retries automatically with exponential backoff (usually self-resolving)
 - If sustained: reduce concurrent readers, or restructure the catalog path to spread across prefixes
 - Consider S3 Express One Zone for higher throughput
 
@@ -170,10 +170,10 @@ S3 is throttling requests. S3 supports 3,500 PUT/COPY/POST/DELETE and 5,500 GET/
 time aws s3api head-object --bucket bucket --key catalog/MANIFEST --region us-east-1
 
 # Check row counts (high superseded count = scan amplification)
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.counts'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.counts'
 
 # Check if GC is needed
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.retention'
 ```
 
 **Common Causes and Solutions:**
@@ -181,7 +181,7 @@ slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention'
 | Cause | Diagnostic Sign | Solution |
 |-------|----------------|----------|
 | High storage latency | `head-object` > 50ms | Use S3 Express One Zone or same-region deployment |
-| Scan amplification | Many superseded rows | Run GC: `slateduck gc --retain-days 7` |
+| Scan amplification | Many superseded rows | Run GC: `rocklake gc --retain-days 7` |
 | Large table (many files) | Thousands of data files | Expected; consider table partitioning |
 | Compaction backlog | Many small SST files | Wait for compaction or trigger manual compaction |
 | Cold cache | First query after restart slow | Expected; subsequent queries are faster |
@@ -211,9 +211,9 @@ DuckDB's `ducklake` extension makes multiple catalog round-trips per query: list
 
 ```bash
 # Check how many snapshots per second are being created
-START=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
+START=$(rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
 sleep 10
-END=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
+END=$(rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
 echo "Snapshots/sec: $(( (END - START) / 10 ))"
 ```
 
@@ -227,26 +227,26 @@ echo "Snapshots/sec: $(( (END - START) / 10 ))"
 
 ### Verify Reports Errors
 
-**Symptom:** `slateduck verify` reports errors.
+**Symptom:** `rocklake verify` reports errors.
 
 **Steps:**
 
 ```bash
 # Run verify with verbose output
-slateduck verify --catalog s3://bucket/catalog/ --verbose
+rocklake verify --catalog s3://bucket/catalog/ --verbose
 
 # Preview repairs
-slateduck repair --catalog s3://bucket/catalog/ --dry-run
+rocklake repair --catalog s3://bucket/catalog/ --dry-run
 
 # If repairs are available and safe, apply them
-slateduck repair --catalog s3://bucket/catalog/
+rocklake repair --catalog s3://bucket/catalog/
 ```
 
 **If repair cannot fix the issue:**
 
 1. Restore from the most recent NDJSON backup
 2. If no backup: check if object storage versioning is enabled (you may recover previous SST files)
-3. Contact the SlateDuck maintainers with the verify output
+3. Contact the Rocklake maintainers with the verify output
 
 ### Unexpected Empty Results
 
@@ -256,13 +256,13 @@ slateduck repair --catalog s3://bucket/catalog/
 
 ```bash
 # What snapshot is the catalog at?
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot'
 
 # Is the table visible at the current snapshot?
-slateduck inspect --catalog s3://bucket/catalog/ --prefix "t/" | grep "table_name"
+rocklake inspect --catalog s3://bucket/catalog/ --prefix "t/" | grep "table_name"
 
 # Has GC advanced past the creation snapshot?
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention.retain_from'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.retention.retain_from'
 ```
 
 **Possible Causes:**
@@ -278,7 +278,7 @@ slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention.
 
 **Possible Causes:**
 
-1. **Writer is fenced:** Check `slateduck inspect` for fencing status
+1. **Writer is fenced:** Check `rocklake inspect` for fencing status
 2. **Writer has crashed:** Check process status and logs
 3. **No writes happening:** The application may not be generating catalog mutations
 4. **Write errors:** The writer is attempting writes but they fail (check error logs)
@@ -291,7 +291,7 @@ slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.retention.
 
 ```bash
 # Check pod logs
-kubectl logs -l app=slateduck --previous
+kubectl logs -l app=rocklake --previous
 
 # Check events
 kubectl describe pod <pod-name>
@@ -310,10 +310,10 @@ If using a Deployment with `replicas: 1`:
 
 ```bash
 # Verify only one pod is running
-kubectl get pods -l app=slateduck
+kubectl get pods -l app=rocklake
 
 # If multiple pods exist (during rollout), check rollout strategy
-kubectl get deployment slateduck -o yaml | grep -A5 strategy
+kubectl get deployment rocklake -o yaml | grep -A5 strategy
 ```
 
 **Solution:** Use `strategy: Recreate` to ensure the old pod is fully terminated before the new one starts.
@@ -324,35 +324,35 @@ kubectl get deployment slateduck -o yaml | grep -A5 strategy
 
 ```bash
 # Set log level
-export SLATEDUCK_LOG=debug
-slateduck serve --catalog s3://bucket/catalog/
+export ROCKLAKE_LOG=debug
+rocklake serve --catalog s3://bucket/catalog/
 
 # Or for specific modules
-export SLATEDUCK_LOG=slateduck_pgwire=debug,slateduck_catalog=trace
+export ROCKLAKE_LOG=rocklake_pgwire=debug,rocklake_catalog=trace
 ```
 
 ### Useful Log Patterns to Search For
 
 ```bash
 # Find all errors in the last hour
-slateduck logs --since 1h --level error
+rocklake logs --since 1h --level error
 
 # Find writer fencing events
-slateduck logs | grep -i "fenced\|epoch"
+rocklake logs | grep -i "fenced\|epoch"
 
 # Find slow operations
-slateduck logs | grep -i "slow\|timeout\|retry"
+rocklake logs | grep -i "slow\|timeout\|retry"
 
 # Find permission errors
-slateduck logs | grep -i "403\|forbidden\|permission"
+rocklake logs | grep -i "403\|forbidden\|permission"
 ```
 
 ## Getting Help
 
 If the troubleshooting steps above do not resolve your issue:
 
-1. Run `slateduck inspect --catalog <path> --format json` and save the output
-2. Run `slateduck verify --catalog <path>` and save the output
+1. Run `rocklake inspect --catalog <path> --format json` and save the output
+2. Run `rocklake verify --catalog <path>` and save the output
 3. Collect the last 100 lines of error logs
 4. Open an issue on GitHub with this information
 

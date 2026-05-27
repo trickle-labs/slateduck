@@ -1,6 +1,6 @@
 # Strategy B First
 
-SlateDuck supports three deployment strategies: Strategy B (PG-wire sidecar), Strategy C (native DuckDB extension via FFI), and DataFusion integration. The project chose to build and stabilize Strategy B first, even though Strategy C offers better raw performance. This decision reveals deep priorities about how we think about system development: correctness before speed, observability before optimization, and stability before flexibility.
+Rocklake supports three deployment strategies: Strategy B (PG-wire sidecar), Strategy C (native DuckDB extension via FFI), and DataFusion integration. The project chose to build and stabilize Strategy B first, even though Strategy C offers better raw performance. This decision reveals deep priorities about how we think about system development: correctness before speed, observability before optimization, and stability before flexibility.
 
 This page explains the reasoning, examines the alternatives, and documents the long-term consequences of this prioritization.
 
@@ -11,7 +11,7 @@ This page explains the reasoning, examines the alternatives, and documents the l
 A standalone process that speaks the PostgreSQL wire protocol. DuckDB connects to it over TCP like any PostgreSQL server. The sidecar maintains its own process, its own memory space, its own lifecycle.
 
 ```
-DuckDB ──TCP──→ SlateDuck Process ──→ SlateDB ──→ S3
+DuckDB ──TCP──→ Rocklake Process ──→ SlateDB ──→ S3
 ```
 
 **Characteristics:** Clear process boundary. Independent lifecycle. Language-agnostic protocol. Observable via standard network tools. Deployable independently.
@@ -21,7 +21,7 @@ DuckDB ──TCP──→ SlateDuck Process ──→ SlateDB ──→ S3
 A shared library (`.so`/`.dylib`/`.dll`) loaded into DuckDB's process. Catalog operations are in-process function calls through a C-compatible FFI boundary.
 
 ```
-DuckDB Process [DuckDB Core + SlateDuck Extension] ──→ SlateDB ──→ S3
+DuckDB Process [DuckDB Core + Rocklake Extension] ──→ SlateDB ──→ S3
 ```
 
 **Characteristics:** No network overhead. In-process calls. Shared memory space. Coupled lifecycle. Maximum performance.
@@ -31,7 +31,7 @@ DuckDB Process [DuckDB Core + SlateDuck Extension] ──→ SlateDB ──→ S
 A Rust library implementing DataFusion's `CatalogProvider` trait. For Rust applications using DataFusion directly, without DuckDB.
 
 ```
-Rust Application [DataFusion + SlateDuck Library] ──→ SlateDB ──→ S3
+Rust Application [DataFusion + Rocklake Library] ──→ SlateDB ──→ S3
 ```
 
 **Characteristics:** Library integration. Rust-only. Read-only (currently). No DuckDB dependency.
@@ -44,7 +44,7 @@ The decision was driven by five factors, each reinforcing the others:
 
 A standalone process with its own logging, metrics, and lifecycle is dramatically easier to debug than code running inside another process. During development, being able to:
 
-- Attach a debugger (gdb/lldb) to SlateDuck independently
+- Attach a debugger (gdb/lldb) to Rocklake independently
 - Inspect its memory without DuckDB's allocator interfering
 - Restart it without affecting DuckDB (and vice versa)
 - Run it under Valgrind or ASAN without DuckDB's memory patterns obscuring issues
@@ -53,7 +53,7 @@ A standalone process with its own logging, metrics, and lifecycle is dramaticall
 
 ...was invaluable for finding and fixing bugs quickly. In-process debugging (Strategy C) requires reproducing issues inside DuckDB's process, which adds layers of indirection and noise.
 
-When a customer reports a bug, asking them to "send us the SlateDuck logs" is feasible. Asking them to "rebuild DuckDB with debug symbols and attach a debugger to your production process" is not.
+When a customer reports a bug, asking them to "send us the Rocklake logs" is feasible. Asking them to "rebuild DuckDB with debug symbols and attach a debugger to your production process" is not.
 
 ### 2. Protocol Validation
 
@@ -72,7 +72,7 @@ If we had built Strategy C first, the PG-wire implementation would have been wri
 
 ### 3. DuckDB Version Independence
 
-A sidecar communicates over a stable protocol. The PostgreSQL wire protocol has been backward-compatible since 2003 (protocol version 3.0). It does not change when DuckDB releases a new version. SlateDuck can be upgraded independently of DuckDB, and DuckDB can be upgraded independently of SlateDuck.
+A sidecar communicates over a stable protocol. The PostgreSQL wire protocol has been backward-compatible since 2003 (protocol version 3.0). It does not change when DuckDB releases a new version. Rocklake can be upgraded independently of DuckDB, and DuckDB can be upgraded independently of Rocklake.
 
 Strategy C, by contrast, must match DuckDB's extension ABI exactly. This is a brittle coupling:
 
@@ -80,10 +80,10 @@ Strategy C, by contrast, must match DuckDB's extension ABI exactly. This is a br
 |-------|------------------|-------------------|
 | DuckDB minor release | None | Recompile required |
 | DuckDB ABI change | None | Code changes required |
-| SlateDuck bug fix | Deploy independently | Must rebuild + redistribute extension |
+| Rocklake bug fix | Deploy independently | Must rebuild + redistribute extension |
 | DuckDB deprecates API | None | Must adapt or break |
 
-In the early days of a project, when both DuckDB's ducklake extension and SlateDuck are evolving rapidly, this independence is crucial. It allows both projects to iterate without coordinating releases.
+In the early days of a project, when both DuckDB's ducklake extension and Rocklake are evolving rapidly, this independence is crucial. It allows both projects to iterate without coordinating releases.
 
 ### 4. Deployment Flexibility
 
@@ -92,8 +92,8 @@ A sidecar is operationally flexible in ways an in-process extension cannot be:
 - **Runs anywhere:** Containers, VMs, serverless functions, different machines than DuckDB, different clouds
 - **Independent scaling:** Can run on a more powerful machine than DuckDB if needed
 - **Independent monitoring:** Has its own health check endpoint, metrics port, log stream
-- **Serves multiple clients:** One SlateDuck instance can serve hundreds of DuckDB connections
-- **Survives client crashes:** If DuckDB segfaults, SlateDuck continues running
+- **Serves multiple clients:** One Rocklake instance can serve hundreds of DuckDB connections
+- **Survives client crashes:** If DuckDB segfaults, Rocklake continues running
 - **Independent security boundary:** Can run with different IAM permissions than DuckDB
 
 Strategy C is locked to DuckDB's process. If DuckDB crashes, the extension crashes with it. If DuckDB runs in a restrictive sandbox, the extension is constrained by that sandbox. If you want to serve multiple DuckDB instances, each needs its own extension instance.
@@ -127,7 +127,7 @@ Running a sidecar means running two processes instead of one. This adds:
 - Container configuration (two containers in a pod, or a sidecar container)
 - Networking (port configuration, service discovery)
 - Health checks (must monitor both processes)
-- Startup ordering (SlateDuck must be ready before DuckDB connects)
+- Startup ordering (Rocklake must be ready before DuckDB connects)
 
 ### Resource Usage
 
@@ -141,14 +141,14 @@ Sequential development also avoided the temptation to paper over protocol bugs w
 
 ## Strategy C Status Today
 
-Strategy C (the native extension via `slateduck-ffi`) is implemented and functional. It provides the same catalog operations as Strategy B without network overhead. The implementation was significantly easier because:
+Strategy C (the native extension via `rocklake-ffi`) is implemented and functional. It provides the same catalog operations as Strategy B without network overhead. The implementation was significantly easier because:
 
 1. The catalog logic was already correct and well-tested (via Strategy B)
 2. The operation semantics were precisely defined (by the wire corpus)
 3. Error handling patterns were established (SQLSTATE codes, error categories)
 4. The FFI boundary only needed to wrap existing functionality, not implement new logic
 
-Strategy C is appropriate for deployments where latency is critical, DuckDB and SlateDuck share a lifecycle, and the operational simplicity of a single process outweighs the debugging benefits of separation.
+Strategy C is appropriate for deployments where latency is critical, DuckDB and Rocklake share a lifecycle, and the operational simplicity of a single process outweighs the debugging benefits of separation.
 
 ## Lessons Learned
 
@@ -158,9 +158,9 @@ The Strategy B-first approach validated several principles:
 
 - **Network boundaries improve design.** The requirement to serialize everything over the wire naturally leads to clean, well-defined interfaces. These interfaces translate directly to good FFI boundaries.
 
-- **Observability pays for itself.** The ability to `tcpdump` traffic between DuckDB and SlateDuck caught several bugs that would have been invisible in an in-process integration.
+- **Observability pays for itself.** The ability to `tcpdump` traffic between DuckDB and Rocklake caught several bugs that would have been invisible in an in-process integration.
 
-- **Independence enables velocity.** Decoupled releases allowed faster iteration on both the DuckDB extension and SlateDuck server without coordination overhead.
+- **Independence enables velocity.** Decoupled releases allowed faster iteration on both the DuckDB extension and Rocklake server without coordination overhead.
 
 ## Analogy: Why Web APIs Before SDKs
 
@@ -173,7 +173,7 @@ The Strategy B-first decision parallels a common pattern in software platform de
 
 The SDK (like Strategy C) provides a better developer experience — type safety, autocompletion, no serialization overhead — but it is built on top of the API, not instead of it. Teams that build SDKs first often discover their internal APIs are poorly defined, because the SDK could always "reach inside" and bypass the abstraction. Teams that build the API first are forced to define clean boundaries from day one.
 
-SlateDuck's architecture follows this same pattern. The PostgreSQL wire protocol is the "API" — well-defined, testable, observable. The native extension is the "SDK" — higher performance, better integration, but built on top of the same well-defined operation semantics.
+Rocklake's architecture follows this same pattern. The PostgreSQL wire protocol is the "API" — well-defined, testable, observable. The native extension is the "SDK" — higher performance, better integration, but built on top of the same well-defined operation semantics.
 
 ## The Decision Framework
 
@@ -181,9 +181,9 @@ For other projects considering a similar choice, the heuristic is:
 
 1. **If correctness is hard to verify:** Build the observable (networked/separate-process) version first. You need all the debugging tools you can get.
 2. **If performance is critical from day one:** Build both simultaneously, using the observable version as the correctness oracle.
-3. **If the protocol is well-established:** Build the high-performance version directly. PostgreSQL wire protocol is established, but SlateDuck's *use* of it (which SQL patterns, which response formats) was not — so we needed the exploration phase.
+3. **If the protocol is well-established:** Build the high-performance version directly. PostgreSQL wire protocol is established, but Rocklake's *use* of it (which SQL patterns, which response formats) was not — so we needed the exploration phase.
 
-SlateDuck chose option 1 because DuckLake was a new protocol with evolving requirements. The correct set of SQL patterns to support was not known upfront — it was discovered empirically through wire corpus capture. This discovery process required a running server that could be prodded, inspected, and debugged independently.
+Rocklake chose option 1 because DuckLake was a new protocol with evolving requirements. The correct set of SQL patterns to support was not known upfront — it was discovered empirically through wire corpus capture. This discovery process required a running server that could be prodded, inspected, and debugged independently.
 
 ## Further Reading
 

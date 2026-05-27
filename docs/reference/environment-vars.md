@@ -1,15 +1,15 @@
 # Environment Variables Reference
 
-This page provides the complete configuration reference for SlateDuck. Every environment variable recognized by the system is documented here: its purpose, type, default value, valid range, and examples. Configuration is the primary way operators control SlateDuck's behavior in production — from specifying where catalog data is stored, to tuning performance parameters, to enabling TLS encryption.
+This page provides the complete configuration reference for Rocklake. Every environment variable recognized by the system is documented here: its purpose, type, default value, valid range, and examples. Configuration is the primary way operators control Rocklake's behavior in production — from specifying where catalog data is stored, to tuning performance parameters, to enabling TLS encryption.
 
-SlateDuck follows the twelve-factor app methodology: configuration comes from the environment, not from configuration files. This makes deployment straightforward across diverse environments (Docker, Kubernetes, systemd, Lambda) without needing to manage config file paths or formats.
+Rocklake follows the twelve-factor app methodology: configuration comes from the environment, not from configuration files. This makes deployment straightforward across diverse environments (Docker, Kubernetes, systemd, Lambda) without needing to manage config file paths or formats.
 
 ## Precedence Rules
 
 When the same option is specified in multiple places, the highest-priority source wins:
 
 1. **Command-line flags** (highest priority): `--storage`, `--bind`, etc.
-2. **Environment variables**: `SLATEDUCK_STORAGE`, `SLATEDUCK_BIND`, etc.
+2. **Environment variables**: `ROCKLAKE_STORAGE`, `ROCKLAKE_BIND`, etc.
 3. **Compiled defaults** (lowest priority): built into the binary
 
 Command-line flags always override environment variables. This allows operators to temporarily override configuration without modifying the deployment environment.
@@ -18,9 +18,9 @@ Command-line flags always override environment variables. This allows operators 
 
 ## Storage Configuration
 
-These variables control where SlateDuck stores catalog data and how it authenticates to object storage providers.
+These variables control where Rocklake stores catalog data and how it authenticates to object storage providers.
 
-### SLATEDUCK_STORAGE
+### ROCKLAKE_STORAGE
 
 The object storage path for the catalog. This is the most important configuration variable — it determines where all catalog data is persisted.
 
@@ -34,23 +34,23 @@ The object storage path for the catalog. This is the most important configuratio
 
 ```bash
 # Local filesystem (development only)
-SLATEDUCK_STORAGE=./my-catalog
-SLATEDUCK_STORAGE=/var/lib/slateduck/catalog
+ROCKLAKE_STORAGE=./my-catalog
+ROCKLAKE_STORAGE=/var/lib/rocklake/catalog
 
 # Amazon S3
-SLATEDUCK_STORAGE=s3://my-bucket/catalog/
+ROCKLAKE_STORAGE=s3://my-bucket/catalog/
 
 # S3 Express One Zone
-SLATEDUCK_STORAGE=s3://my-bucket--usw2-az1--x-s3/catalog/
+ROCKLAKE_STORAGE=s3://my-bucket--usw2-az1--x-s3/catalog/
 
 # Google Cloud Storage
-SLATEDUCK_STORAGE=gs://my-bucket/catalog/
+ROCKLAKE_STORAGE=gs://my-bucket/catalog/
 
 # Azure Blob Storage
-SLATEDUCK_STORAGE=az://my-container/catalog/
+ROCKLAKE_STORAGE=az://my-container/catalog/
 ```
 
-**Important:** The path should be dedicated to this SlateDuck instance. Do not share a storage path between multiple independent catalogs.
+**Important:** The path should be dedicated to this Rocklake instance. Do not share a storage path between multiple independent catalogs.
 
 ---
 
@@ -133,7 +133,7 @@ Path to a GCS service account JSON key file. Used when running outside GCP (wher
 | **Type** | File path |
 
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=/etc/slateduck/gcs-key.json
+GOOGLE_APPLICATION_CREDENTIALS=/etc/rocklake/gcs-key.json
 ```
 
 ### AZURE_STORAGE_ACCOUNT
@@ -163,9 +163,9 @@ Azure storage account access key.
 
 These variables control the network listener, session management, and access control.
 
-### SLATEDUCK_BIND
+### ROCKLAKE_BIND
 
-The address and port SlateDuck listens on for PostgreSQL wire protocol connections.
+The address and port Rocklake listens on for PostgreSQL wire protocol connections.
 
 | Aspect | Detail |
 |--------|--------|
@@ -176,18 +176,18 @@ The address and port SlateDuck listens on for PostgreSQL wire protocol connectio
 
 ```bash
 # Listen on all interfaces (required in Docker/K8s)
-SLATEDUCK_BIND=0.0.0.0:5432
+ROCKLAKE_BIND=0.0.0.0:5432
 
 # Non-standard port (to avoid conflict with local PostgreSQL)
-SLATEDUCK_BIND=127.0.0.1:5433
+ROCKLAKE_BIND=127.0.0.1:5433
 
 # IPv6
-SLATEDUCK_BIND=[::]:5432
+ROCKLAKE_BIND=[::]:5432
 ```
 
 **Security note:** Binding to `0.0.0.0` exposes the service to the network. Ensure network-level access control (security groups, network policies) is in place.
 
-### SLATEDUCK_MAX_SESSIONS
+### ROCKLAKE_MAX_SESSIONS
 
 Maximum number of concurrent client connections. Connections beyond this limit receive an immediate error.
 
@@ -199,12 +199,12 @@ Maximum number of concurrent client connections. Connections beyond this limit r
 | **Valid range** | 1 – 10000 |
 
 ```bash
-SLATEDUCK_MAX_SESSIONS=128
+ROCKLAKE_MAX_SESSIONS=128
 ```
 
 **Sizing guidance:** Each session uses minimal memory (a few KB for session state). The limit protects against connection exhaustion, not memory exhaustion. Set based on your expected peak concurrent connections plus 20% headroom.
 
-### SLATEDUCK_PASSWORD
+### ROCKLAKE_PASSWORD
 
 When set, requires clients to authenticate with this password during the PostgreSQL startup handshake.
 
@@ -216,12 +216,12 @@ When set, requires clients to authenticate with this password during the Postgre
 | **Security** | Sensitive — use secrets management in production |
 
 ```bash
-SLATEDUCK_PASSWORD=my-secure-password
+ROCKLAKE_PASSWORD=my-secure-password
 ```
 
 **Authentication flow:** Uses PostgreSQL's cleartext password authentication. For production, combine with TLS to protect the password in transit.
 
-### SLATEDUCK_REQUIRE_TLS
+### ROCKLAKE_REQUIRE_TLS
 
 When true, rejects connections that do not use TLS encryption.
 
@@ -232,12 +232,12 @@ When true, rejects connections that do not use TLS encryption.
 | **Type** | Boolean (`true` / `false`) |
 
 ```bash
-SLATEDUCK_REQUIRE_TLS=true
+ROCKLAKE_REQUIRE_TLS=true
 ```
 
-Requires `SLATEDUCK_TLS_CERT` and `SLATEDUCK_TLS_KEY` to also be set.
+Requires `ROCKLAKE_TLS_CERT` and `ROCKLAKE_TLS_KEY` to also be set.
 
-### SLATEDUCK_READ_ONLY
+### ROCKLAKE_READ_ONLY
 
 When true, the instance rejects all write operations (DDL, data file registration, etc.). Useful for read replicas or maintenance windows.
 
@@ -248,7 +248,7 @@ When true, the instance rejects all write operations (DDL, data file registratio
 | **Type** | Boolean |
 
 ```bash
-SLATEDUCK_READ_ONLY=true
+ROCKLAKE_READ_ONLY=true
 ```
 
 Write attempts return SQLSTATE `25006` (read_only_sql_transaction).
@@ -257,7 +257,7 @@ Write attempts return SQLSTATE `25006` (read_only_sql_transaction).
 
 ## TLS Configuration
 
-### SLATEDUCK_TLS_CERT
+### ROCKLAKE_TLS_CERT
 
 Path to the TLS certificate file in PEM format. Required to enable TLS.
 
@@ -268,24 +268,24 @@ Path to the TLS certificate file in PEM format. Required to enable TLS.
 | **Type** | File path |
 
 ```bash
-SLATEDUCK_TLS_CERT=/etc/slateduck/tls/server.crt
+ROCKLAKE_TLS_CERT=/etc/rocklake/tls/server.crt
 ```
 
 The certificate file should contain the full chain (server certificate followed by intermediate certificates).
 
-### SLATEDUCK_TLS_KEY
+### ROCKLAKE_TLS_KEY
 
 Path to the TLS private key file in PEM format.
 
 | Aspect | Detail |
 |--------|--------|
-| **Required** | With SLATEDUCK_TLS_CERT |
+| **Required** | With ROCKLAKE_TLS_CERT |
 | **Default** | None |
 | **Type** | File path |
 | **Security** | Sensitive — restrict file permissions (chmod 600) |
 
 ```bash
-SLATEDUCK_TLS_KEY=/etc/slateduck/tls/server.key
+ROCKLAKE_TLS_KEY=/etc/rocklake/tls/server.key
 ```
 
 ---
@@ -309,22 +309,22 @@ RUST_LOG=debug         # Verbose: includes internal state
 RUST_LOG=warn          # Quiet: only warnings and errors
 
 # Per-crate filtering
-RUST_LOG=slateduck_pgwire=debug,slateduck_catalog=info
-RUST_LOG=slateduck_catalog::gc=trace
-RUST_LOG=info,slateduck_pgwire::handler=debug
+RUST_LOG=rocklake_pgwire=debug,rocklake_catalog=info
+RUST_LOG=rocklake_catalog::gc=trace
+RUST_LOG=info,rocklake_pgwire::handler=debug
 ```
 
 **Common debugging configurations:**
 
 | Scenario | Filter |
 |----------|--------|
-| Protocol debugging | `slateduck_pgwire=debug` |
-| Storage performance | `slateduck_catalog=debug,object_store=debug` |
-| MVCC issues | `slateduck_catalog::reader=trace` |
-| GC behavior | `slateduck_catalog::gc=debug` |
+| Protocol debugging | `rocklake_pgwire=debug` |
+| Storage performance | `rocklake_catalog=debug,object_store=debug` |
+| MVCC issues | `rocklake_catalog::reader=trace` |
+| GC behavior | `rocklake_catalog::gc=debug` |
 | Everything | `debug` (very verbose) |
 
-### SLATEDUCK_LOG_FORMAT
+### ROCKLAKE_LOG_FORMAT
 
 Controls the output format of log messages.
 
@@ -336,21 +336,21 @@ Controls the output format of log messages.
 
 ```bash
 # Human-readable (for terminal/development)
-SLATEDUCK_LOG_FORMAT=text
-# Output: 2025-01-15T10:30:00Z INFO slateduck_pgwire: new session from 192.168.1.5:4321
+ROCKLAKE_LOG_FORMAT=text
+# Output: 2025-01-15T10:30:00Z INFO rocklake_pgwire: new session from 192.168.1.5:4321
 
 # Structured JSON (for log aggregation: Datadog, Loki, CloudWatch)
-SLATEDUCK_LOG_FORMAT=json
-# Output: {"timestamp":"2025-01-15T10:30:00Z","level":"INFO","target":"slateduck_pgwire","message":"new session","client":"192.168.1.5:4321"}
+ROCKLAKE_LOG_FORMAT=json
+# Output: {"timestamp":"2025-01-15T10:30:00Z","level":"INFO","target":"rocklake_pgwire","message":"new session","client":"192.168.1.5:4321"}
 ```
 
 ---
 
 ## Performance Tuning
 
-These variables control SlateDuck's internal performance behavior. The defaults are appropriate for most workloads. Change them only after benchmarking demonstrates a benefit.
+These variables control Rocklake's internal performance behavior. The defaults are appropriate for most workloads. Change them only after benchmarking demonstrates a benefit.
 
-### SLATEDUCK_HOT_KEY_CACHE
+### ROCKLAKE_HOT_KEY_CACHE
 
 Enables or disables the hot key cache (in-memory caching of frequently-accessed system keys like counters and epoch).
 
@@ -361,12 +361,12 @@ Enables or disables the hot key cache (in-memory caching of frequently-accessed 
 | **Type** | Boolean |
 
 ```bash
-SLATEDUCK_HOT_KEY_CACHE=false  # Disable for debugging cache issues
+ROCKLAKE_HOT_KEY_CACHE=false  # Disable for debugging cache issues
 ```
 
 Disabling this forces every read to go to SlateDB (and potentially object storage). Useful only for debugging.
 
-### SLATEDUCK_BATCH_SIZE
+### ROCKLAKE_BATCH_SIZE
 
 Maximum number of key-value mutations allowed in a single write batch. Prevents unbounded memory usage from very large transactions.
 
@@ -378,10 +378,10 @@ Maximum number of key-value mutations allowed in a single write batch. Prevents 
 | **Valid range** | 1 – 100000 |
 
 ```bash
-SLATEDUCK_BATCH_SIZE=5000  # For bulk operations (many columns per table)
+ROCKLAKE_BATCH_SIZE=5000  # For bulk operations (many columns per table)
 ```
 
-### SLATEDUCK_PREFETCH_DEPTH
+### ROCKLAKE_PREFETCH_DEPTH
 
 Number of SST blocks to prefetch during prefix scans. Higher values improve sequential read performance but use more memory.
 
@@ -393,10 +393,10 @@ Number of SST blocks to prefetch during prefix scans. Higher values improve sequ
 | **Valid range** | 1 – 64 |
 
 ```bash
-SLATEDUCK_PREFETCH_DEPTH=8  # For high-latency storage (cross-region S3)
+ROCKLAKE_PREFETCH_DEPTH=8  # For high-latency storage (cross-region S3)
 ```
 
-### SLATEDUCK_CACHE_SIZE_MB
+### ROCKLAKE_CACHE_SIZE_MB
 
 SlateDB block cache size in megabytes. The block cache stores recently-read SST blocks in memory to avoid repeated object storage fetches.
 
@@ -408,12 +408,12 @@ SlateDB block cache size in megabytes. The block cache stores recently-read SST 
 | **Valid range** | 8 – 4096 |
 
 ```bash
-SLATEDUCK_CACHE_SIZE_MB=256  # For large catalogs (many tables/files)
+ROCKLAKE_CACHE_SIZE_MB=256  # For large catalogs (many tables/files)
 ```
 
 **Sizing guidance:** The working set for most catalogs fits in 64–128 MB. Larger caches help when the catalog has thousands of tables or hundreds of thousands of data files.
 
-### SLATEDUCK_INLINE_THRESHOLD_BYTES
+### ROCKLAKE_INLINE_THRESHOLD_BYTES
 
 Maximum size of inlined data in catalog values. Files smaller than this threshold may have their content stored directly in the catalog (alongside their metadata) rather than as separate objects.
 
@@ -425,15 +425,15 @@ Maximum size of inlined data in catalog values. Files smaller than this threshol
 | **Valid range** | 0 – 65536 |
 
 ```bash
-SLATEDUCK_INLINE_THRESHOLD_BYTES=8192  # Inline larger files
-SLATEDUCK_INLINE_THRESHOLD_BYTES=0     # Never inline (always reference)
+ROCKLAKE_INLINE_THRESHOLD_BYTES=8192  # Inline larger files
+ROCKLAKE_INLINE_THRESHOLD_BYTES=0     # Never inline (always reference)
 ```
 
 ---
 
 ## Metrics Configuration
 
-### SLATEDUCK_METRICS_BIND
+### ROCKLAKE_METRICS_BIND
 
 Address and port for the Prometheus metrics HTTP endpoint.
 
@@ -444,16 +444,16 @@ Address and port for the Prometheus metrics HTTP endpoint.
 | **Type** | `host:port` string |
 
 ```bash
-SLATEDUCK_METRICS_BIND=0.0.0.0:9090
+ROCKLAKE_METRICS_BIND=0.0.0.0:9090
 ```
 
-When set, SlateDuck exposes a `/metrics` endpoint in Prometheus exposition format at the specified address.
+When set, Rocklake exposes a `/metrics` endpoint in Prometheus exposition format at the specified address.
 
 ---
 
 ## Health Check Configuration
 
-### SLATEDUCK_HEALTH_BIND
+### ROCKLAKE_HEALTH_BIND
 
 Address and port for the HTTP health check endpoint.
 
@@ -464,7 +464,7 @@ Address and port for the HTTP health check endpoint.
 | **Type** | `host:port` string |
 
 ```bash
-SLATEDUCK_HEALTH_BIND=0.0.0.0:8080
+ROCKLAKE_HEALTH_BIND=0.0.0.0:8080
 ```
 
 When set, exposes `/health/live` (liveness) and `/health/ready` (readiness) endpoints.
@@ -476,39 +476,39 @@ When set, exposes `/health/live` (liveness) and `/health/ready` (readiness) endp
 ### Local Development
 
 ```bash
-SLATEDUCK_STORAGE=./dev-catalog
-SLATEDUCK_BIND=127.0.0.1:5433
+ROCKLAKE_STORAGE=./dev-catalog
+ROCKLAKE_BIND=127.0.0.1:5433
 RUST_LOG=debug
-SLATEDUCK_LOG_FORMAT=text
+ROCKLAKE_LOG_FORMAT=text
 ```
 
 ### Production (AWS S3)
 
 ```bash
-SLATEDUCK_STORAGE=s3://mycompany-lakehouse/catalog/
+ROCKLAKE_STORAGE=s3://mycompany-lakehouse/catalog/
 AWS_REGION=us-east-1
-SLATEDUCK_BIND=0.0.0.0:5432
-SLATEDUCK_TLS_CERT=/etc/slateduck/tls/server.crt
-SLATEDUCK_TLS_KEY=/etc/slateduck/tls/server.key
-SLATEDUCK_REQUIRE_TLS=true
-SLATEDUCK_PASSWORD=${SLATEDUCK_PASSWORD_FROM_SECRETS}
-SLATEDUCK_MAX_SESSIONS=128
-SLATEDUCK_CACHE_SIZE_MB=256
-SLATEDUCK_METRICS_BIND=0.0.0.0:9090
-SLATEDUCK_HEALTH_BIND=0.0.0.0:8080
+ROCKLAKE_BIND=0.0.0.0:5432
+ROCKLAKE_TLS_CERT=/etc/rocklake/tls/server.crt
+ROCKLAKE_TLS_KEY=/etc/rocklake/tls/server.key
+ROCKLAKE_REQUIRE_TLS=true
+ROCKLAKE_PASSWORD=${ROCKLAKE_PASSWORD_FROM_SECRETS}
+ROCKLAKE_MAX_SESSIONS=128
+ROCKLAKE_CACHE_SIZE_MB=256
+ROCKLAKE_METRICS_BIND=0.0.0.0:9090
+ROCKLAKE_HEALTH_BIND=0.0.0.0:8080
 RUST_LOG=info
-SLATEDUCK_LOG_FORMAT=json
+ROCKLAKE_LOG_FORMAT=json
 ```
 
 ### Docker Compose (with MinIO)
 
 ```bash
-SLATEDUCK_STORAGE=s3://catalog/data/
+ROCKLAKE_STORAGE=s3://catalog/data/
 AWS_ENDPOINT_URL=http://minio:9000
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
-SLATEDUCK_BIND=0.0.0.0:5432
+ROCKLAKE_BIND=0.0.0.0:5432
 RUST_LOG=info
 ```
 

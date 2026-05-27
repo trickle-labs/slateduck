@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SlateDuck are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to Rocklake are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Each release is listed with the version number, release date, and categorized changes. Categories follow Keep a Changelog conventions:
 
@@ -16,13 +16,13 @@ Each release is listed with the version number, release date, and categorized ch
 
 ## [0.8.0] - 2025-01-15
 
-This release focuses on production readiness: performance optimization, comprehensive observability, and documentation. The hot key cache and secondary index provide significant latency improvements for large catalogs. Prometheus metrics and health check endpoints make SlateDuck monitorable and deployable in Kubernetes environments. The documentation site now covers all aspects of the system with 80+ pages of detailed reference material.
+This release focuses on production readiness: performance optimization, comprehensive observability, and documentation. The hot key cache and secondary index provide significant latency improvements for large catalogs. Prometheus metrics and health check endpoints make Rocklake monitorable and deployable in Kubernetes environments. The documentation site now covers all aspects of the system with 80+ pages of detailed reference material.
 
 ### Added
 
 - **Complete documentation site** with 80+ pages covering architecture, concepts, deployment, operations, integration, design decisions, performance, internals, contributing, and reference material
 - **Performance metrics collection** via Prometheus-compatible `/metrics` endpoint with 30+ metrics covering operations, storage, cache, sessions, and writer state
-- **Hot key caching** for frequently-read system keys (writer epoch, latest snapshot, retain_from). Eliminates storage round-trip for the most common access pattern. Configurable via `SLATEDUCK_HOT_KEY_CACHE`
+- **Hot key caching** for frequently-read system keys (writer epoch, latest snapshot, retain_from). Eliminates storage round-trip for the most common access pattern. Configurable via `ROCKLAKE_HOT_KEY_CACHE`
 - **Secondary index support** for partition-based access patterns, reducing scan amplification for catalogs with many tables per schema
 - **Encryption at rest** using AES-256-GCM for value-level encryption before writing to object storage. Keys managed via environment variable or AWS KMS
 - **Partitioned writer support** for multi-dataset workloads where independent writers own disjoint keyspace partitions
@@ -56,7 +56,7 @@ This release focuses on production readiness: performance optimization, comprehe
 
 ### Performance
 
-- **3x faster prefix scans** through SST block prefetching (configurable depth via `SLATEDUCK_PREFETCH_DEPTH`)
+- **3x faster prefix scans** through SST block prefetching (configurable depth via `ROCKLAKE_PREFETCH_DEPTH`)
 - **40% reduction in key encoding allocations** through stack-based buffers for keys under 128 bytes
 - **2x faster value deserialization** by using prost's zero-copy decode path for byte fields
 - **50% reduction in write latency** for single-row transactions through WAL segment size optimization
@@ -69,15 +69,15 @@ This release adds operational tooling: garbage collection, integrity verificatio
 
 ### Added
 
-- **GC (garbage collection) command** with configurable retention: `slateduck gc --retain-snapshots 100` advances the retention horizon and optionally excises superseded rows
-- **Excision command** for explicit physical deletion of superseded rows: `slateduck excise --dry-run` shows what would be deleted; without `--dry-run` deletes permanently
+- **GC (garbage collection) command** with configurable retention: `rocklake gc --retain-snapshots 100` advances the retention horizon and optionally excises superseded rows
+- **Excision command** for explicit physical deletion of superseded rows: `rocklake excise --dry-run` shows what would be deleted; without `--dry-run` deletes permanently
 - **Verify command** for catalog integrity checking: validates key encoding, value envelope format, reference integrity, and counter monotonicity
 - **Repair command** for conservative auto-repair: fixes counter inconsistencies and removes corrupt entries without operator intervention
 - **Checkpoint command** for creating named restore points before risky operations
 - **Wire corpus test suite** for DuckDB 1.5.x (comprehensive coverage of all emitted SQL patterns)
 - **Export command** for NDJSON backup of catalog contents
 - **Import command** for restoring from NDJSON backup
-- **Configurable log format** (`text` or `json`) via `SLATEDUCK_LOG_FORMAT` environment variable
+- **Configurable log format** (`text` or `json`) via `ROCKLAKE_LOG_FORMAT` environment variable
 
 ### Changed
 
@@ -99,17 +99,17 @@ This release adds operational tooling: garbage collection, integrity verificatio
 
 ## [0.6.0] - 2024-10-15
 
-This release implements the PostgreSQL wire protocol (Strategy B), making SlateDuck accessible to DuckDB over TCP without requiring a native extension. This is the primary deployment mode for production use.
+This release implements the PostgreSQL wire protocol (Strategy B), making Rocklake accessible to DuckDB over TCP without requiring a native extension. This is the primary deployment mode for production use.
 
 ### Added
 
 - **PG-wire protocol implementation** — full simple query protocol support (Query message → response). Extended query protocol (Parse/Bind/Execute) supported for common patterns
 - **SQL statement classifier** with ~50 recognized patterns covering all DuckLake operations
-- **Session management** with configurable maximum connections (`SLATEDUCK_MAX_SESSIONS`)
+- **Session management** with configurable maximum connections (`ROCKLAKE_MAX_SESSIONS`)
 - **TLS support** for encrypted client connections (certificate + key via environment variables)
 - **Password authentication** support (cleartext password protocol, requires TLS for security)
 - **Graceful shutdown** on SIGTERM (drains active sessions before stopping)
-- **Read-only mode** (`SLATEDUCK_READ_ONLY=true`) for deploying read replicas
+- **Read-only mode** (`ROCKLAKE_READ_ONLY=true`) for deploying read replicas
 
 ### Changed
 
@@ -126,7 +126,7 @@ This release implements the PostgreSQL wire protocol (Strategy B), making SlateD
 
 ## [0.5.0] - 2024-08-01
 
-The native DuckDB extension (Strategy C) — SlateDuck integrated directly into the DuckDB process via C FFI.
+The native DuckDB extension (Strategy C) — Rocklake integrated directly into the DuckDB process via C FFI.
 
 ### Added
 
@@ -165,11 +165,11 @@ Initial implementation: SlateDB integration and core data model.
 
 ### General Upgrade Process
 
-1. Stop the running SlateDuck instance
+1. Stop the running Rocklake instance
 2. Replace the binary with the new version
 3. Start the new instance
 
-SlateDuck is designed for zero-downtime upgrades when possible — the new instance picks up where the old one left off. However, some version transitions may require additional steps:
+Rocklake is designed for zero-downtime upgrades when possible — the new instance picks up where the old one left off. However, some version transitions may require additional steps:
 
 ### Breaking Changes by Version
 
@@ -184,7 +184,7 @@ SlateDuck is designed for zero-downtime upgrades when possible — the new insta
 After upgrading, verify catalog health:
 
 ```bash
-slateduck verify --catalog s3://bucket/catalog/
+rocklake verify --catalog s3://bucket/catalog/
 ```
 
 This confirms the new binary can read the existing catalog format correctly.

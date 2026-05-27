@@ -1,8 +1,8 @@
 # Crash Safety
 
-SlateDuck achieves crash safety without requiring an explicit recovery process, without WAL replay, without fsck, without repair tools, and without operator intervention. If the process crashes at any point during any operation — mid-read, mid-write, mid-compaction — the catalog remains consistent. Either the operation completed fully (and is durable), or it did not happen at all (and no trace remains). There is no in-between state.
+Rocklake achieves crash safety without requiring an explicit recovery process, without WAL replay, without fsck, without repair tools, and without operator intervention. If the process crashes at any point during any operation — mid-read, mid-write, mid-compaction — the catalog remains consistent. Either the operation completed fully (and is durable), or it did not happen at all (and no trace remains). There is no in-between state.
 
-This property is perhaps SlateDuck's most operationally significant guarantee. Traditional databases (PostgreSQL, MySQL) require recovery time after an unexpected shutdown — they must replay WAL logs to bring the database to a consistent state. This recovery can take seconds to minutes. SlateDuck has zero recovery time. Start the process. It is ready immediately.
+This property is perhaps Rocklake's most operationally significant guarantee. Traditional databases (PostgreSQL, MySQL) require recovery time after an unexpected shutdown — they must replay WAL logs to bring the database to a consistent state. This recovery can take seconds to minutes. Rocklake has zero recovery time. Start the process. It is ready immediately.
 
 This page explains how crash safety is achieved, what guarantees it provides, what it does NOT guarantee, and how it interacts with other system components.
 
@@ -27,7 +27,7 @@ s3://bucket/catalog/wal/segment-002.sst
 s3://bucket/catalog/wal/segment-003.sst
 ```
 
-Each WAL segment contains one or more write batches. When SlateDuck commits a transaction, SlateDB:
+Each WAL segment contains one or more write batches. When Rocklake commits a transaction, SlateDB:
 
 1. Serializes the write batch into an SST-format buffer
 2. PUTs the buffer to object storage as a new WAL segment
@@ -39,7 +39,7 @@ There is no intermediate state where "the segment partially exists" or "some byt
 
 ## Write Path Crash Safety
 
-A SlateDuck write transaction follows these steps:
+A Rocklake write transaction follows these steps:
 
 ```
 1. Allocate snapshot ID (increment counter in memory)
@@ -157,7 +157,7 @@ Traditional databases use a two-phase approach:
 2. Apply WAL entries to the main data structure (later, in background)
 3. On crash: replay unapplied WAL entries to recover
 
-SlateDuck (via SlateDB) does not need step 3 because:
+Rocklake (via SlateDB) does not need step 3 because:
 
 - WAL segments ARE the data (until compaction merges them into SST files)
 - The manifest tracks which WAL segments and SST files are current
@@ -256,13 +256,13 @@ The only data "lost" in a crash is uncommitted transactions (which were never du
 
 ### Restart Is Always Safe
 
-You can restart SlateDuck at any time for any reason (deployment, upgrade, configuration change) without risk. There is no "clean shutdown" procedure — just stop the process.
+You can restart Rocklake at any time for any reason (deployment, upgrade, configuration change) without risk. There is no "clean shutdown" procedure — just stop the process.
 
 ```bash
 # All of these are equally safe:
 kill -9 $PID           # Immediate kill
 kill -TERM $PID        # Graceful shutdown
-systemctl restart slateduck  # Service restart
+systemctl restart rocklake  # Service restart
 # Power failure         # Hardware crash
 ```
 

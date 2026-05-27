@@ -1,8 +1,8 @@
 # Catalog Tables Reference
 
-This page provides the authoritative specification of every table type stored in the SlateDuck catalog. Each table type corresponds to a tag byte in the key encoding and a protobuf message type for its values. Understanding this schema is essential for contributors implementing new catalog operations, operators debugging storage contents, and anyone who needs to understand exactly what data SlateDuck persists.
+This page provides the authoritative specification of every table type stored in the Rocklake catalog. Each table type corresponds to a tag byte in the key encoding and a protobuf message type for its values. Understanding this schema is essential for contributors implementing new catalog operations, operators debugging storage contents, and anyone who needs to understand exactly what data Rocklake persists.
 
-The DuckLake protocol defines 28 logical tables (SQL tables in the PostgreSQL-backed reference implementation). SlateDuck stores these as key-value pairs in SlateDB, with each table type identified by a unique tag byte prefix. This page documents every table type, its fields, its key structure, and its relationships to other tables.
+The DuckLake protocol defines 28 logical tables (SQL tables in the PostgreSQL-backed reference implementation). Rocklake stores these as key-value pairs in SlateDB, with each table type identified by a unique tag byte prefix. This page documents every table type, its fields, its key structure, and its relationships to other tables.
 
 ## Schema Conventions
 

@@ -1,12 +1,12 @@
 # MVCC Filter
 
-Multi-Version Concurrency Control (MVCC) is the mechanism that allows SlateDuck to support time travel, concurrent readers at different snapshots, and non-blocking reads during writes — all without locks. The MVCC filter is the runtime component that determines which rows are visible to a given reader at a given snapshot. It is applied during every prefix scan and every point lookup of versioned entities. This page documents the visibility rules, the implementation, the performance characteristics, and the interaction with garbage collection.
+Multi-Version Concurrency Control (MVCC) is the mechanism that allows Rocklake to support time travel, concurrent readers at different snapshots, and non-blocking reads during writes — all without locks. The MVCC filter is the runtime component that determines which rows are visible to a given reader at a given snapshot. It is applied during every prefix scan and every point lookup of versioned entities. This page documents the visibility rules, the implementation, the performance characteristics, and the interaction with garbage collection.
 
 Understanding the MVCC filter is essential for contributors working on the catalog layer, for operators diagnosing unexpected query results (especially involving time travel), and for anyone who wants to understand why GC affects scan performance.
 
 ## The Core Problem
 
-SlateDuck stores multiple versions of the same logical entity as separate key-value pairs in SlateDB. When a table is altered (adding a column, changing a property), the old version is not updated in place — a new version is created alongside it. Both versions coexist in storage indefinitely (until garbage collection removes the old one).
+Rocklake stores multiple versions of the same logical entity as separate key-value pairs in SlateDB. When a table is altered (adding a column, changing a property), the old version is not updated in place — a new version is created alongside it. Both versions coexist in storage indefinitely (until garbage collection removes the old one).
 
 This means a naive prefix scan for "all columns of table 42" returns ALL versions of all columns — including versions that were superseded months ago. Without MVCC filtering, the reader would see duplicate or contradictory data. The MVCC filter's job is to select exactly the versions that are visible at the reader's snapshot, producing a consistent, point-in-time view of the catalog.
 
@@ -61,7 +61,7 @@ At snapshot 400 and beyond, no version of table 5 is visible — it has been dro
 
 ## Implementation
 
-The MVCC filter is implemented in the `slateduck-core` crate:
+The MVCC filter is implemented in the `rocklake-core` crate:
 
 ```rust
 /// Determines whether a versioned row is visible at a given snapshot.
@@ -201,7 +201,7 @@ For `ducklake_file_column_stats`, visibility is inherited from the parent data f
 
 ### Concurrent Write and Read
 
-Because SlateDuck uses a single writer, there is no true concurrency between writes and reads at the MVCC level. However, a reader may be mid-scan when a writer commits a new snapshot. The reader's behavior depends on its snapshot:
+Because Rocklake uses a single writer, there is no true concurrency between writes and reads at the MVCC level. However, a reader may be mid-scan when a writer commits a new snapshot. The reader's behavior depends on its snapshot:
 
 - If the reader is using a fixed snapshot (explicit time travel), it is unaffected by new writes
 - If the reader is using "current snapshot" mode, it reads the snapshot that was current at the start of its transaction
@@ -218,7 +218,7 @@ Snapshot 0 is a special value: the initial empty catalog state. No user-created 
 
 ## Testing the Filter
 
-The MVCC filter is tested extensively in `crates/slateduck-core/tests/`:
+The MVCC filter is tested extensively in `crates/rocklake-core/tests/`:
 
 - Visibility at exact boundaries (begin_snapshot, end_snapshot)
 - Multiple versions of the same entity

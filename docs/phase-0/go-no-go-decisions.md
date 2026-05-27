@@ -1,6 +1,6 @@
 # Phase 0 Go/No-Go Decisions
 
-> Final decision record for SlateDuck v0.1 Foundation phase.
+> Final decision record for Rocklake v0.1 Foundation phase.
 > All gates pass. Proceed to v0.2.
 
 ## Decision Summary

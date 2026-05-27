@@ -72,7 +72,7 @@ Two IAM policy sets tested against MinIO (S3-compatible):
 
 ```
 ┌─────────────┐     catalog-only      ┌──────────────────┐
-│   SlateDuck │ ◄──────────────────── │  s3://bucket/    │
+│   Rocklake │ ◄──────────────────── │  s3://bucket/    │
 │   Sidecar   │                       │  catalogs/       │
 └─────────────┘                       └──────────────────┘
 

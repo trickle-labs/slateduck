@@ -1,6 +1,6 @@
 # CDC Output (Change Data Capture)
 
-SlateDuck v0.10 adds CDC export: every committed snapshot is a natural change
+Rocklake v0.10 adds CDC export: every committed snapshot is a natural change
 stream.  The diff between snapshots `S_n` and `S_{n+1}` is the set of catalog
 facts with `begin_snapshot = S_{n+1}` (newly added) or `end_snapshot = S_{n+1}`
 (retired).
@@ -8,7 +8,7 @@ facts with `begin_snapshot = S_{n+1}` (newly added) or `end_snapshot = S_{n+1}`
 ## Architecture
 
 ```
-SlateDuck catalog
+Rocklake catalog
      │ commit snapshot
      ▼
 CatalogReader::snapshot_diff(from, to)
@@ -23,8 +23,8 @@ CatalogReader::snapshot_diff(from, to)
 ## snapshot_diff API
 
 ```rust
-use slateduck_catalog::{CatalogStore, SnapshotDiff};
-use slateduck_core::mvcc::SnapshotId;
+use rocklake_catalog::{CatalogStore, SnapshotDiff};
+use rocklake_core::mvcc::SnapshotId;
 
 let reader = store.read_at(to_snapshot)?;
 let diff: SnapshotDiff = reader
@@ -71,7 +71,7 @@ Each file begins with a header line followed by one event per line:
 ### Writing CDC files
 
 ```rust
-use slateduck_catalog::cdc::{CdcSnapshot, cdc_s3_path, write_cdc_jsonl};
+use rocklake_catalog::cdc::{CdcSnapshot, cdc_s3_path, write_cdc_jsonl};
 
 let diff = reader.snapshot_diff(prev_snap, curr_snap).await?;
 let cdc = CdcSnapshot::from_diff(&diff);
@@ -83,14 +83,14 @@ write_cdc_jsonl(&cdc, &mut buf)?;
 // object_store.put(&path.into(), buf.into()).await?;
 ```
 
-## CDC Tailer (`slateduck-cdc` sidecar)
+## CDC Tailer (`rocklake-cdc` sidecar)
 
 The `CdcTailer` polls the catalog at a configured interval and exports each new
 snapshot diff.
 
 ```rust
-use slateduck_catalog::cdc::CdcTailer;
-use slateduck_core::mvcc::SnapshotId;
+use rocklake_catalog::cdc::CdcTailer;
+use rocklake_core::mvcc::SnapshotId;
 
 let mut tailer = CdcTailer::new(
     SnapshotId::new(0),     // start from the beginning
@@ -100,12 +100,12 @@ let mut tailer = CdcTailer::new(
 loop {
     if let Some(cdc) = tailer.poll_once(&store).await? {
         // New snapshot diff available
-        let path = slateduck_catalog::cdc::cdc_s3_path(
+        let path = rocklake_catalog::cdc::cdc_s3_path(
             &tailer.warehouse_prefix,
             cdc.to_snapshot,
         );
         let mut buf = Vec::new();
-        slateduck_catalog::cdc::write_cdc_jsonl(&cdc, &mut buf)?;
+        rocklake_catalog::cdc::write_cdc_jsonl(&cdc, &mut buf)?;
         // Publish buf to Kafka/NATS or upload to S3
         println!("Exported {} events for snapshot {}", cdc.events.len(), cdc.to_snapshot);
     }
@@ -120,7 +120,7 @@ loop {
 let jsonl = cdc.to_jsonl();
 kafka_producer
     .send(
-        FutureRecord::to("slateduck.cdc")
+        FutureRecord::to("rocklake.cdc")
             .key(&cdc.to_snapshot.to_string())
             .payload(jsonl.as_bytes()),
         Timeout::Never,
@@ -134,7 +134,7 @@ kafka_producer
 let jsonl = cdc.to_jsonl();
 nats_client
     .publish(
-        format!("slateduck.cdc.{}", cdc.to_snapshot),
+        format!("rocklake.cdc.{}", cdc.to_snapshot),
         jsonl.as_bytes(),
     )
     .await?;
@@ -146,7 +146,7 @@ The `WebhookPayload` struct provides a lightweight JSON payload for HTTP
 webhook delivery:
 
 ```rust
-use slateduck_catalog::cdc::{CdcSnapshot, WebhookPayload};
+use rocklake_catalog::cdc::{CdcSnapshot, WebhookPayload};
 
 let cdc = CdcSnapshot::from_diff(&diff);
 let payload = WebhookPayload::from_cdc(
@@ -199,7 +199,7 @@ WHERE table = 'ducklake_data_file'
 ```
 Kafka "orders" topic
   → pg-tide-relay
-  → SlateDuckSink (commit_batch with exactly-once offset)
+  → RocklakeSink (commit_batch with exactly-once offset)
   → DuckLake snapshot committed
   → CdcTailer polls
   → Publishes to Kafka "cdc.orders" topic
@@ -209,7 +209,7 @@ Kafka "orders" topic
 ### S3-Polling for Lambda Triggers
 
 ```
-SlateDuck commits snapshot
+Rocklake commits snapshot
   → CdcTailer writes snapshot-N.jsonl to S3
   → S3 event notification triggers Lambda
   → Lambda reads diff and fans out to DynamoDB / SQS

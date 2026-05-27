@@ -32,10 +32,10 @@ jobs:
           test -f tests/fixtures/wire-corpus/${{ matrix.client }}.jsonl
 
       - name: Run wire-corpus replay tests
-        run: cargo test --package slateduck-pgwire -- --include-ignored corpus
+        run: cargo test --package rocklake-pgwire -- --include-ignored corpus
 
       - name: Run all integration tests
-        run: cargo test --package slateduck-pgwire
+        run: cargo test --package rocklake-pgwire
 
   postgres-client-compatibility:
     name: PostgreSQL Client Compatibility (${{ matrix.postgres-version }})
@@ -64,7 +64,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run psql client compatibility tests
-        run: cargo test --package slateduck-pgwire -- --include-ignored psql_compat
+        run: cargo test --package rocklake-pgwire -- --include-ignored psql_compat
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -78,7 +78,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run GCS/Azure builder validation tests
-        run: cargo test --package slateduck-pgwire -- gcs_object_store_config azure_object_store_config
+        run: cargo test --package rocklake-pgwire -- gcs_object_store_config azure_object_store_config
 
       - name: Run all catalog tests
-        run: cargo test --package slateduck-catalog
+        run: cargo test --package rocklake-catalog

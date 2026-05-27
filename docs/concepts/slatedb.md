@@ -1,8 +1,8 @@
 # The SlateDB Storage Engine
 
-SlateDB is the storage engine that makes SlateDuck possible. It is an embedded key-value store written in Rust that persists all durable state to object storage — not to local disk, not to a network-attached volume, but to the same S3, GCS, or Azure Blob Storage bucket where your Parquet data lives. This seemingly simple architectural choice has profound consequences for how SlateDuck operates: it means the catalog is as durable as the object store itself, it means the catalog has no local-disk requirements beyond ephemeral caching, and it means the catalog can be opened from any process that has network access to the bucket — a long-lived sidecar, a Lambda function, a Kubernetes pod, an edge worker.
+SlateDB is the storage engine that makes Rocklake possible. It is an embedded key-value store written in Rust that persists all durable state to object storage — not to local disk, not to a network-attached volume, but to the same S3, GCS, or Azure Blob Storage bucket where your Parquet data lives. This seemingly simple architectural choice has profound consequences for how Rocklake operates: it means the catalog is as durable as the object store itself, it means the catalog has no local-disk requirements beyond ephemeral caching, and it means the catalog can be opened from any process that has network access to the bucket — a long-lived sidecar, a Lambda function, a Kubernetes pod, an edge worker.
 
-Understanding SlateDB is essential to understanding SlateDuck because every property that SlateDuck advertises — crash safety, durability, horizontal read scale-out, single-writer consistency — is ultimately provided by SlateDB at the storage layer. SlateDuck is the mapping between DuckLake's relational catalog model and SlateDB's key-value API; SlateDB is the engine that actually stores the bytes and guarantees their integrity.
+Understanding SlateDB is essential to understanding Rocklake because every property that Rocklake advertises — crash safety, durability, horizontal read scale-out, single-writer consistency — is ultimately provided by SlateDB at the storage layer. Rocklake is the mapping between DuckLake's relational catalog model and SlateDB's key-value API; SlateDB is the engine that actually stores the bytes and guarantees their integrity.
 
 ## LSM Trees: The Foundation
 
@@ -18,7 +18,7 @@ In SlateDB's case, the "layers" are:
 
 **Sorted String Tables (SSTs).** When the MemTable reaches a size threshold, it is flushed to the object store as an SST — a sorted, immutable file containing key-value pairs. SSTs are the long-term storage format. They are optimized for binary search and range scans: given a key prefix, you can quickly find all matching entries within an SST.
 
-**Compaction.** Over time, multiple SSTs accumulate. Background compaction merges overlapping SSTs into larger, non-overlapping ones, eliminating obsolete versions of keys and reducing the number of files a read must consult. Compaction is transparent to the application — SlateDuck does not need to trigger or manage it.
+**Compaction.** Over time, multiple SSTs accumulate. Background compaction merges overlapping SSTs into larger, non-overlapping ones, eliminating obsolete versions of keys and reducing the number of files a read must consult. Compaction is transparent to the application — Rocklake does not need to trigger or manage it.
 
 **The Manifest.** A single small file in the bucket that describes the current state of the database: which SSTs exist, which SST covers which key range, and what the current WAL position is. The manifest is the entry point for opening the database — a reader that opens the manifest knows exactly which SST files to read for any given key range.
 
@@ -30,19 +30,19 @@ This has immediate practical consequences:
 
 **Durability equals object-store durability.** When SlateDB reports that a write is committed, the bytes are stored in S3 with 11 nines of durability. There is no replication to configure, no backup to schedule, no point-in-time recovery to set up. The bucket is the backup.
 
-**No persistent volumes required.** You can run SlateDuck in environments that have no persistent local storage — Lambda functions, Fargate containers, spot instances that can be terminated at any time. The catalog survives process termination because it lives in the bucket, not on the instance.
+**No persistent volumes required.** You can run Rocklake in environments that have no persistent local storage — Lambda functions, Fargate containers, spot instances that can be terminated at any time. The catalog survives process termination because it lives in the bucket, not on the instance.
 
 **Any process can open the catalog.** As long as a process has network access to the bucket and appropriate credentials, it can open a SlateDB database and begin reading. There is no server to connect to, no port to expose, no handshake to perform. This is what enables the horizontal read scale-out model: readers are just processes that open the manifest and read from SSTs.
 
 ## Atomic Write Batches
 
-SlateDB provides two APIs for writes that SlateDuck uses:
+SlateDB provides two APIs for writes that Rocklake uses:
 
 **`WriteBatch`** — A set of key-value puts that are committed atomically. Either all puts in the batch succeed, or none do. If the process crashes during a WriteBatch, the entire batch is either present in the WAL (and thus committed) or absent (and thus never happened). There is no partial state.
 
-**`DbTransaction`** — A higher-level transactional API that supports read-your-writes semantics within the transaction, conflict detection, and atomic commit. SlateDuck uses `DbTransaction` for catalog operations that need to read existing state before deciding what to write (for example, allocating a counter value and then writing a row that uses that value).
+**`DbTransaction`** — A higher-level transactional API that supports read-your-writes semantics within the transaction, conflict detection, and atomic commit. Rocklake uses `DbTransaction` for catalog operations that need to read existing state before deciding what to write (for example, allocating a counter value and then writing a row that uses that value).
 
-The atomicity of these write operations is what gives SlateDuck its crash-safety guarantee. When DuckDB sends a `COMMIT` to SlateDuck, the pending catalog mutations are assembled into a single `DbTransaction` that includes every INSERT and UPDATE from the current transaction. That transaction is committed to SlateDB as a single atomic operation — one WAL segment write, one PUT to the object store. Either the entire transaction persists, or it does not. A crash at any point during the process leaves the catalog in a clean state.
+The atomicity of these write operations is what gives Rocklake its crash-safety guarantee. When DuckDB sends a `COMMIT` to Rocklake, the pending catalog mutations are assembled into a single `DbTransaction` that includes every INSERT and UPDATE from the current transaction. That transaction is committed to SlateDB as a single atomic operation — one WAL segment write, one PUT to the object store. Either the entire transaction persists, or it does not. A crash at any point during the process leaves the catalog in a clean state.
 
 ## Single-Writer Enforcement and Fencing
 
@@ -50,7 +50,7 @@ SlateDB enforces that at most one process may write to a given database at a tim
 
 This mechanism prevents a dangerous failure mode common in distributed systems: split-brain, where two processes both believe they are the authoritative writer and make conflicting modifications. With SlateDB's fencing, this cannot happen. The first writer is fenced off the moment the second writer takes over, and any in-flight writes from the first writer that have not yet committed are guaranteed to fail.
 
-SlateDuck maps SlateDB's fencing error to `SQLSTATE 57P04` (connection failure), which DuckDB interprets as "the server went away — reconnect." The DuckDB client automatically retries its connection, reaches the new writer, and continues operation. From the client's perspective, a writer failover looks like a brief connection interruption.
+Rocklake maps SlateDB's fencing error to `SQLSTATE 57P04` (connection failure), which DuckDB interprets as "the server went away — reconnect." The DuckDB client automatically retries its connection, reaches the new writer, and continues operation. From the client's perspective, a writer failover looks like a brief connection interruption.
 
 The takeover protocol is deterministic:
 
@@ -63,41 +63,41 @@ On S3 Standard, this takeover process completes in roughly 30–60 seconds (domi
 
 ## Read Paths: DbReader and DbSnapshot
 
-SlateDB provides multiple read APIs that SlateDuck uses for different scenarios:
+SlateDB provides multiple read APIs that Rocklake uses for different scenarios:
 
 **`DbReader`** opens a read-only view of the database against the current manifest. It can read any key or scan any key range, seeing all data that was committed and flushed at the time it was opened. Readers do not interfere with the writer and do not interfere with each other — they are completely independent processes that read immutable SST files directly from the object store.
 
-**`DbSnapshot`** is similar to `DbReader` but pinned to a specific point in time. It sees exactly the state that was committed at that point, regardless of what the writer does afterward. SlateDuck uses snapshots for long-running queries that should not be affected by concurrent writes.
+**`DbSnapshot`** is similar to `DbReader` but pinned to a specific point in time. It sees exactly the state that was committed at that point, regardless of what the writer does afterward. Rocklake uses snapshots for long-running queries that should not be affected by concurrent writes.
 
-The key property of both read APIs is that they operate entirely on immutable data. SST files, once written, are never modified. A reader that opens a set of SST files will see consistent data regardless of what compaction processes or new writes are happening concurrently. This is the fundamental enabler of SlateDuck's horizontal read scale-out: adding more readers does not require any coordination with the writer because readers and writers operate on different (immutable) data.
+The key property of both read APIs is that they operate entirely on immutable data. SST files, once written, are never modified. A reader that opens a set of SST files will see consistent data regardless of what compaction processes or new writes are happening concurrently. This is the fundamental enabler of Rocklake's horizontal read scale-out: adding more readers does not require any coordination with the writer because readers and writers operate on different (immutable) data.
 
 ## The Flush Visibility Barrier
 
 There is a subtle but important concept in SlateDB's consistency model: the distinction between "committed" and "visible to readers." When a `DbTransaction` commits successfully, the write is durable — it is in the WAL and will survive a crash. But it is not yet visible to new readers that open the database after the commit. Visibility requires a `flush()` operation that advances the manifest to include the new WAL entries.
 
-SlateDuck calls `flush()` after every committed transaction to ensure that subsequent readers see the latest state. Without this call, a reader that opens immediately after a writer's commit might see a stale state because the manifest has not yet been updated. The `flush()` call is the visibility barrier that separates "written" from "readable."
+Rocklake calls `flush()` after every committed transaction to ensure that subsequent readers see the latest state. Without this call, a reader that opens immediately after a writer's commit might see a stale state because the manifest has not yet been updated. The `flush()` call is the visibility barrier that separates "written" from "readable."
 
 This is analogous to PostgreSQL's WAL flush versus visibility: in PostgreSQL, a committed transaction is durable in the WAL but not visible to other sessions until the WAL is applied. In SlateDB, a committed write is durable in the WAL but not visible to readers until `flush()` advances the manifest.
 
 ## What SlateDB Does Not Provide
 
-Understanding SlateDB's boundaries helps explain why SlateDuck is built the way it is:
+Understanding SlateDB's boundaries helps explain why Rocklake is built the way it is:
 
-**No built-in SQL.** SlateDB is a key-value store. It does not parse SQL, plan queries, or evaluate expressions. SlateDuck implements its own key layout and bounded SQL dispatcher on top of SlateDB's key-value API.
+**No built-in SQL.** SlateDB is a key-value store. It does not parse SQL, plan queries, or evaluate expressions. Rocklake implements its own key layout and bounded SQL dispatcher on top of SlateDB's key-value API.
 
-**No multi-writer support.** One writer per database, period. SlateDuck's single-writer model is a direct consequence of this constraint.
+**No multi-writer support.** One writer per database, period. Rocklake's single-writer model is a direct consequence of this constraint.
 
 **No multi-region replication.** SlateDB reads from a single object-store bucket. Cross-region availability requires object-store-level replication (like S3 Cross-Region Replication), not SlateDB-level replication.
 
-**No built-in encryption.** SlateDB provides a block transformer API that SlateDuck can use to encrypt data at the SST level, but key management and encryption policy are the application's responsibility.
+**No built-in encryption.** SlateDB provides a block transformer API that Rocklake can use to encrypt data at the SST level, but key management and encryption policy are the application's responsibility.
 
-**No secondary indexes.** SlateDB supports only primary-key lookups and range scans. SlateDuck's key layout is designed to make the most common query patterns efficient without secondary indexes.
+**No secondary indexes.** SlateDB supports only primary-key lookups and range scans. Rocklake's key layout is designed to make the most common query patterns efficient without secondary indexes.
 
-These constraints are not shortcomings — they are deliberate boundaries that keep SlateDB small, correct, and focused. Each constraint shaped SlateDuck's design in a specific way, and understanding the constraint helps understand the design choice.
+These constraints are not shortcomings — they are deliberate boundaries that keep SlateDB small, correct, and focused. Each constraint shaped Rocklake's design in a specific way, and understanding the constraint helps understand the design choice.
 
 ## Further Reading
 
-- **[Catalog Immutability](immutability.md)** — How SlateDuck leverages SlateDB's immutable SST files to provide infinite time travel
-- **[Architecture: Transaction Model](../architecture/transaction-model.md)** — How SlateDuck uses `DbTransaction` for catalog atomicity
+- **[Catalog Immutability](immutability.md)** — How Rocklake leverages SlateDB's immutable SST files to provide infinite time travel
+- **[Architecture: Transaction Model](../architecture/transaction-model.md)** — How Rocklake uses `DbTransaction` for catalog atomicity
 - **[Design Decisions: Why SlateDB?](../design-decisions/why-slatedb.md)** — The full comparison with PostgreSQL, SQLite, FoundationDB, and other alternatives
 - **[Performance: Latency Model](../performance/latency-model.md)** — How SlateDB's object-store-based persistence affects operation latency

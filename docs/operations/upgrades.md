@@ -1,6 +1,6 @@
 # Upgrades
 
-Upgrading SlateDuck involves replacing the binary (or container image) with a newer version and, in some cases, migrating the catalog's internal format. Because SlateDuck stores all state in SlateDB on object storage, upgrades are simpler than traditional database upgrades — there is no local data directory to migrate, no WAL to replay, and no cluster coordination to manage.
+Upgrading Rocklake involves replacing the binary (or container image) with a newer version and, in some cases, migrating the catalog's internal format. Because Rocklake stores all state in SlateDB on object storage, upgrades are simpler than traditional database upgrades — there is no local data directory to migrate, no WAL to replay, and no cluster coordination to manage.
 
 This page covers version compatibility guarantees, the upgrade procedure for every deployment model, format migrations, rollback strategies, and best practices for zero-downtime upgrades.
 
@@ -8,7 +8,7 @@ This page covers version compatibility guarantees, the upgrade procedure for eve
 
 ### Semantic Versioning
 
-SlateDuck follows semantic versioning (MAJOR.MINOR.PATCH):
+Rocklake follows semantic versioning (MAJOR.MINOR.PATCH):
 
 - **PATCH** (0.8.0 → 0.8.1): Bug fixes only. No format changes. Drop-in replacement.
 - **MINOR** (0.8.x → 0.9.0): New features, possibly new configuration options. May include a format migration (documented in release notes).
@@ -34,7 +34,7 @@ Once a format migration is applied, you cannot downgrade the binary below the ve
 
 The PostgreSQL wire protocol interface maintains backward compatibility within a major version:
 
-- DuckDB clients built for SlateDuck 0.7.x will work with SlateDuck 0.8.x
+- DuckDB clients built for Rocklake 0.7.x will work with Rocklake 0.8.x
 - New protocol features are additive (new message types, new columns in results)
 - Breaking wire protocol changes are reserved for major version bumps
 
@@ -44,14 +44,14 @@ Before upgrading, complete these steps:
 
 ```bash
 # 1. Check current version and catalog state
-slateduck --version
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake --version
+rocklake inspect --catalog s3://bucket/catalog/
 
 # 2. Read the release notes for the target version
 # Pay attention to: format migrations, breaking changes, deprecations
 
 # 3. Take a backup (critical for format migrations)
-slateduck export --catalog s3://bucket/catalog/ --output pre-upgrade-backup.ndjson
+rocklake export --catalog s3://bucket/catalog/ --output pre-upgrade-backup.ndjson
 
 # 4. Verify the backup
 wc -l pre-upgrade-backup.ndjson
@@ -66,47 +66,47 @@ aws s3 ls s3://bucket/catalog/ --recursive --summarize | tail -2
 ### Binary Installation
 
 ```bash
-# 1. Stop SlateDuck
-systemctl stop slateduck
-# or: kill $(pgrep slateduck)
+# 1. Stop Rocklake
+systemctl stop rocklake
+# or: kill $(pgrep rocklake)
 
 # 2. Replace the binary
-mv /usr/local/bin/slateduck /usr/local/bin/slateduck.old
-curl -L https://github.com/slateduck/slateduck/releases/download/v0.9.0/slateduck-$(uname -m)-unknown-linux-gnu -o /usr/local/bin/slateduck
-chmod +x /usr/local/bin/slateduck
+mv /usr/local/bin/rocklake /usr/local/bin/rocklake.old
+curl -L https://github.com/rocklake/rocklake/releases/download/v0.9.0/rocklake-$(uname -m)-unknown-linux-gnu -o /usr/local/bin/rocklake
+chmod +x /usr/local/bin/rocklake
 
 # 3. Start the new version
-systemctl start slateduck
-# or: slateduck serve --catalog s3://bucket/catalog/
+systemctl start rocklake
+# or: rocklake serve --catalog s3://bucket/catalog/
 
 # 4. Verify
-slateduck --version
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake --version
+rocklake inspect --catalog s3://bucket/catalog/
 ```
 
 ### Docker
 
 ```bash
 # 1. Pull the new image
-docker pull ghcr.io/slateduck/slateduck:0.9.0
+docker pull ghcr.io/rocklake/rocklake:0.9.0
 
 # 2. Stop the old container
-docker stop slateduck
+docker stop rocklake
 
 # 3. Start with the new image
-docker run -d --name slateduck-new \
+docker run -d --name rocklake-new \
     -p 5432:5432 \
-    -e SLATEDUCK_STORAGE=s3://bucket/catalog/ \
+    -e ROCKLAKE_STORAGE=s3://bucket/catalog/ \
     -e AWS_REGION=us-east-1 \
-    ghcr.io/slateduck/slateduck:0.9.0 \
+    ghcr.io/rocklake/rocklake:0.9.0 \
     serve
 
 # 4. Verify
-docker logs slateduck-new | head -20
+docker logs rocklake-new | head -20
 
 # 5. Remove old container
-docker rm slateduck
-docker rename slateduck-new slateduck
+docker rm rocklake
+docker rename rocklake-new rocklake
 ```
 
 ### Kubernetes
@@ -116,7 +116,7 @@ docker rename slateduck-new slateduck
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: slateduck
+  name: rocklake
 spec:
   replicas: 1
   strategy:
@@ -124,31 +124,31 @@ spec:
   template:
     spec:
       containers:
-        - name: slateduck
-          image: ghcr.io/slateduck/slateduck:0.9.0  # Updated
+        - name: rocklake
+          image: ghcr.io/rocklake/rocklake:0.9.0  # Updated
 ```
 
 ```bash
 # Apply the update
-kubectl apply -f slateduck-deployment.yaml
+kubectl apply -f rocklake-deployment.yaml
 
 # Watch the rollout
-kubectl rollout status deployment/slateduck
+kubectl rollout status deployment/rocklake
 
 # Verify
-kubectl exec deployment/slateduck -- slateduck --version
-kubectl exec deployment/slateduck -- slateduck inspect --catalog s3://bucket/catalog/
+kubectl exec deployment/rocklake -- rocklake --version
+kubectl exec deployment/rocklake -- rocklake inspect --catalog s3://bucket/catalog/
 ```
 
 ### Fly.io
 
 ```bash
 # Update fly.toml with new image or rebuild
-fly deploy --image ghcr.io/slateduck/slateduck:0.9.0
+fly deploy --image ghcr.io/rocklake/rocklake:0.9.0
 
 # Verify
-fly ssh console -C "slateduck --version"
-fly ssh console -C "slateduck inspect --catalog s3://bucket/catalog/"
+fly ssh console -C "rocklake --version"
+fly ssh console -C "rocklake inspect --catalog s3://bucket/catalog/"
 ```
 
 ## Format Migrations
@@ -159,7 +159,7 @@ When a new version introduces a format change, the migration is handled as follo
 
 Most format migrations are automatic. On first startup with the new binary:
 
-1. SlateDuck detects the old format version
+1. Rocklake detects the old format version
 2. It reads all catalog data
 3. It rewrites data in the new format
 4. It updates `sys/format_version`
@@ -173,10 +173,10 @@ For complex migrations (announced in release notes):
 
 ```bash
 # Run the migration tool explicitly
-slateduck migrate --catalog s3://bucket/catalog/ --target-version 2
+rocklake migrate --catalog s3://bucket/catalog/ --target-version 2
 
 # Verify
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 ```
 
 ### Migration Duration
@@ -198,9 +198,9 @@ If the new version has the same format version as the old one:
 
 ```bash
 # Simply replace the binary with the old version
-systemctl stop slateduck
-mv /usr/local/bin/slateduck.old /usr/local/bin/slateduck
-systemctl start slateduck
+systemctl stop rocklake
+mv /usr/local/bin/rocklake.old /usr/local/bin/rocklake
+systemctl start rocklake
 ```
 
 ### After Format Migration (Backup Restore)
@@ -210,7 +210,7 @@ If a format migration was applied, you cannot simply use the old binary (it will
 1. **Restore from NDJSON backup** (recommended):
    ```bash
    # Initialize a new catalog with the old binary
-   slateduck import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
+   rocklake import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
    # Point your application to the restored catalog
    ```
 
@@ -222,7 +222,7 @@ If a format migration was applied, you cannot simply use the old binary (it will
 
 ## Zero-Downtime Upgrades
 
-Because SlateDuck uses a single-writer architecture, true zero-downtime upgrades require careful orchestration:
+Because Rocklake uses a single-writer architecture, true zero-downtime upgrades require careful orchestration:
 
 ### Strategy: Quick Restart
 
@@ -245,16 +245,16 @@ For environments requiring minimal disruption:
 
 ```bash
 # Start new instance on a different port
-slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5433
+rocklake serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5433
 
 # Verify it claimed the epoch
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.writer_epoch'
 
 # Update load balancer to point to new port
 # ...
 
 # Stop old instance after drain period
-kill $(pgrep -f "slateduck.*5432")
+kill $(pgrep -f "rocklake.*5432")
 ```
 
 ### Strategy: Blue-Green with DNS
@@ -272,14 +272,14 @@ Before upgrading production, test in a staging environment:
 
 ```bash
 # Copy production catalog to staging
-slateduck export --catalog s3://prod-bucket/catalog/ --output prod-snapshot.ndjson
-slateduck import --catalog s3://staging-bucket/catalog/ --input prod-snapshot.ndjson
+rocklake export --catalog s3://prod-bucket/catalog/ --output prod-snapshot.ndjson
+rocklake import --catalog s3://staging-bucket/catalog/ --input prod-snapshot.ndjson
 
 # Upgrade staging
 # ... (follow upgrade procedure)
 
 # Run integration tests against staging
-slateduck verify --catalog s3://staging-bucket/catalog/
+rocklake verify --catalog s3://staging-bucket/catalog/
 # Run your application's test suite
 ```
 
@@ -291,19 +291,19 @@ After any upgrade, run through this verification checklist:
 
 ```bash
 # 1. Version confirmation
-slateduck --version
+rocklake --version
 # Expected: the target version
 
 # 2. Catalog health
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 # Expected: all entity counts match pre-upgrade values
 
 # 3. Verify connectivity
-duckdb -c "ATTACH 'ducklake:postgresql://localhost:5432/slateduck' AS lake; SELECT count(*) FROM lake.information_schema.tables;"
+duckdb -c "ATTACH 'ducklake:postgresql://localhost:5432/rocklake' AS lake; SELECT count(*) FROM lake.information_schema.tables;"
 # Expected: same table count as before
 
 # 4. Check logs for errors
-journalctl -u slateduck --since "5 minutes ago" | grep -i error
+journalctl -u rocklake --since "5 minutes ago" | grep -i error
 # Expected: no errors
 ```
 
@@ -320,7 +320,7 @@ After a format migration, run a representative workload to confirm performance c
 
 ```bash
 # Run the benchmark suite against the migrated catalog
-slateduck bench --catalog s3://bucket/catalog/ --operations 1000
+rocklake bench --catalog s3://bucket/catalog/ --operations 1000
 
 # Compare with baseline
 # Look for: point-read latency, prefix scan throughput, write batch commit time
@@ -335,7 +335,7 @@ slateduck bench --catalog s3://bucket/catalog/ --operations 1000
 This means the new binary requires a format version higher than what exists on disk, and automatic migration did not run. Explicitly trigger migration:
 
 ```bash
-slateduck migrate --catalog s3://bucket/catalog/ --target-version 2
+rocklake migrate --catalog s3://bucket/catalog/ --target-version 2
 ```
 
 ### DuckDB Clients Get "Connection Refused" After Upgrade
@@ -345,7 +345,7 @@ slateduck migrate --catalog s3://bucket/catalog/ --target-version 2
 Check that the new instance is listening on the expected port. Configuration file format may have changed between versions — verify bind address in logs:
 
 ```bash
-journalctl -u slateduck | grep -i "listening"
+journalctl -u rocklake | grep -i "listening"
 ```
 
 ### Performance Regression After Upgrade
@@ -360,13 +360,13 @@ Common causes:
 
 ### Writer Epoch Keeps Incrementing
 
-**Symptom:** `slateduck inspect` shows rapidly increasing writer epoch.
+**Symptom:** `rocklake inspect` shows rapidly increasing writer epoch.
 
 This indicates multiple instances are competing for the writer lease — typically caused by the old deployment not being fully terminated before the new one starts. Ensure only one writer instance is running:
 
 ```bash
-# Find all SlateDuck processes
-pgrep -la slateduck
+# Find all Rocklake processes
+pgrep -la rocklake
 # Terminate any old instances
 ```
 

@@ -1,8 +1,8 @@
 # Type-Aware Statistics
 
-SlateDuck stores per-column statistics for each data file: minimum value, maximum value, null count, and distinct count estimates. These statistics enable partition pruning — DuckDB's ability to skip entire data files when their column statistics prove that no rows in the file can match a query predicate. This is one of the most powerful performance optimizations in a lakehouse architecture, potentially reducing query I/O by orders of magnitude.
+Rocklake stores per-column statistics for each data file: minimum value, maximum value, null count, and distinct count estimates. These statistics enable partition pruning — DuckDB's ability to skip entire data files when their column statistics prove that no rows in the file can match a query predicate. This is one of the most powerful performance optimizations in a lakehouse architecture, potentially reducing query I/O by orders of magnitude.
 
-The challenge is that "minimum value" means different things for different data types. The minimum of integers is numerical ordering. The minimum of strings is lexicographic ordering. The minimum of timestamps is chronological ordering. The minimum of UUIDs is... well, it depends on whether you sort by string representation or by the underlying 128 bits. SlateDuck must store these statistics in a uniform binary format (protobuf bytes) while preserving the type-specific comparison semantics that DuckDB needs for correct pruning.
+The challenge is that "minimum value" means different things for different data types. The minimum of integers is numerical ordering. The minimum of strings is lexicographic ordering. The minimum of timestamps is chronological ordering. The minimum of UUIDs is... well, it depends on whether you sort by string representation or by the underlying 128 bits. Rocklake must store these statistics in a uniform binary format (protobuf bytes) while preserving the type-specific comparison semantics that DuckDB needs for correct pruning.
 
 This page documents how statistics are encoded for each DuckDB type, how the type registry works, and how DuckDB uses these statistics during query planning.
 
@@ -25,7 +25,7 @@ Each entry describes one column within one data file. A table with 50 columns an
 
 ## Type Encoding
 
-The `min_value` and `max_value` fields are opaque byte arrays. Their encoding depends on the column's DuckDB type. The type registry in `crates/slateduck-core/src/types.rs` defines the encoding for each supported type.
+The `min_value` and `max_value` fields are opaque byte arrays. Their encoding depends on the column's DuckDB type. The type registry in `crates/rocklake-core/src/types.rs` defines the encoding for each supported type.
 
 ### Integer Types
 
@@ -129,7 +129,7 @@ This adjusted encoding ensures `byte_compare(encode(a), encode(b)) == (a < b)` f
 | UNION | No min/max (heterogeneous type) |
 | ENUM | Min/max stored as enum integer values |
 
-Complex types do not have meaningful min/max statistics because they lack a total ordering. SlateDuck stores NULL for min_value and max_value for these types. DuckDB cannot prune files based on complex-type columns.
+Complex types do not have meaningful min/max statistics because they lack a total ordering. Rocklake stores NULL for min_value and max_value for these types. DuckDB cannot prune files based on complex-type columns.
 
 ENUM types are an exception: they are internally represented as integers (the enum variant index), and min/max of the integer representation enables pruning.
 
@@ -170,7 +170,7 @@ DuckDB identifies two predicates: `timestamp > '2024-06-01'` and `category = 'sa
 
 ### Step 2: Request File Statistics
 
-DuckDB asks SlateDuck for statistics of the `timestamp` and `category` columns for all data files in the `events` table. SlateDuck returns statistics entries (one per file per column).
+DuckDB asks Rocklake for statistics of the `timestamp` and `category` columns for all data files in the `events` table. Rocklake returns statistics entries (one per file per column).
 
 ### Step 3: Apply Pruning Logic
 
@@ -200,7 +200,7 @@ The effectiveness of statistics-based pruning depends on data layout:
 
 ### Statistics Quality Depends on Source
 
-SlateDuck stores whatever statistics DuckDB reports at file registration time. If the Parquet file was written without column statistics (some writers skip them for performance), SlateDuck stores NULL — and DuckDB cannot prune based on that column.
+Rocklake stores whatever statistics DuckDB reports at file registration time. If the Parquet file was written without column statistics (some writers skip them for performance), Rocklake stores NULL — and DuckDB cannot prune based on that column.
 
 **Mitigation:** Most modern Parquet writers (DuckDB, Apache Spark, PyArrow) include column statistics by default.
 
@@ -208,7 +208,7 @@ SlateDuck stores whatever statistics DuckDB reports at file registration time. I
 
 Statistics are per-file, not per-row-group. A large Parquet file (1 GB, many row groups) has one set of statistics covering the entire file. DuckDB performs finer-grained pruning by reading row-group-level statistics from the Parquet file metadata after deciding to read the file.
 
-SlateDuck's file-level statistics are the "coarse filter" — eliminating obviously irrelevant files. Parquet's internal metadata provides the "fine filter" within relevant files.
+Rocklake's file-level statistics are the "coarse filter" — eliminating obviously irrelevant files. Parquet's internal metadata provides the "fine filter" within relevant files.
 
 ### No Histogram or NDV for Pruning
 

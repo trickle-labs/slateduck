@@ -1,6 +1,6 @@
 # Code Style
 
-This page documents the coding conventions used in SlateDuck. Consistency matters in a codebase — not because any particular convention is inherently superior to another, but because uniformity reduces cognitive load. When every file follows the same patterns, contributors spend less time deciphering style choices and more time understanding logic. Code reviews focus on correctness and design rather than formatting disputes.
+This page documents the coding conventions used in Rocklake. Consistency matters in a codebase — not because any particular convention is inherently superior to another, but because uniformity reduces cognitive load. When every file follows the same patterns, contributors spend less time deciphering style choices and more time understanding logic. Code reviews focus on correctness and design rather than formatting disputes.
 
 These conventions are not arbitrary. Each rule exists because it solves a real problem that arose during development. The formatting rules prevent merge conflicts. The naming conventions make code self-documenting. The error handling patterns ensure useful diagnostics. The module organization keeps files navigable as the codebase grows.
 
@@ -45,7 +45,7 @@ Clippy suggestions are generally good advice. Follow them unless there is a spec
 let handler = move |msg| handle_message(msg);
 ```
 
-**Common clippy issues in SlateDuck:**
+**Common clippy issues in Rocklake:**
 - `clippy::large_enum_variant` — Box large variants in error enums
 - `clippy::match_wildcard_for_single_variants` — Be explicit about enum matches
 - `clippy::unnecessary_wraps` — Only return Result/Option when needed
@@ -245,7 +245,7 @@ mod tests {
 Integration tests (testing the public API from the outside) live in `crates/*/tests/`:
 
 ```
-crates/slateduck-catalog/
+crates/rocklake-catalog/
 ├── src/
 │   ├── lib.rs
 │   ├── reader.rs
@@ -340,7 +340,7 @@ perf(core): optimize key encoding for small integers
 
 ## Module Size Limit
 
-No new source file in the production crates (`slateduck-catalog`, `slateduck-pgwire`, `slateduck-sql`, `slateduck-core`, `slateduck-datafusion`, `slateduck-ffi`) may exceed **600 lines** (excluding blank lines and doc comments). This limit exists because large files are the single strongest predictor of future maintenance burden in this codebase — they accumulate unrelated concerns, slow incremental compilation, and make diffs harder to review.
+No new source file in the production crates (`rocklake-catalog`, `rocklake-pgwire`, `rocklake-sql`, `rocklake-core`, `rocklake-datafusion`, `rocklake-ffi`) may exceed **600 lines** (excluding blank lines and doc comments). This limit exists because large files are the single strongest predictor of future maintenance burden in this codebase — they accumulate unrelated concerns, slow incremental compilation, and make diffs harder to review.
 
 When a file approaches 600 lines:
 

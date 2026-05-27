@@ -1,6 +1,6 @@
 # Configuration
 
-SlateDuck is configured through a combination of command-line flags, environment variables, and (optionally) a TOML configuration file. The design follows the twelve-factor app methodology: configuration that varies between environments lives in the environment, not in code. Sensible defaults mean that most deployments need only a storage path and a bind address to get started.
+Rocklake is configured through a combination of command-line flags, environment variables, and (optionally) a TOML configuration file. The design follows the twelve-factor app methodology: configuration that varies between environments lives in the environment, not in code. Sensible defaults mean that most deployments need only a storage path and a bind address to get started.
 
 This page documents every available configuration option, explains the precedence rules, and provides guidance on which options matter for which deployment scenarios.
 
@@ -10,7 +10,7 @@ When the same option is specified in multiple places, higher-precedence sources 
 
 1. **Command-line flags** — highest priority, ideal for one-off overrides and debugging
 2. **Environment variables** — standard for container deployments and CI/CD
-3. **Configuration file** (`slateduck.toml`) — structured, version-controllable settings
+3. **Configuration file** (`rocklake.toml`) — structured, version-controllable settings
 4. **Compiled defaults** — lowest priority, documented below
 
 This means you can set baseline configuration in a TOML file, override per-environment values with environment variables, and further override for testing with command-line flags. There are no surprises — the most specific source always wins.
@@ -20,7 +20,7 @@ This means you can set baseline configuration in a TOML file, override per-envir
 The full set of command-line flags:
 
 ```bash
-slateduck serve [FLAGS] [OPTIONS]
+rocklake serve [FLAGS] [OPTIONS]
 ```
 
 ### Required
@@ -47,14 +47,14 @@ slateduck serve [FLAGS] [OPTIONS]
 | `--tls-key PATH` | (none) | Path to PEM-encoded TLS private key file. |
 | `--tls-ca PATH` | (none) | Path to PEM-encoded CA certificate for mutual TLS (client certificate verification). |
 
-When TLS is configured, the server requires all connections to use TLS. There is no mixed-mode listener — either all connections are encrypted or none are. If you need both, run two SlateDuck instances on different ports.
+When TLS is configured, the server requires all connections to use TLS. There is no mixed-mode listener — either all connections are encrypted or none are. If you need both, run two Rocklake instances on different ports.
 
 ### Authentication Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--auth-user NAME` | (none) | If set, require this username during PostgreSQL authentication. |
-| `--auth-password SECRET` | (none) | If set, require this password. Prefer `SLATEDUCK_PASSWORD` env var to avoid shell history exposure. |
+| `--auth-password SECRET` | (none) | If set, require this password. Prefer `ROCKLAKE_PASSWORD` env var to avoid shell history exposure. |
 
 ### Performance Tuning
 
@@ -69,25 +69,25 @@ When TLS is configured, the server requires all connections to use TLS. There is
 
 Environment variables provide the same configuration surface as command-line flags, plus additional provider-specific settings.
 
-### Core SlateDuck Variables
+### Core Rocklake Variables
 
 | Variable | Equivalent Flag | Description |
 |----------|----------------|-------------|
-| `SLATEDUCK_CATALOG` | `--catalog` | Object storage path |
-| `SLATEDUCK_BIND` | `--bind` | Listen address and port |
-| `SLATEDUCK_MAX_SESSIONS` | `--max-sessions` | Concurrent session limit |
-| `SLATEDUCK_READ_ONLY` | `--read-only` | Read-only mode (`true`/`false`) |
-| `SLATEDUCK_TLS_CERT` | `--tls-cert` | TLS certificate path |
-| `SLATEDUCK_TLS_KEY` | `--tls-key` | TLS private key path |
-| `SLATEDUCK_TLS_CA` | `--tls-ca` | Mutual TLS CA certificate |
-| `SLATEDUCK_AUTH_USER` | `--auth-user` | Required username |
-| `SLATEDUCK_PASSWORD` | `--auth-password` | Required password (preferred over flag) |
-| `SLATEDUCK_LOG_LEVEL` | `--log-level` | Log verbosity |
-| `SLATEDUCK_LOG_FORMAT` | `--log-format` | Log format |
-| `SLATEDUCK_HOT_KEY_CACHE` | `--hot-key-cache` | Hot key cache toggle |
-| `SLATEDUCK_BATCH_SIZE` | `--batch-size` | Write batch size |
-| `SLATEDUCK_PREFETCH_DEPTH` | `--prefetch-depth` | Scan prefetch depth |
-| `SLATEDUCK_COMPACTION_INTERVAL` | `--compaction-interval` | Compaction check interval |
+| `ROCKLAKE_CATALOG` | `--catalog` | Object storage path |
+| `ROCKLAKE_BIND` | `--bind` | Listen address and port |
+| `ROCKLAKE_MAX_SESSIONS` | `--max-sessions` | Concurrent session limit |
+| `ROCKLAKE_READ_ONLY` | `--read-only` | Read-only mode (`true`/`false`) |
+| `ROCKLAKE_TLS_CERT` | `--tls-cert` | TLS certificate path |
+| `ROCKLAKE_TLS_KEY` | `--tls-key` | TLS private key path |
+| `ROCKLAKE_TLS_CA` | `--tls-ca` | Mutual TLS CA certificate |
+| `ROCKLAKE_AUTH_USER` | `--auth-user` | Required username |
+| `ROCKLAKE_PASSWORD` | `--auth-password` | Required password (preferred over flag) |
+| `ROCKLAKE_LOG_LEVEL` | `--log-level` | Log verbosity |
+| `ROCKLAKE_LOG_FORMAT` | `--log-format` | Log format |
+| `ROCKLAKE_HOT_KEY_CACHE` | `--hot-key-cache` | Hot key cache toggle |
+| `ROCKLAKE_BATCH_SIZE` | `--batch-size` | Write batch size |
+| `ROCKLAKE_PREFETCH_DEPTH` | `--prefetch-depth` | Scan prefetch depth |
+| `ROCKLAKE_COMPACTION_INTERVAL` | `--compaction-interval` | Compaction check interval |
 
 ### AWS / S3 Variables
 
@@ -123,21 +123,21 @@ Environment variables provide the same configuration surface as command-line fla
 
 | Variable | Description |
 |----------|-------------|
-| `RUST_LOG` | Fine-grained log filter (e.g., `slateduck_catalog=debug,slateduck_pgwire=info`) |
+| `RUST_LOG` | Fine-grained log filter (e.g., `rocklake_catalog=debug,rocklake_pgwire=info`) |
 | `RUST_LOG_STYLE` | Terminal color support: `auto`, `always`, `never` |
 
 ## Configuration File (TOML)
 
-For complex deployments, you can use a TOML configuration file. By default, SlateDuck looks for `slateduck.toml` in the current directory. Override with the `--config` flag or `SLATEDUCK_CONFIG` environment variable:
+For complex deployments, you can use a TOML configuration file. By default, Rocklake looks for `rocklake.toml` in the current directory. Override with the `--config` flag or `ROCKLAKE_CONFIG` environment variable:
 
 ```bash
-slateduck --config /etc/slateduck/slateduck.toml
+rocklake --config /etc/rocklake/rocklake.toml
 ```
 
 Example configuration file:
 
 ```toml
-# /etc/slateduck/slateduck.toml
+# /etc/rocklake/rocklake.toml
 
 [server]
 catalog = "s3://my-lakehouse-bucket/catalog/"
@@ -146,13 +146,13 @@ max_sessions = 100
 read_only = false
 
 [tls]
-cert = "/etc/slateduck/tls/cert.pem"
-key = "/etc/slateduck/tls/key.pem"
-# ca = "/etc/slateduck/tls/ca.pem"  # Uncomment for mutual TLS
+cert = "/etc/rocklake/tls/cert.pem"
+key = "/etc/rocklake/tls/key.pem"
+# ca = "/etc/rocklake/tls/ca.pem"  # Uncomment for mutual TLS
 
 [auth]
 user = "ducklake"
-# Password should come from SLATEDUCK_PASSWORD env var
+# Password should come from ROCKLAKE_PASSWORD env var
 
 [logging]
 level = "info"
@@ -169,7 +169,7 @@ The TOML file uses the same names as environment variables but with dots replace
 
 ## Object Storage Path Format
 
-The `--catalog` flag (or `SLATEDUCK_CATALOG` variable) accepts several path formats:
+The `--catalog` flag (or `ROCKLAKE_CATALOG` variable) accepts several path formats:
 
 | Format | Example | Provider |
 |--------|---------|----------|
@@ -184,7 +184,7 @@ The trailing slash is optional but recommended for clarity. The specified path b
 
 ### Path Layout Within Storage
 
-Once SlateDuck starts writing to a storage path, the internal layout is:
+Once Rocklake starts writing to a storage path, the internal layout is:
 
 ```
 s3://my-bucket/catalog/
@@ -194,14 +194,14 @@ s3://my-bucket/catalog/
 └── sst/               # Sorted string table files
 ```
 
-Do not manually modify files under this prefix. SlateDuck manages this layout exclusively through SlateDB's compaction and garbage collection.
+Do not manually modify files under this prefix. Rocklake manages this layout exclusively through SlateDB's compaction and garbage collection.
 
 ## Deployment-Specific Recipes
 
 ### Local Development (Minimal)
 
 ```bash
-slateduck serve --catalog ./dev-catalog --bind 127.0.0.1:5432
+rocklake serve --catalog ./dev-catalog --bind 127.0.0.1:5432
 ```
 
 No environment variables needed. Data stored as local files.
@@ -210,18 +210,18 @@ No environment variables needed. Data stored as local files.
 
 ```bash
 # All configuration via environment
-export SLATEDUCK_CATALOG=s3://production-bucket/catalog/
-export SLATEDUCK_BIND=0.0.0.0:5432
-export SLATEDUCK_PASSWORD=secure-random-password
-export SLATEDUCK_LOG_FORMAT=json
+export ROCKLAKE_CATALOG=s3://production-bucket/catalog/
+export ROCKLAKE_BIND=0.0.0.0:5432
+export ROCKLAKE_PASSWORD=secure-random-password
+export ROCKLAKE_LOG_FORMAT=json
 export AWS_REGION=us-east-1
-slateduck serve
+rocklake serve
 ```
 
 ### Read Replica (Read-Only)
 
 ```bash
-slateduck serve --catalog s3://production-bucket/catalog/ --read-only --bind 0.0.0.0:5432
+rocklake serve --catalog s3://production-bucket/catalog/ --read-only --bind 0.0.0.0:5432
 ```
 
 The server refuses any DDL or DML statements. Multiple read-only instances can connect to the same storage path concurrently.
@@ -229,12 +229,12 @@ The server refuses any DDL or DML statements. Multiple read-only instances can c
 ### High-Security (Mutual TLS + Auth)
 
 ```bash
-slateduck serve \
+rocklake serve \
     --catalog s3://sensitive-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
-    --tls-cert /etc/slateduck/tls/server-cert.pem \
-    --tls-key /etc/slateduck/tls/server-key.pem \
-    --tls-ca /etc/slateduck/tls/client-ca.pem \
+    --tls-cert /etc/rocklake/tls/server-cert.pem \
+    --tls-key /etc/rocklake/tls/server-key.pem \
+    --tls-ca /etc/rocklake/tls/client-ca.pem \
     --auth-user ducklake \
     --max-sessions 20
 ```
@@ -245,13 +245,13 @@ slateduck serve \
 export AWS_ENDPOINT_URL=http://minio.internal:9000
 export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
-export SLATEDUCK_S3_PATH_STYLE=true
-slateduck serve --catalog s3://my-bucket/catalog/ --bind 0.0.0.0:5432
+export ROCKLAKE_S3_PATH_STYLE=true
+rocklake serve --catalog s3://my-bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 ## Validation and Diagnostics
 
-On startup, SlateDuck validates all configuration and reports errors clearly:
+On startup, Rocklake validates all configuration and reports errors clearly:
 
 ```
 ERROR: --catalog is required but not set
@@ -267,7 +267,7 @@ INFO    catalog: s3://my-bucket/catalog/
 INFO    bind: 0.0.0.0:5432
 INFO    max_sessions: 100
 INFO    read_only: false
-INFO    tls: enabled (cert: /etc/slateduck/tls/cert.pem)
+INFO    tls: enabled (cert: /etc/rocklake/tls/cert.pem)
 INFO    auth: enabled (user: ducklake)
 INFO    hot_key_cache: true
 INFO    batch_size: 1000
@@ -279,16 +279,16 @@ Most deployments will work well with the defaults, but these settings can have a
 
 ### Write Batch Size (`--batch-size`)
 
-SlateDuck accumulates catalog mutations in a batch before committing them to SlateDB. Larger batches mean fewer round trips to object storage per transaction, which reduces latency for write-heavy workloads where many rows change per transaction.
+Rocklake accumulates catalog mutations in a batch before committing them to SlateDB. Larger batches mean fewer round trips to object storage per transaction, which reduces latency for write-heavy workloads where many rows change per transaction.
 
 However, larger batches also consume more memory during the commit phase. The default of 1000 is appropriate for most DuckLake workloads where a typical `INSERT` operation registers a small number of Parquet files. If you are running bulk import operations that register tens of thousands of files in a single transaction, consider increasing this to 5000–10000. If you are on memory-constrained hardware, reducing it to 250–500 reduces peak memory use.
 
 ```bash
 # For bulk import workloads
-slateduck serve --catalog s3://my-bucket/catalog/ --batch-size 5000
+rocklake serve --catalog s3://my-bucket/catalog/ --batch-size 5000
 
 # For memory-constrained hosts (< 512 MB available)
-slateduck serve --catalog s3://my-bucket/catalog/ --batch-size 250
+rocklake serve --catalog s3://my-bucket/catalog/ --batch-size 250
 ```
 
 ### Hot Key Cache (`--hot-key-cache`)
@@ -305,21 +305,21 @@ For deployments with many short-lived connections (such as dashboards with per-q
 
 ```bash
 # High-concurrency analytical dashboard
-slateduck serve --catalog s3://my-bucket/catalog/ --max-sessions 256
+rocklake serve --catalog s3://my-bucket/catalog/ --max-sessions 256
 
 # Single ETL pipeline, minimize resource use
-slateduck serve --catalog s3://my-bucket/catalog/ --max-sessions 4
+rocklake serve --catalog s3://my-bucket/catalog/ --max-sessions 4
 ```
 
 ### Prefetch Depth (`--prefetch-depth`)
 
-During SST scans (such as listing all data files for a table, or scanning snapshot history), SlateDuck prefetches ahead by this many data blocks. Higher values use more memory but reduce sequential scan latency by overlapping I/O with processing.
+During SST scans (such as listing all data files for a table, or scanning snapshot history), Rocklake prefetches ahead by this many data blocks. Higher values use more memory but reduce sequential scan latency by overlapping I/O with processing.
 
 At the default of 4, this is invisible for most workloads. If you are running the `export` command frequently over large catalogs, try `--prefetch-depth 8` or `--prefetch-depth 16` to speed up the sequential passes.
 
 ### Compaction (`--compaction-interval`)
 
-SlateDB compacts SST files in the background to reduce read amplification and garbage-collect superseded versions. By default, SlateDuck triggers a compaction check every 300 seconds (5 minutes).
+SlateDB compacts SST files in the background to reduce read amplification and garbage-collect superseded versions. By default, Rocklake triggers a compaction check every 300 seconds (5 minutes).
 
 Compaction is a background operation — it does not block reads or writes. However, it does consume CPU and generate object storage I/O. On cost-sensitive deployments (where you are paying per S3 API call), you may want to increase the interval to 1800 or 3600 seconds. On write-heavy deployments that generate many small SSTs, you may want to decrease it to 60–120 seconds.
 
@@ -329,30 +329,30 @@ Setting `--compaction-interval 0` disables automatic compaction entirely. You ar
 
 ### Password Handling
 
-Avoid passing passwords on the command line. Shell history, process listings (`ps aux`), and container logs can all expose command-line arguments. Use the `SLATEDUCK_AUTH_PASSWORD` environment variable or the TOML file's `[auth]` section instead:
+Avoid passing passwords on the command line. Shell history, process listings (`ps aux`), and container logs can all expose command-line arguments. Use the `ROCKLAKE_AUTH_PASSWORD` environment variable or the TOML file's `[auth]` section instead:
 
 ```bash
 # Avoid this (exposed in ps, history)
-slateduck serve --auth-password my-secret-pass
+rocklake serve --auth-password my-secret-pass
 
 # Prefer this
-export SLATEDUCK_AUTH_PASSWORD=my-secret-pass
-slateduck serve --catalog s3://my-bucket/catalog/
+export ROCKLAKE_AUTH_PASSWORD=my-secret-pass
+rocklake serve --catalog s3://my-bucket/catalog/
 
 # Or use a secrets manager
-export SLATEDUCK_AUTH_PASSWORD=$(aws secretsmanager get-secret-value \
-  --secret-id slateduck/auth-password --query SecretString --output text)
-slateduck serve --catalog s3://my-bucket/catalog/
+export ROCKLAKE_AUTH_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id rocklake/auth-password --query SecretString --output text)
+rocklake serve --catalog s3://my-bucket/catalog/
 ```
 
 ### Mutual TLS
 
-When `--tls-ca` is configured, SlateDuck requires every connecting client to present a certificate signed by the specified CA. This means clients can only connect if they have a valid client certificate — password authentication becomes a second factor rather than the only factor.
+When `--tls-ca` is configured, Rocklake requires every connecting client to present a certificate signed by the specified CA. This means clients can only connect if they have a valid client certificate — password authentication becomes a second factor rather than the only factor.
 
 Mutual TLS is the recommended security configuration for production deployments that are exposed beyond a trusted private network. DuckDB supports client certificates via connection string parameters:
 
 ```sql
-ATTACH 'host=slateduck.example.com port=5432 sslmode=verify-full sslcert=client.crt sslkey=client.key sslrootcert=ca.crt'
+ATTACH 'host=rocklake.example.com port=5432 sslmode=verify-full sslcert=client.crt sslkey=client.key sslrootcert=ca.crt'
   AS my_lakehouse (TYPE ducklake);
 ```
 
@@ -364,17 +364,17 @@ One pattern is to expose two endpoints: a read-write endpoint for DuckDB session
 
 ```bash
 # Primary: read-write
-slateduck serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.1:5432
+rocklake serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.1:5432
 
 # Secondary: read-only (separate IP/port, same catalog)
-slateduck serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.2:5432 --read-only
+rocklake serve --catalog s3://my-bucket/catalog/ --bind 10.0.0.2:5432 --read-only
 ```
 
 ## Logging Configuration
 
 ### Log Levels
 
-SlateDuck supports five log levels in increasing verbosity:
+Rocklake supports five log levels in increasing verbosity:
 
 | Level | What Is Logged |
 |-------|---------------|
@@ -391,15 +391,15 @@ SlateDuck supports five log levels in increasing verbosity:
 `--log-format text` (the default) produces human-friendly color-highlighted output:
 
 ```
-2024-06-30T12:01:00.123Z  INFO slateduck_pgwire: New session from 10.0.1.5:49123
-2024-06-30T12:01:00.124Z  INFO slateduck_catalog: Query plan: ListTables schema=analytics
-2024-06-30T12:01:00.231Z  INFO slateduck_pgwire: Session closed after 107ms (3 queries)
+2024-06-30T12:01:00.123Z  INFO rocklake_pgwire: New session from 10.0.1.5:49123
+2024-06-30T12:01:00.124Z  INFO rocklake_catalog: Query plan: ListTables schema=analytics
+2024-06-30T12:01:00.231Z  INFO rocklake_pgwire: Session closed after 107ms (3 queries)
 ```
 
 `--log-format json` produces structured JSON, one event per line:
 
 ```json
-{"timestamp":"2024-06-30T12:01:00.123Z","level":"INFO","target":"slateduck_pgwire","message":"New session","client_addr":"10.0.1.5:49123"}
+{"timestamp":"2024-06-30T12:01:00.123Z","level":"INFO","target":"rocklake_pgwire","message":"New session","client_addr":"10.0.1.5:49123"}
 ```
 
 JSON format is strongly recommended for container deployments where logs are collected by a log aggregation system (Datadog, Grafana Loki, Elastic Stack). JSON events are machine-parseable without regex extraction, and structured fields like `client_addr` and `session_id` remain searchable.
@@ -410,13 +410,13 @@ The `RUST_LOG` environment variable provides per-crate log level control:
 
 ```bash
 # Debug the PG wire layer only, keep catalog at info
-RUST_LOG=slateduck_pgwire=debug,slateduck_catalog=info
+RUST_LOG=rocklake_pgwire=debug,rocklake_catalog=info
 
-# Suppress SlateDB noise, debug SlateDuck
-RUST_LOG=slatedb=warn,slateduck=debug
+# Suppress SlateDB noise, debug Rocklake
+RUST_LOG=slatedb=warn,rocklake=debug
 
 # Full trace for key encoding
-RUST_LOG=slateduck_core=trace,slateduck_catalog=debug
+RUST_LOG=rocklake_core=trace,rocklake_catalog=debug
 ```
 
 `RUST_LOG` takes precedence over `--log-level` for the specific crates it targets. You can use both together: set `--log-level warn` for low baseline noise, and override specific crates with `RUST_LOG` as needed.

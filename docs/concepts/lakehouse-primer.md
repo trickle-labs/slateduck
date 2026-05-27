@@ -38,7 +38,7 @@ These are not hypothetical problems — they are the everyday reality of operati
 
 **Apache Hive Metastore** delegates the catalog to a MySQL or PostgreSQL database. This is the oldest approach and the most operationally familiar to teams that already run relational databases. The downside is that you are now running a database server to support your data lake — which partly defeats the "no infrastructure" appeal of object storage.
 
-**DuckLake** takes a different position in this design space. Rather than inventing a new file format for metadata or requiring a specific coordination service, DuckLake defines the catalog as a set of 28 SQL tables with a well-known schema, versioned with snapshot IDs, accessible over the PostgreSQL wire protocol. The catalog is just a database — any database that implements the required tables and speaks the wire protocol can serve as a DuckLake catalog backend. This simplicity is what enables SlateDuck to exist: if the catalog is just a database, SlateDuck can be that database, implemented on top of object storage instead of traditional infrastructure.
+**DuckLake** takes a different position in this design space. Rather than inventing a new file format for metadata or requiring a specific coordination service, DuckLake defines the catalog as a set of 28 SQL tables with a well-known schema, versioned with snapshot IDs, accessible over the PostgreSQL wire protocol. The catalog is just a database — any database that implements the required tables and speaks the wire protocol can serve as a DuckLake catalog backend. This simplicity is what enables Rocklake to exist: if the catalog is just a database, Rocklake can be that database, implemented on top of object storage instead of traditional infrastructure.
 
 ## The Catalog Problem in Practice
 
@@ -51,18 +51,18 @@ To understand why the catalog matters so much, consider the lifecycle of a typic
 
 All of this metadata lives in the catalog. A slow or unavailable catalog means slow or failed queries, regardless of how powerful your query engine is or how efficiently your data files are organized. The catalog is the critical path for every single query.
 
-This is also why catalog *correctness* matters more than catalog *performance* for most workloads. A catalog that returns slightly stale file statistics results in reading a few extra files — wasted I/O but correct results. A catalog that returns inconsistent results (mixing data from different transaction states) produces incorrect query results that may go undetected for weeks. SlateDuck prioritizes consistency above all else: every read sees a complete, valid snapshot of the catalog state.
+This is also why catalog *correctness* matters more than catalog *performance* for most workloads. A catalog that returns slightly stale file statistics results in reading a few extra files — wasted I/O but correct results. A catalog that returns inconsistent results (mixing data from different transaction states) produces incorrect query results that may go undetected for weeks. Rocklake prioritizes consistency above all else: every read sees a complete, valid snapshot of the catalog state.
 
-## Where SlateDuck Fits
+## Where Rocklake Fits
 
-The key insight behind SlateDuck is that the catalog database itself does not need to be a traditional database server. The DuckLake catalog schema — 28 tables of metadata, versioned with monotonically increasing snapshot IDs, accessed through a bounded set of SQL queries — maps naturally onto a key-value store. And if that key-value store happens to persist its state to object storage (as SlateDB does), then the entire catalog can live in the same bucket as the data files, with no additional infrastructure.
+The key insight behind Rocklake is that the catalog database itself does not need to be a traditional database server. The DuckLake catalog schema — 28 tables of metadata, versioned with monotonically increasing snapshot IDs, accessed through a bounded set of SQL queries — maps naturally onto a key-value store. And if that key-value store happens to persist its state to object storage (as SlateDB does), then the entire catalog can live in the same bucket as the data files, with no additional infrastructure.
 
-This means you end up with a data platform that consists of exactly two things: a bucket (containing both your Parquet data files and your SlateDB catalog files) and ephemeral compute (SlateDuck sidecar processes and DuckDB query engines that start, do work, and stop without leaving any persistent local state). There is no database server to keep running between queries, no replication topology to monitor, no backup schedule to maintain. The bucket is the system of record for both data and metadata.
+This means you end up with a data platform that consists of exactly two things: a bucket (containing both your Parquet data files and your SlateDB catalog files) and ephemeral compute (Rocklake sidecar processes and DuckDB query engines that start, do work, and stop without leaving any persistent local state). There is no database server to keep running between queries, no replication topology to monitor, no backup schedule to maintain. The bucket is the system of record for both data and metadata.
 
-The rest of this Concepts section explains how SlateDuck makes this possible — the DuckLake format it implements, the SlateDB engine it uses for storage, the immutability principle that enables its distinctive properties, and the MVCC model that provides transactional consistency. Each concept builds on the previous one, and by the end of the section you will have a complete mental model of why SlateDuck works the way it does.
+The rest of this Concepts section explains how Rocklake makes this possible — the DuckLake format it implements, the SlateDB engine it uses for storage, the immutability principle that enables its distinctive properties, and the MVCC model that provides transactional consistency. Each concept builds on the previous one, and by the end of the section you will have a complete mental model of why Rocklake works the way it does.
 
 ## Further Reading
 
-- **[The DuckLake Format](ducklake.md)** — The next page in this series, explaining the specific catalog schema that SlateDuck implements
+- **[The DuckLake Format](ducklake.md)** — The next page in this series, explaining the specific catalog schema that Rocklake implements
 - **[Architecture Overview](../architecture/index.md)** — For readers who want to jump straight to the implementation details
 - **[Design Decisions: Why SlateDB?](../design-decisions/why-slatedb.md)** — The reasoning behind choosing SlateDB over PostgreSQL, SQLite, or other backends

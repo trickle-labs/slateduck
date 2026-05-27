@@ -1,12 +1,12 @@
 # Testing
 
-SlateDuck has a multi-layered testing strategy that ensures correctness from individual functions up to full protocol interactions. The test suite is not an afterthought — it is a first-class artifact of the project, maintained with the same care as production code. Every feature has tests. Every bug fix has a regression test. Every encoding decision is verified with property-based tests. And the wire protocol is validated against real DuckDB output captured in a corpus of test fixtures.
+Rocklake has a multi-layered testing strategy that ensures correctness from individual functions up to full protocol interactions. The test suite is not an afterthought — it is a first-class artifact of the project, maintained with the same care as production code. Every feature has tests. Every bug fix has a regression test. Every encoding decision is verified with property-based tests. And the wire protocol is validated against real DuckDB output captured in a corpus of test fixtures.
 
 This page describes the testing philosophy, the different types of tests in the project, how to run them, how to write effective new tests, and how to decide what kind of test your change needs.
 
 ## Testing Philosophy
 
-Four principles guide SlateDuck's testing strategy:
+Four principles guide Rocklake's testing strategy:
 
 ### 1. Every Bug Fix Requires a Regression Test
 
@@ -26,10 +26,10 @@ These tests find edge cases that humans miss — boundary values, overflow condi
 
 ### 3. Wire Corpus for Protocol Compatibility
 
-DuckDB's ducklake extension sends specific SQL patterns over the PostgreSQL wire protocol. SlateDuck must recognize and handle these patterns exactly. The wire corpus captures real DuckDB output (actual SQL strings sent by actual DuckDB versions) and uses them as test fixtures:
+DuckDB's ducklake extension sends specific SQL patterns over the PostgreSQL wire protocol. Rocklake must recognize and handle these patterns exactly. The wire corpus captures real DuckDB output (actual SQL strings sent by actual DuckDB versions) and uses them as test fixtures:
 
 - When a new DuckDB version changes its SQL patterns, the corpus shows what changed
-- When SlateDuck adds support for a new statement, the corpus verifies it matches real DuckDB behavior
+- When Rocklake adds support for a new statement, the corpus verifies it matches real DuckDB behavior
 - When a protocol bug is reported, the exact bytes or SQL can be added to the corpus
 
 The corpus is versioned by DuckDB version, so compatibility across versions is explicitly tracked.
@@ -70,7 +70,7 @@ When to write a unit test:
 
 ### Property-Based Tests
 
-Located in `crates/slateduck-core/tests/property_tests.rs`. These use the `proptest` crate to generate thousands of random inputs and verify that invariants hold:
+Located in `crates/rocklake-core/tests/property_tests.rs`. These use the `proptest` crate to generate thousands of random inputs and verify that invariants hold:
 
 ```rust
 use proptest::prelude::*;
@@ -163,7 +163,7 @@ When to write an integration test:
 
 ### Wire Corpus Tests
 
-Located in `tests/golden/`. These verify that SlateDuck's SQL classifier recognizes real SQL patterns sent by actual DuckDB versions:
+Located in `tests/golden/`. These verify that Rocklake's SQL classifier recognizes real SQL patterns sent by actual DuckDB versions:
 
 ```rust
 #[test]
@@ -205,7 +205,7 @@ When to add a wire corpus entry:
 
 ### Benchmark Tests
 
-Located in `crates/slateduck-catalog/benches/`. These measure performance and detect regressions:
+Located in `crates/rocklake-catalog/benches/`. These measure performance and detect regressions:
 
 ```rust
 fn bench_prefix_scan(c: &mut Criterion) {
@@ -225,15 +225,15 @@ Run benchmarks with:
 
 ```bash
 # Run all benchmarks
-cargo bench -p slateduck-catalog
+cargo bench -p rocklake-catalog
 
 # Run a specific benchmark
-cargo bench -p slateduck-catalog -- prefix_scan
+cargo bench -p rocklake-catalog -- prefix_scan
 
 # Compare to a baseline (for detecting regressions)
-cargo bench -p slateduck-catalog -- --save-baseline new
+cargo bench -p rocklake-catalog -- --save-baseline new
 # ... switch to old version ...
-cargo bench -p slateduck-catalog -- --baseline new
+cargo bench -p rocklake-catalog -- --baseline new
 ```
 
 ## Running the Test Suite
@@ -245,7 +245,7 @@ cargo bench -p slateduck-catalog -- --baseline new
 cargo test
 
 # Specific crate
-cargo test -p slateduck-core
+cargo test -p rocklake-core
 
 # Specific test (by substring match)
 cargo test test_schema_key
@@ -265,9 +265,9 @@ cargo test -- --include-ignored
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `PROPTEST_CASES` | Number of property-test cases | `1024` |
-| `RUST_LOG` | Log level during tests | `slateduck_catalog=debug` |
+| `RUST_LOG` | Log level during tests | `rocklake_catalog=debug` |
 | `TEST_S3_BUCKET` | S3 bucket for integration tests | `s3://my-test-bucket/ci/` |
-| `SLATEDUCK_TEST_MINIO` | Enable MinIO integration tests | `1` |
+| `ROCKLAKE_TEST_MINIO` | Enable MinIO integration tests | `1` |
 
 ### CI Test Matrix
 
@@ -396,13 +396,13 @@ cargo tarpaulin --out html
 
 ### Tier 7 — Fault Injection Tests
 
-- **`crates/slateduck-catalog/tests/fault_injection_tests.rs`** — Kill after SST
+- **`crates/rocklake-catalog/tests/fault_injection_tests.rs`** — Kill after SST
   before manifest, corrupted WAL recovery, kill during compaction, concurrent
   writer fencing.
 
 ### Tier 10 — Security Tests
 
-- **`crates/slateduck-pgwire/tests/security_tests.rs`** — Tests covering
+- **`crates/rocklake-pgwire/tests/security_tests.rs`** — Tests covering
   invalid auth, SQL injection, oversized queries, schema isolation, privilege
   escalation, TLS enforcement, timing attacks, session hijacking, parameter
   injection, error message leaks, and idle timeout.

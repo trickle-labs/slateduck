@@ -1,17 +1,17 @@
 # Docker Deployment
 
-Running SlateDuck in Docker provides process isolation, reproducible environments, and seamless integration with container orchestration platforms. Because SlateDuck is a single stateless binary with no local storage requirements, it is an ideal containerization candidate — the container needs no volumes, no init systems, and no sidecar processes. The official Docker image is minimal (based on `distroless/static`) and contains only the SlateDuck binary plus root CA certificates for TLS to object storage.
+Running Rocklake in Docker provides process isolation, reproducible environments, and seamless integration with container orchestration platforms. Because Rocklake is a single stateless binary with no local storage requirements, it is an ideal containerization candidate — the container needs no volumes, no init systems, and no sidecar processes. The official Docker image is minimal (based on `distroless/static`) and contains only the Rocklake binary plus root CA certificates for TLS to object storage.
 
 This page covers everything from a one-line quick start to production-ready Docker Compose stacks, custom image builds, security hardening, and operational patterns.
 
 ## Official Image
 
-The official SlateDuck container image is published to GitHub Container Registry:
+The official Rocklake container image is published to GitHub Container Registry:
 
 ```
-ghcr.io/slateduck/slateduck:latest
-ghcr.io/slateduck/slateduck:0.8.0
-ghcr.io/slateduck/slateduck:0.8
+ghcr.io/rocklake/rocklake:latest
+ghcr.io/rocklake/rocklake:0.8.0
+ghcr.io/rocklake/rocklake:0.8
 ```
 
 Image characteristics:
@@ -19,21 +19,21 @@ Image characteristics:
 - **Base:** `gcr.io/distroless/static` (no shell, no package manager, minimal attack surface)
 - **Size:** ~12 MB compressed
 - **User:** Non-root (UID 65534, `nobody`)
-- **Entrypoint:** `/usr/local/bin/slateduck`
+- **Entrypoint:** `/usr/local/bin/rocklake`
 - **Exposed port:** 5432
 
 ## Quick Start
 
-The simplest possible Docker deployment — connect SlateDuck to an S3 bucket:
+The simplest possible Docker deployment — connect Rocklake to an S3 bucket:
 
 ```bash
 docker run -d \
-  --name slateduck \
+  --name rocklake \
   -p 5432:5432 \
   -e AWS_REGION=us-east-1 \
   -e AWS_ACCESS_KEY_ID=your-key \
   -e AWS_SECRET_ACCESS_KEY=your-secret \
-  ghcr.io/slateduck/slateduck:latest \
+  ghcr.io/rocklake/rocklake:latest \
   --catalog s3://my-bucket/catalog/ \
   --bind 0.0.0.0:5432
 ```
@@ -41,8 +41,8 @@ docker run -d \
 Verify it is running:
 
 ```bash
-docker logs slateduck
-# INFO  SlateDuck v0.8.0 starting
+docker logs rocklake
+# INFO  Rocklake v0.8.0 starting
 # INFO  Storage: s3://my-bucket/catalog/
 # INFO  Listening on 0.0.0.0:5432
 
@@ -52,7 +52,7 @@ duckdb -c "ATTACH 'ducklake:host=localhost;port=5432' AS lake;"
 
 ## Docker Compose: Development Stack
 
-For local development, use Docker Compose to run SlateDuck with MinIO (S3-compatible local storage). This gives you a fully functional lakehouse environment without any cloud credentials:
+For local development, use Docker Compose to run Rocklake with MinIO (S3-compatible local storage). This gives you a fully functional lakehouse environment without any cloud credentials:
 
 ```yaml
 services:
@@ -81,12 +81,12 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb local/slateduck-catalog --ignore-existing;
+      mc mb local/rocklake-catalog --ignore-existing;
       exit 0;
       "
 
-  slateduck:
-    image: ghcr.io/slateduck/slateduck:latest
+  rocklake:
+    image: ghcr.io/rocklake/rocklake:latest
     ports:
       - "5432:5432"
     environment:
@@ -94,7 +94,7 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_ENDPOINT_URL: http://minio:9000
       AWS_REGION: us-east-1
-    command: ["--storage", "s3://slateduck-catalog/", "--bind", "0.0.0.0:5432"]
+    command: ["--storage", "s3://rocklake-catalog/", "--bind", "0.0.0.0:5432"]
     depends_on:
       minio-init:
         condition: service_completed_successfully
@@ -129,23 +129,23 @@ A production-ready Compose file with TLS, authentication, JSON logging, and reso
 
 ```yaml
 services:
-  slateduck:
-    image: ghcr.io/slateduck/slateduck:0.8.0
+  rocklake:
+    image: ghcr.io/rocklake/rocklake:0.8.0
     ports:
       - "5432:5432"
     environment:
-      SLATEDUCK_STORAGE: s3://production-lakehouse/catalog/
-      SLATEDUCK_BIND: 0.0.0.0:5432
-      SLATEDUCK_AUTH_USER: ducklake
-      SLATEDUCK_PASSWORD: ${SLATEDUCK_PASSWORD}
-      SLATEDUCK_LOG_FORMAT: json
-      SLATEDUCK_LOG_LEVEL: info
-      SLATEDUCK_MAX_SESSIONS: 100
-      SLATEDUCK_TLS_CERT: /etc/slateduck/tls/cert.pem
-      SLATEDUCK_TLS_KEY: /etc/slateduck/tls/key.pem
+      ROCKLAKE_STORAGE: s3://production-lakehouse/catalog/
+      ROCKLAKE_BIND: 0.0.0.0:5432
+      ROCKLAKE_AUTH_USER: ducklake
+      ROCKLAKE_PASSWORD: ${ROCKLAKE_PASSWORD}
+      ROCKLAKE_LOG_FORMAT: json
+      ROCKLAKE_LOG_LEVEL: info
+      ROCKLAKE_MAX_SESSIONS: 100
+      ROCKLAKE_TLS_CERT: /etc/rocklake/tls/cert.pem
+      ROCKLAKE_TLS_KEY: /etc/rocklake/tls/key.pem
       AWS_REGION: us-east-1
     volumes:
-      - ./tls:/etc/slateduck/tls:ro
+      - ./tls:/etc/rocklake/tls:ro
     deploy:
       resources:
         limits:
@@ -172,7 +172,7 @@ Start with an environment file:
 
 ```bash
 # Create .env with secrets
-echo "SLATEDUCK_PASSWORD=$(openssl rand -base64 32)" > .env
+echo "ROCKLAKE_PASSWORD=$(openssl rand -base64 32)" > .env
 
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -184,34 +184,34 @@ Run one writer and multiple read replicas from the same storage:
 ```yaml
 services:
   writer:
-    image: ghcr.io/slateduck/slateduck:0.8.0
+    image: ghcr.io/rocklake/rocklake:0.8.0
     ports:
       - "5432:5432"
     environment:
-      SLATEDUCK_STORAGE: s3://my-bucket/catalog/
-      SLATEDUCK_BIND: 0.0.0.0:5432
+      ROCKLAKE_STORAGE: s3://my-bucket/catalog/
+      ROCKLAKE_BIND: 0.0.0.0:5432
       AWS_REGION: us-east-1
     restart: unless-stopped
 
   reader-1:
-    image: ghcr.io/slateduck/slateduck:0.8.0
+    image: ghcr.io/rocklake/rocklake:0.8.0
     ports:
       - "5433:5432"
     environment:
-      SLATEDUCK_STORAGE: s3://my-bucket/catalog/
-      SLATEDUCK_BIND: 0.0.0.0:5432
-      SLATEDUCK_READ_ONLY: "true"
+      ROCKLAKE_STORAGE: s3://my-bucket/catalog/
+      ROCKLAKE_BIND: 0.0.0.0:5432
+      ROCKLAKE_READ_ONLY: "true"
       AWS_REGION: us-east-1
     restart: unless-stopped
 
   reader-2:
-    image: ghcr.io/slateduck/slateduck:0.8.0
+    image: ghcr.io/rocklake/rocklake:0.8.0
     ports:
       - "5434:5432"
     environment:
-      SLATEDUCK_STORAGE: s3://my-bucket/catalog/
-      SLATEDUCK_BIND: 0.0.0.0:5432
-      SLATEDUCK_READ_ONLY: "true"
+      ROCKLAKE_STORAGE: s3://my-bucket/catalog/
+      ROCKLAKE_BIND: 0.0.0.0:5432
+      ROCKLAKE_READ_ONLY: "true"
       AWS_REGION: us-east-1
     restart: unless-stopped
 ```
@@ -228,13 +228,13 @@ If you need custom CA certificates, additional tooling, or want to build from so
 FROM rust:1.80-bookworm AS builder
 WORKDIR /src
 COPY . .
-RUN cargo build --release --bin slateduck
+RUN cargo build --release --bin rocklake
 
 FROM gcr.io/distroless/static:nonroot
-COPY --from=builder /src/target/release/slateduck /usr/local/bin/slateduck
+COPY --from=builder /src/target/release/rocklake /usr/local/bin/rocklake
 EXPOSE 5432
 USER nonroot:nonroot
-ENTRYPOINT ["slateduck"]
+ENTRYPOINT ["rocklake"]
 ```
 
 ### Image with Custom CA Certificates
@@ -245,7 +245,7 @@ For environments with internal certificate authorities (corporate proxies, priva
 FROM rust:1.80-bookworm AS builder
 WORKDIR /src
 COPY . .
-RUN cargo build --release --bin slateduck
+RUN cargo build --release --bin rocklake
 
 FROM debian:bookworm-slim
 RUN apt-get update && \
@@ -257,24 +257,24 @@ COPY internal-ca.pem /usr/local/share/ca-certificates/internal-ca.crt
 RUN update-ca-certificates
 
 # Create non-root user
-RUN useradd --system --no-create-home slateduck
-USER slateduck
+RUN useradd --system --no-create-home rocklake
+USER rocklake
 
-COPY --from=builder /src/target/release/slateduck /usr/local/bin/slateduck
+COPY --from=builder /src/target/release/rocklake /usr/local/bin/rocklake
 EXPOSE 5432
-ENTRYPOINT ["slateduck"]
+ENTRYPOINT ["rocklake"]
 ```
 
 Build and push:
 
 ```bash
-docker build -t my-registry/slateduck:0.8.0 .
-docker push my-registry/slateduck:0.8.0
+docker build -t my-registry/rocklake:0.8.0 .
+docker push my-registry/rocklake:0.8.0
 ```
 
 ## Health Checks
 
-SlateDuck accepts PostgreSQL protocol connections, so standard PostgreSQL health check tools work:
+Rocklake accepts PostgreSQL protocol connections, so standard PostgreSQL health check tools work:
 
 ```yaml
 healthcheck:
@@ -299,7 +299,7 @@ Or install a small binary health checker during the build.
 
 ## Graceful Shutdown
 
-SlateDuck handles `SIGTERM` (sent by `docker stop`) gracefully:
+Rocklake handles `SIGTERM` (sent by `docker stop`) gracefully:
 
 1. Stops accepting new connections
 2. Waits for in-flight transactions to complete (up to 30 seconds)
@@ -310,7 +310,7 @@ Docker's default stop timeout is 10 seconds. For production, increase it:
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     stop_grace_period: 60s
 ```
 
@@ -328,11 +328,11 @@ USER nonroot:nonroot
 
 ### Read-Only Filesystem
 
-SlateDuck does not write to local disk, so you can mount the filesystem read-only:
+Rocklake does not write to local disk, so you can mount the filesystem read-only:
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     read_only: true
     tmpfs:
       - /tmp:size=10M
@@ -340,11 +340,11 @@ services:
 
 ### No Capabilities
 
-Drop all Linux capabilities since SlateDuck needs none:
+Drop all Linux capabilities since Rocklake needs none:
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     cap_drop:
       - ALL
     security_opt:
@@ -357,13 +357,13 @@ Never embed credentials in the image or Compose file. Use Docker secrets or exte
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     secrets:
-      - slateduck_password
+      - rocklake_password
       - aws_credentials
 
 secrets:
-  slateduck_password:
+  rocklake_password:
     external: true
   aws_credentials:
     external: true
@@ -377,7 +377,7 @@ For AWS credentials in production, prefer IAM roles (ECS task roles, EKS IRSA) o
 
 ```bash
 docker run --network host \
-  ghcr.io/slateduck/slateduck:latest \
+  ghcr.io/rocklake/rocklake:latest \
   --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
@@ -385,35 +385,35 @@ Useful for bare-metal deployments where Docker provides isolation but not networ
 
 ### Bridge Networking with DNS
 
-Within a Docker Compose network, other containers reach SlateDuck by service name:
+Within a Docker Compose network, other containers reach Rocklake by service name:
 
 ```sql
 -- From another container in the same Compose stack
-ATTACH 'ducklake:host=slateduck;port=5432' AS lake;
+ATTACH 'ducklake:host=rocklake;port=5432' AS lake;
 ```
 
 ### Reverse Proxy (Nginx / Traefik)
 
-SlateDuck uses the PostgreSQL wire protocol, which is TCP-based. Configure TCP proxying (not HTTP):
+Rocklake uses the PostgreSQL wire protocol, which is TCP-based. Configure TCP proxying (not HTTP):
 
 ```yaml
 # Traefik TCP router example
 services:
   traefik:
     labels:
-      - "traefik.tcp.routers.slateduck.rule=HostSNI(`*`)"
-      - "traefik.tcp.routers.slateduck.entrypoints=postgres"
-      - "traefik.tcp.services.slateduck.loadbalancer.server.port=5432"
+      - "traefik.tcp.routers.rocklake.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.rocklake.entrypoints=postgres"
+      - "traefik.tcp.services.rocklake.loadbalancer.server.port=5432"
 ```
 
 ## Logging
 
 ### JSON Logging for Production
 
-Set `SLATEDUCK_LOG_FORMAT=json` for structured logs compatible with CloudWatch, Datadog, Loki, and other log aggregators:
+Set `ROCKLAKE_LOG_FORMAT=json` for structured logs compatible with CloudWatch, Datadog, Loki, and other log aggregators:
 
 ```json
-{"timestamp":"2024-01-15T10:30:00Z","level":"INFO","target":"slateduck_pgwire","message":"Session connected","session_id":"abc123","remote_addr":"172.18.0.5:41234"}
+{"timestamp":"2024-01-15T10:30:00Z","level":"INFO","target":"rocklake_pgwire","message":"Session connected","session_id":"abc123","remote_addr":"172.18.0.5:41234"}
 ```
 
 ### Log Aggregation
@@ -422,27 +422,27 @@ For Docker's built-in logging drivers:
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     logging:
       driver: fluentd
       options:
         fluentd-address: fluentd:24224
-        tag: slateduck
+        tag: rocklake
 ```
 
 ## Upgrading
 
-To upgrade SlateDuck in Docker:
+To upgrade Rocklake in Docker:
 
 ```bash
 # Pull new version
-docker pull ghcr.io/slateduck/slateduck:0.9.0
+docker pull ghcr.io/rocklake/rocklake:0.9.0
 
 # Stop current container (graceful shutdown)
-docker stop slateduck
+docker stop rocklake
 
 # Start new version (same configuration)
-docker run -d --name slateduck-new ... ghcr.io/slateduck/slateduck:0.9.0 ...
+docker run -d --name rocklake-new ... ghcr.io/rocklake/rocklake:0.9.0 ...
 ```
 
 With Docker Compose:
@@ -459,7 +459,7 @@ Because all state is in object storage, the new container resumes exactly where 
 
 ### Container exits immediately
 
-Check logs: `docker logs slateduck`. Common causes:
+Check logs: `docker logs rocklake`. Common causes:
 
 - Missing `--storage` flag
 - Invalid credentials (container can't reach object storage)
@@ -481,10 +481,10 @@ In containerized environments, structured (JSON) logging integrates best with lo
 
 ```bash
 docker run -d \
-    --name slateduck \
-    -e SLATEDUCK_LOG_FORMAT=json \
-    -e RUST_LOG=slateduck=info \
-    ghcr.io/slateduck/slateduck:0.8.0 \
+    --name rocklake \
+    -e ROCKLAKE_LOG_FORMAT=json \
+    -e RUST_LOG=rocklake=info \
+    ghcr.io/rocklake/rocklake:0.8.0 \
     --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
@@ -510,8 +510,8 @@ Or in `docker run`:
 docker run -d \
     --log-opt max-size=10m \
     --log-opt max-file=3 \
-    --name slateduck \
-    ghcr.io/slateduck/slateduck:0.8.0 \
+    --name rocklake \
+    ghcr.io/rocklake/rocklake:0.8.0 \
     --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
@@ -521,9 +521,9 @@ Enable trace-level logging for the wire protocol to see individual SQL statement
 
 ```bash
 docker run -d \
-    --name slateduck \
-    -e RUST_LOG=slateduck_pgwire=debug,slateduck=info \
-    ghcr.io/slateduck/slateduck:0.8.0 \
+    --name rocklake \
+    -e RUST_LOG=rocklake_pgwire=debug,rocklake=info \
+    ghcr.io/rocklake/rocklake:0.8.0 \
     --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
@@ -536,15 +536,15 @@ For development environments that simulate a production-like setup:
 ```yaml
 version: "3.8"
 services:
-  slateduck:
-    image: ghcr.io/slateduck/slateduck:0.8.0
+  rocklake:
+    image: ghcr.io/rocklake/rocklake:0.8.0
     ports:
       - "5432:5432"
     environment:
       - AWS_ACCESS_KEY_ID=minioadmin
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - AWS_REGION=us-east-1
-      - RUST_LOG=slateduck=debug
+      - RUST_LOG=rocklake=debug
     command: >
       --catalog s3://lakehouse/catalog/
       --bind 0.0.0.0:5432
@@ -584,7 +584,7 @@ services:
   duckdb:
     image: datacoves/duckdb:latest
     depends_on:
-      - slateduck
+      - rocklake
     stdin_open: true
     tty: true
 ```
@@ -594,7 +594,7 @@ Start the full stack:
 ```bash
 docker compose up -d
 docker compose exec duckdb duckdb -c "
-ATTACH 'ducklake:host=slateduck;port=5432;user=ducklake' AS lake;
+ATTACH 'ducklake:host=rocklake;port=5432;user=ducklake' AS lake;
 USE lake;
 CREATE TABLE hello (msg VARCHAR);
 INSERT INTO hello VALUES ('Docker Compose works!');

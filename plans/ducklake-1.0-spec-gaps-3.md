@@ -3,27 +3,27 @@
 ---
 
 ## 1. Executive Summary & Purpose
-This document provides a comprehensive, rigorous, and complete specification of the remaining gaps between SlateDuck and the DuckLake v1.0 specification.
+This document provides a comprehensive, rigorous, and complete specification of the remaining gaps between Rocklake and the DuckLake v1.0 specification.
 
 ### 1.1 Strict Scope and Targets
 This gap assessment and roadmap strictly target the following software and catalog versions:
 - **Client/Engine:** **DuckDB v1.5.3** (from the checked-out `v1.5.3` branch in `../duckdb`).
 - **Lakehouse Catalog Spec:** **DuckLake 1.0 Specification** (Catalog Version 7 / `V1_0` as defined in `../ducklake`).
-- **Strict Version Constraint & Code Audit Finding:** SlateDuck **strictly targets only the 1.0 specification** of DuckLake. 
+- **Strict Version Constraint & Code Audit Finding:** Rocklake **strictly targets only the 1.0 specification** of DuckLake. 
   - *Deep Code Audit Finding:* Deep auditing of the upstream `ducklake` source code reveals that **DuckLake v1.1 (Catalog Version 8 / `V1_1_DEV_1`) introduces absolutely zero new metadata tables or structural catalog modifications**. The only difference is the version string tag migration (`MigrateV10()`), which executes `UPDATE ducklake_metadata SET value = '1.1-dev1' WHERE key = 'version';`.
-  - *Isolation Strategy:* SlateDuck strictly isolates itself by returning `'1.0'` as the global version and ignoring/rejecting any v1.1 migrations. This boundary completely shields SlateDuck from version-handling overhead and enforces a stable compatibility baseline. Any subsequent development branches are explicitly marked **out of scope**.
+  - *Isolation Strategy:* Rocklake strictly isolates itself by returning `'1.0'` as the global version and ignoring/rejecting any v1.1 migrations. This boundary completely shields Rocklake from version-handling overhead and enforces a stable compatibility baseline. Any subsequent development branches are explicitly marked **out of scope**.
 
-Our primary objective is to define the exact technical specifications and changes required in SlateDuck to achieve **100% perfect interoperability** with DuckDB v1.5.3 and DuckLake v1.0 across all operational regimes—including inlined data, data-file based storage, transaction-isolation guarantees, metadata replication, and complex analytical operations.
+Our primary objective is to define the exact technical specifications and changes required in Rocklake to achieve **100% perfect interoperability** with DuckDB v1.5.3 and DuckLake v1.0 across all operational regimes—including inlined data, data-file based storage, transaction-isolation guarantees, metadata replication, and complex analytical operations.
 
-Through deep audits of the upstream components, we have identified the underlying protocol handshakes, system catalog queries, and metadata table specifications that dictate how DuckLake clients query, modify, and manage databases. When the specifications detailed in this report are implemented, SlateDuck and DuckDB v1.5.3 will work together perfectly without any hacks, workarounds, or silent failures.
+Through deep audits of the upstream components, we have identified the underlying protocol handshakes, system catalog queries, and metadata table specifications that dictate how DuckLake clients query, modify, and manage databases. When the specifications detailed in this report are implemented, Rocklake and DuckDB v1.5.3 will work together perfectly without any hacks, workarounds, or silent failures.
 
 ---
 
 ## 2. DuckDB / DuckLake Connection & Inquiry Audit
 ### 2.1 The Connection & Connection Pool Reset Handshake
 When an external client executes standard attach operations such as:
-`LOAD ducklake; ATTACH 'ducklake:postgres:host=127.0.0.1 port=15434 dbname=slateduck' AS my_lake (DATA_PATH '/path/to/data');`
-Two separate extensions inside DuckDB v1.5.3 interact with SlateDuck via the PostgreSQL PG-Wire protocol:
+`LOAD ducklake; ATTACH 'ducklake:postgres:host=127.0.0.1 port=15434 dbname=rocklake' AS my_lake (DATA_PATH '/path/to/data');`
+Two separate extensions inside DuckDB v1.5.3 interact with Rocklake via the PostgreSQL PG-Wire protocol:
 1. **Postgres Scanner Extension (`duckdb-postgres`):** Responsible for establishing the underlying PostgreSQL TCP connection, probing server versions, checking secret registry tables, and performing a complete **System Catalog Scan** to map OIDs.
 2. **DuckLake Extension (`duckdb-ducklake`):** Once connected, it initiates a transaction and queries the DuckLake metadata catalog tables to read snapshots, schemas, tables, columns, and files.
 
@@ -32,7 +32,7 @@ Additionally, when connection pools return connections or clean up sessions, sta
 ### 2.2 System Catalog Query Translation & Routing
 DuckLake v1.0 executes its metadata calls within the DuckDB session using specialized CALL commands:
 `CALL postgres_query('pg', 'SELECT ...')` or `CALL postgres_execute('pg', 'INSERT ...')`
-These CALL statements are executed **locally inside DuckDB v1.5.3** by the `postgres_scanner` extension. The extension translates the embedded query and forwards standard PostgreSQL PG-Wire protocol frames directly to SlateDuck's socket. Thus, SlateDuck never sees `CALL postgres_query` or `CALL postgres_execute`. It only sees:
+These CALL statements are executed **locally inside DuckDB v1.5.3** by the `postgres_scanner` extension. The extension translates the embedded query and forwards standard PostgreSQL PG-Wire protocol frames directly to Rocklake's socket. Thus, Rocklake never sees `CALL postgres_query` or `CALL postgres_execute`. It only sees:
 - Standard SELECT queries (like `SELECT * FROM main.ducklake_snapshot`)
 - Standard INSERT statements (like `INSERT INTO main.ducklake_column VALUES (...)`)
 - Standard COPY TO STDOUT / COPY FROM STDIN protocol frames.
@@ -48,14 +48,14 @@ SELECT ... FROM pg_type composites ...;
 SELECT ... FROM pg_indexes ...;
 ROLLBACK;
 ```
-SlateDuck intercepting this specific `StatementKind::PgCatalogScan` batch and returning the 5 mock catalog result sets (plus a ROLLBACK response tag) is **critically required** to prevent DuckDB from crashing with index-out-of-bounds errors.
+Rocklake intercepting this specific `StatementKind::PgCatalogScan` batch and returning the 5 mock catalog result sets (plus a ROLLBACK response tag) is **critically required** to prevent DuckDB from crashing with index-out-of-bounds errors.
 
 ---
 
 ## 3. The 28-Table DuckLake v1.0 Schema & Mapping Matrix
-This section audits all 28 tables defined in DuckLake v1.0 (`ducklake_metadata_manager.cpp`), mapping them to SlateDuck's PgWire schema registry and identifying specific field, order, and type mismatches.
+This section audits all 28 tables defined in DuckLake v1.0 (`ducklake_metadata_manager.cpp`), mapping them to Rocklake's PgWire schema registry and identifying specific field, order, and type mismatches.
 
-| Spec Table Name | Upstream C++ Schema Declaration | SlateDuck Schema Registry Status & Gaps | Priority |
+| Spec Table Name | Upstream C++ Schema Declaration | Rocklake Schema Registry Status & Gaps | Priority |
 | :--- | :--- | :--- | :--- |
 | `ducklake_metadata` | `(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT)` | ⚠️ **Divergent:** Registry column names are `metadata_key` and `metadata_value`. Must be renamed to `key` and `value` to match upstream queries exactly. | P0 |
 | `ducklake_snapshot` | `(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT)` | ✅ **Matched:** Internal fields match. Column order has slight variance but fields are correct. | P0 |
@@ -93,19 +93,19 @@ To close these gaps systematically, we propose a four-phase technical execution 
 
 ### Phase 1: Perfect SQL Schema Facade & Schema Registry Refactoring
 **Goal:** Eliminate all catalog column name, type, and order drifts.
-1. **Schema Registry Update:** Modify `crates/slateduck-pgwire/src/schema_registry.rs` to ensure all 28 tables match their exact spec SQL schemas in both column order and name. Add missing schemas for `ducklake_file_variant_stats`, `ducklake_column_mapping`, and `ducklake_name_mapping`.
-2. **Describe Field Mapping:** Update `crates/slateduck-pgwire/src/handler.rs`'s `describe_fields_for_sql` to map queries using the corrected schemas. Ensure dynamic projection and CAST operations are properly described.
-3. **Response Building:** Align the QueryResponse encoders in `crates/slateduck-pgwire/src/executor/catalog.rs` to serialize the exact column sequences.
+1. **Schema Registry Update:** Modify `crates/rocklake-pgwire/src/schema_registry.rs` to ensure all 28 tables match their exact spec SQL schemas in both column order and name. Add missing schemas for `ducklake_file_variant_stats`, `ducklake_column_mapping`, and `ducklake_name_mapping`.
+2. **Describe Field Mapping:** Update `crates/rocklake-pgwire/src/handler.rs`'s `describe_fields_for_sql` to map queries using the corrected schemas. Ensure dynamic projection and CAST operations are properly described.
+3. **Response Building:** Align the QueryResponse encoders in `crates/rocklake-pgwire/src/executor/catalog.rs` to serialize the exact column sequences.
 
 ### Phase 2: Complete Data-File & Delete-File Conformance
 **Goal:** Support large-scale, file-backed (Parquet) lakehouses.
-1. **MVCC Isolation for External Files:** Extend the catalog readers (`crates/slateduck-catalog/src/reader.rs`) to ensure `list_data_files` and `list_delete_files` filter on `begin_snapshot <= snapshot_id` and `(end_snapshot IS NULL OR end_snapshot > snapshot_id)`.
+1. **MVCC Isolation for External Files:** Extend the catalog readers (`crates/rocklake-catalog/src/reader.rs`) to ensure `list_data_files` and `list_delete_files` filter on `begin_snapshot <= snapshot_id` and `(end_snapshot IS NULL OR end_snapshot > snapshot_id)`.
 2. **File Order Sorting:** Persist the `file_order` attribute during Parquet file registration, and ensure that `list_data_files` results are sorted ascending by `file_order` to maintain the exact layout expected by DuckLake's query planner.
 3. **Numeric and Extra Stats:** Store and expose `footer_size` (as `BIGINT`), `partition_id`, `encryption_key`, `mapping_id`, and `partial_max` in data files and delete files.
 
 ### Phase 3: Multi-Statement Atomicity & Writer Concurrency
 **Goal:** Secure multi-user environments with robust transactional guarantees.
-1. **Atomic Statement Grouping:** Update `execute_commit` in `crates/slateduck-pgwire/src/executor/catalog.rs` to group all INSERT/UPDATE statements from a single logical commit transaction and apply them to the KV catalog atomically.
+1. **Atomic Statement Grouping:** Update `execute_commit` in `crates/rocklake-pgwire/src/executor/catalog.rs` to group all INSERT/UPDATE statements from a single logical commit transaction and apply them to the KV catalog atomically.
 2. **Stats Delta Consolidation:** Ensure that a transaction with both `INSERT` and `DELETE` buffered operations consolidates the stats delta before updating `ducklake_table_stats`, maintaining precise record counts.
 3. **Writer Fencing and ROLLBACK:** Fully enforce the repeatable-read isolation barrier in the catalog writer to reject stale snapshot commits with SQLSTATE `40001` (serialization failure), driving DuckLake's retry loop.
 
@@ -118,9 +118,9 @@ To close these gaps systematically, we propose a four-phase technical execution 
 ---
 
 ## 5. Definition of Done (Interoperability Acceptance Checklist)
-SlateDuck is fully "compatible" and ready for 1.0 when:
+Rocklake is fully "compatible" and ready for 1.0 when:
 - [ ] Every catalog table (all 28) can be fully described (`DescribeStatement` / `DescribePortal`) with column count, names, and OIDs identical to the upstream DuckLake specifications.
 - [ ] DuckDB's postgres_scanner can connect and successfully parse the multi-statement schema discovery transaction `StatementKind::PgCatalogScan` without warnings or failures.
 - [ ] Direct select queries against `ducklake_metadata` return `key` and `value` columns (not `metadata_key`/`metadata_value`).
 - [ ] Inlined and Parquet file-backed (non-inlined) workflows—including multi-row appends, deletes, updates, and cascading drops—succeed with correct stats, MVCC visibility, and row ID mappings under the **1.0 specification of DuckLake** (using DuckDB v1.5.3).
-- [ ] A nightly CI job runs SlateDuck against a matrix strictly consisting of **DuckDB v1.5.3** and **DuckLake 1.0 Spec (Catalog Version 7)** to automatically flag protocol or schema drift, rejecting any out-of-scope v1.1 / version 8 commits.
+- [ ] A nightly CI job runs Rocklake against a matrix strictly consisting of **DuckDB v1.5.3** and **DuckLake 1.0 Spec (Catalog Version 7)** to automatically flag protocol or schema drift, rejecting any out-of-scope v1.1 / version 8 commits.

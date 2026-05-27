@@ -1,6 +1,6 @@
 # Native Extension (Strategy C)
 
-The SlateDuck native extension loads directly into DuckDB's process as a shared library, eliminating all network overhead. Catalog operations become in-process function calls with microsecond latency rather than network round-trips with millisecond latency. This is Strategy C in SlateDuck's deployment model — the highest-performance option that trades process isolation for raw speed.
+The Rocklake native extension loads directly into DuckDB's process as a shared library, eliminating all network overhead. Catalog operations become in-process function calls with microsecond latency rather than network round-trips with millisecond latency. This is Strategy C in Rocklake's deployment model — the highest-performance option that trades process isolation for raw speed.
 
 Strategy C is ideal for interactive analytical workloads where every millisecond of catalog overhead is noticeable: dashboards with sub-second query expectations, notebook environments where schema exploration should feel instant, and embedded analytics applications where deploying a separate sidecar process adds unwanted complexity.
 
@@ -8,20 +8,20 @@ Strategy C is ideal for interactive analytical workloads where every millisecond
 
 ```mermaid
 graph LR
-    DuckDB[DuckDB Process] --> Ext[SlateDuck Extension<br/>libslateduck_ffi]
+    DuckDB[DuckDB Process] --> Ext[Rocklake Extension<br/>librocklake_ffi]
     Ext --> SlateDB[SlateDB Library]
     SlateDB --> S3[Object Storage]
     DuckDB --> Parquet[Data Files in S3]
 ```
 
-The extension is built from the `slateduck-ffi` crate, which wraps the full `slateduck-catalog` implementation behind a C-compatible FFI boundary. DuckDB loads it at runtime using its extension loading mechanism. Once loaded, catalog operations execute entirely in-process — no TCP connections, no serialization, no wire protocol overhead.
+The extension is built from the `rocklake-ffi` crate, which wraps the full `rocklake-catalog` implementation behind a C-compatible FFI boundary. DuckDB loads it at runtime using its extension loading mechanism. Once loaded, catalog operations execute entirely in-process — no TCP connections, no serialization, no wire protocol overhead.
 
 ### How It Works Internally
 
-1. DuckDB calls `LOAD '/path/to/libslateduck_ffi.so'`
+1. DuckDB calls `LOAD '/path/to/librocklake_ffi.so'`
 2. The extension's init function registers catalog provider functions with DuckDB
 3. When DuckDB needs catalog information, it calls the registered functions directly
-4. The functions call into `slateduck-catalog` (Rust), which reads/writes SlateDB
+4. The functions call into `rocklake-catalog` (Rust), which reads/writes SlateDB
 5. SlateDB reads/writes object storage (S3/GCS/Azure)
 6. Results are returned as in-memory C structs — no serialization
 
@@ -36,17 +36,17 @@ The extension is built from the `slateduck-ffi` crate, which wraps the full `sla
 ### Build Steps
 
 ```bash
-# Clone the SlateDuck repository
-git clone https://github.com/slateduck/slateduck.git
-cd slateduck
+# Clone the Rocklake repository
+git clone https://github.com/rocklake/rocklake.git
+cd rocklake
 
 # Build the FFI crate in release mode
-cargo build --release -p slateduck-ffi
+cargo build --release -p rocklake-ffi
 
 # The shared library is produced at:
-# Linux:   target/release/libslateduck_ffi.so
-# macOS:   target/release/libslateduck_ffi.dylib
-# Windows: target/release/slateduck_ffi.dll
+# Linux:   target/release/librocklake_ffi.so
+# macOS:   target/release/librocklake_ffi.dylib
+# Windows: target/release/rocklake_ffi.dll
 ```
 
 ### Cross-Compilation
@@ -56,11 +56,11 @@ For building on one platform for deployment on another:
 ```bash
 # Build for Linux x86_64 from macOS
 rustup target add x86_64-unknown-linux-gnu
-cargo build --release -p slateduck-ffi --target x86_64-unknown-linux-gnu
+cargo build --release -p rocklake-ffi --target x86_64-unknown-linux-gnu
 
 # Build for Linux aarch64 (ARM)
 rustup target add aarch64-unknown-linux-gnu
-cargo build --release -p slateduck-ffi --target aarch64-unknown-linux-gnu
+cargo build --release -p rocklake-ffi --target aarch64-unknown-linux-gnu
 ```
 
 ### Build with CMake (Full Extension Package)
@@ -82,10 +82,10 @@ This produces an extension file that can be installed through DuckDB's extension
 
 ```sql
 -- Load the extension from a specific path
-LOAD '/opt/slateduck/libslateduck_ffi.so';
+LOAD '/opt/rocklake/librocklake_ffi.so';
 
 -- Or on macOS
-LOAD '/opt/slateduck/libslateduck_ffi.dylib';
+LOAD '/opt/rocklake/librocklake_ffi.dylib';
 ```
 
 ### Extension Directory
@@ -97,13 +97,13 @@ Place the library in DuckDB's extension directory for automatic discovery:
 ~/.duckdb/extensions/v1.3.0/linux_amd64/
 
 # Copy the extension
-cp target/release/libslateduck_ffi.so ~/.duckdb/extensions/v1.3.0/linux_amd64/slateduck.duckdb_extension
+cp target/release/librocklake_ffi.so ~/.duckdb/extensions/v1.3.0/linux_amd64/rocklake.duckdb_extension
 ```
 
 Then in DuckDB:
 
 ```sql
-LOAD slateduck;
+LOAD rocklake;
 ```
 
 ## Using the Extension
@@ -112,29 +112,29 @@ LOAD slateduck;
 
 ```sql
 -- Load the extension
-LOAD slateduck;
+LOAD rocklake;
 
 -- Open a catalog on S3
-SELECT slateduck_open('s3://my-bucket/lakehouse/catalog/');
+SELECT rocklake_open('s3://my-bucket/lakehouse/catalog/');
 
 -- Open a local catalog (for development)
-SELECT slateduck_open('./local-catalog/');
+SELECT rocklake_open('./local-catalog/');
 ```
 
 ### Querying Catalog Metadata
 
 ```sql
 -- List all schemas
-SELECT * FROM slateduck_list_schemas();
+SELECT * FROM rocklake_list_schemas();
 
 -- List tables in a schema
-SELECT * FROM slateduck_list_tables('analytics');
+SELECT * FROM rocklake_list_tables('analytics');
 
 -- Get column definitions for a table
-SELECT * FROM slateduck_describe_table('analytics', 'events');
+SELECT * FROM rocklake_describe_table('analytics', 'events');
 
 -- List data files for a table
-SELECT * FROM slateduck_list_files('analytics', 'events');
+SELECT * FROM rocklake_list_files('analytics', 'events');
 ```
 
 ### Using with DuckLake-Style Queries
@@ -143,7 +143,7 @@ When registered as a catalog provider:
 
 ```sql
 -- Register as a DuckDB catalog
-SELECT slateduck_register_catalog('lake', 's3://my-bucket/catalog/');
+SELECT rocklake_register_catalog('lake', 's3://my-bucket/catalog/');
 
 -- Now use standard SQL
 USE lake;
@@ -156,33 +156,33 @@ SELECT * FROM analytics.events WHERE timestamp > '2024-03-01';
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `slateduck_open(path)` | Open a catalog at the given storage path | Status message |
-| `slateduck_close()` | Close the currently open catalog | Status message |
-| `slateduck_register_catalog(name, path)` | Register as a named DuckDB catalog | Status message |
+| `rocklake_open(path)` | Open a catalog at the given storage path | Status message |
+| `rocklake_close()` | Close the currently open catalog | Status message |
+| `rocklake_register_catalog(name, path)` | Register as a named DuckDB catalog | Status message |
 
 ### Schema Functions
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `slateduck_list_schemas()` | List all schemas in the catalog | Table: schema_id, schema_name |
-| `slateduck_create_schema(name)` | Create a new schema | schema_id |
-| `slateduck_drop_schema(name)` | Drop a schema | Status message |
+| `rocklake_list_schemas()` | List all schemas in the catalog | Table: schema_id, schema_name |
+| `rocklake_create_schema(name)` | Create a new schema | schema_id |
+| `rocklake_drop_schema(name)` | Drop a schema | Status message |
 
 ### Table Functions
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `slateduck_list_tables(schema)` | List tables in a schema | Table: table_id, table_name, uuid |
-| `slateduck_describe_table(schema, table)` | Get column definitions | Table: column_name, data_type, nullable |
-| `slateduck_list_files(schema, table)` | List data files | Table: file_path, format, row_count, size |
-| `slateduck_table_stats(schema, table)` | Get table statistics | Table: total_rows, total_bytes, file_count |
+| `rocklake_list_tables(schema)` | List tables in a schema | Table: table_id, table_name, uuid |
+| `rocklake_describe_table(schema, table)` | Get column definitions | Table: column_name, data_type, nullable |
+| `rocklake_list_files(schema, table)` | List data files | Table: file_path, format, row_count, size |
+| `rocklake_table_stats(schema, table)` | Get table statistics | Table: total_rows, total_bytes, file_count |
 
 ### Administrative Functions
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `slateduck_inspect()` | Inspect catalog state | Table: key, value |
-| `slateduck_snapshot()` | Get current snapshot ID | BIGINT |
+| `rocklake_inspect()` | Inspect catalog state | Table: key, value |
+| `rocklake_snapshot()` | Get current snapshot ID | BIGINT |
 
 ## Performance Comparison
 
@@ -228,7 +228,7 @@ For batch workloads, Strategy B is perfectly fine. For interactive dashboards, S
 
 ## Limitations
 
-The native extension currently exposes a subset of SlateDuck's capabilities:
+The native extension currently exposes a subset of Rocklake's capabilities:
 
 | Capability | Extension (C) | Sidecar (B) |
 |-----------|---------------|-------------|
@@ -249,7 +249,7 @@ The native extension currently exposes a subset of SlateDuck's capabilities:
 
 The extension targets DuckDB's extension ABI. When DuckDB releases a new ABI version (typically with major releases), the extension must be recompiled:
 
-| DuckDB ABI | SlateDuck Extension Version | Compatible |
+| DuckDB ABI | Rocklake Extension Version | Compatible |
 |-----------|---------------------------|------------|
 | v5000 | 0.8.x | ✅ |
 | v4000 | 0.7.x | ✅ |
@@ -271,8 +271,8 @@ SET s3_secret_access_key = '...';
 -- AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 -- Or instance profiles (IRSA, IMDS)
 
-LOAD slateduck;
-SELECT slateduck_open('s3://bucket/catalog/');
+LOAD rocklake;
+SELECT rocklake_open('s3://bucket/catalog/');
 ```
 
 ## When to Choose Strategy C
@@ -282,7 +282,7 @@ SELECT slateduck_open('s3://bucket/catalog/');
 - **Latency is critical.** Interactive dashboards, notebook exploration, and real-time applications benefit from microsecond catalog access versus millisecond network round-trips.
 - **Single-user deployment.** A data scientist working locally or a batch job that only needs one DuckDB process does not benefit from a separate server.
 - **Minimizing moving parts.** No sidecar to deploy, no port to configure, no health checks to maintain — just a library loaded into DuckDB.
-- **Embedded analytics.** Applications that embed DuckDB can embed the SlateDuck extension too, creating a self-contained analytical engine with no external dependencies beyond object storage.
+- **Embedded analytics.** Applications that embed DuckDB can embed the Rocklake extension too, creating a self-contained analytical engine with no external dependencies beyond object storage.
 
 ### Choose Strategy B (PG-Wire) When:
 
@@ -297,7 +297,7 @@ SELECT slateduck_open('s3://bucket/catalog/');
 For some deployments, both strategies run simultaneously:
 
 ```
-Writer: SlateDuck server (Strategy B) — accepts writes from ETL pipelines
+Writer: Rocklake server (Strategy B) — accepts writes from ETL pipelines
 Readers: DuckDB with native extension (Strategy C) — fast reads for dashboards
 ```
 
@@ -318,15 +318,15 @@ Recompile against the correct DuckDB version:
 
 ```bash
 # Specify DuckDB version explicitly
-DUCKDB_VERSION=1.1.0 cargo build --release -p slateduck-ffi
+DUCKDB_VERSION=1.1.0 cargo build --release -p rocklake-ffi
 ```
 
 ### "Cannot open catalog: writer conflict"
 
-The extension attempted to open the catalog in write mode, but another writer (the SlateDuck server or another extension instance) already holds the lease. Open in read-only mode:
+The extension attempted to open the catalog in write mode, but another writer (the Rocklake server or another extension instance) already holds the lease. Open in read-only mode:
 
 ```sql
-SELECT slateduck_open('s3://bucket/catalog/', read_only := true);
+SELECT rocklake_open('s3://bucket/catalog/', read_only := true);
 ```
 
 ### "Timeout connecting to storage"
@@ -339,9 +339,9 @@ aws s3 ls s3://bucket/catalog/ --region us-east-1
 
 ### Extension Crashes DuckDB
 
-Because the extension runs in-process, a bug in SlateDuck's code (panic, segfault, memory corruption) will crash the entire DuckDB process. This is the fundamental trade-off of Strategy C versus Strategy B. If you experience crashes:
+Because the extension runs in-process, a bug in Rocklake's code (panic, segfault, memory corruption) will crash the entire DuckDB process. This is the fundamental trade-off of Strategy C versus Strategy B. If you experience crashes:
 
-1. Update to the latest SlateDuck extension release
+1. Update to the latest Rocklake extension release
 2. Check for known issues on GitHub
 3. Switch to Strategy B (PG-wire sidecar) as a workaround
 4. Report the crash with a reproduction case
@@ -349,6 +349,6 @@ Because the extension runs in-process, a bug in SlateDuck's code (panic, segfaul
 ## Further Reading
 
 - **[DuckDB Integration](duckdb.md)** — Strategy B (PG-wire sidecar) usage
-- **[Architecture: Crate Structure](../architecture/crate-structure.md)** — How slateduck-ffi relates to other crates
+- **[Architecture: Crate Structure](../architecture/crate-structure.md)** — How rocklake-ffi relates to other crates
 - **[Performance: Latency Model](../performance/latency-model.md)** — Detailed latency analysis
 - **[Design Decisions: Strategy B First](../design-decisions/strategy-b-first.md)** — Why Strategy B is the default

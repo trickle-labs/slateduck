@@ -1,12 +1,12 @@
 # Health Checks
 
-Health checks verify that a SlateDuck instance is operational and capable of serving requests. They are the foundation of automated availability — without health checks, your orchestrator cannot detect failures, your load balancer cannot route around unhealthy instances, and your monitoring cannot alert on degradation. A proper health check strategy distinguishes between "the process is running" (liveness), "the process can serve traffic" (readiness), and "the system is fully healthy" (deep check).
+Health checks verify that a Rocklake instance is operational and capable of serving requests. They are the foundation of automated availability — without health checks, your orchestrator cannot detect failures, your load balancer cannot route around unhealthy instances, and your monitoring cannot alert on degradation. A proper health check strategy distinguishes between "the process is running" (liveness), "the process can serve traffic" (readiness), and "the system is fully healthy" (deep check).
 
 This page covers the three tiers of health checking, integration with every major orchestration platform, diagnostic endpoints, and patterns for using health checks effectively without creating false positives.
 
 ## Health Check Tiers
 
-SlateDuck supports three levels of health verification, each with different cost and confidence:
+Rocklake supports three levels of health verification, each with different cost and confidence:
 
 | Tier | What It Checks | Latency | When to Use |
 |------|---------------|---------|-------------|
@@ -16,7 +16,7 @@ SlateDuck supports three levels of health verification, each with different cost
 
 ### Tier 1: Liveness (TCP Check)
 
-The simplest health check: can a TCP connection be established to SlateDuck's port?
+The simplest health check: can a TCP connection be established to Rocklake's port?
 
 ```bash
 # Using nc (netcat)
@@ -48,7 +48,7 @@ It does NOT prove:
 
 ### Tier 2: Readiness (Protocol Check)
 
-A readiness check verifies that SlateDuck can complete a full PG-wire handshake and execute a trivial query:
+A readiness check verifies that Rocklake can complete a full PG-wire handshake and execute a trivial query:
 
 ```bash
 # Using psql (full protocol roundtrip)
@@ -75,10 +75,10 @@ A deep health check verifies that the entire catalog is accessible and internall
 
 ```bash
 # Full catalog inspection
-slateduck inspect --catalog s3://bucket/catalog/ --verify
+rocklake inspect --catalog s3://bucket/catalog/ --verify
 
 # Quick version (manifest only)
-slateduck inspect --catalog s3://bucket/catalog/ --manifest-only
+rocklake inspect --catalog s3://bucket/catalog/ --manifest-only
 ```
 
 A successful deep check proves:
@@ -95,11 +95,11 @@ A successful deep check proves:
 
 ## Custom Health Endpoint
 
-SlateDuck exposes a dedicated HTTP health endpoint on the metrics port:
+Rocklake exposes a dedicated HTTP health endpoint on the metrics port:
 
 ```bash
 # Enable health endpoint
-slateduck serve --catalog s3://bucket/catalog/ --metrics-bind 0.0.0.0:9090
+rocklake serve --catalog s3://bucket/catalog/ --metrics-bind 0.0.0.0:9090
 ```
 
 Endpoints:
@@ -146,7 +146,7 @@ Unhealthy response (503):
 
 ```yaml
 containers:
-  - name: slateduck
+  - name: rocklake
     ports:
       - containerPort: 5432
         name: pgwire
@@ -178,7 +178,7 @@ containers:
 
 ### Why Three Probes?
 
-- **Startup probe:** Gives SlateDuck time to read the manifest on first boot. Without this, the liveness probe might kill the pod before it finishes starting.
+- **Startup probe:** Gives Rocklake time to read the manifest on first boot. Without this, the liveness probe might kill the pod before it finishes starting.
 - **Liveness probe:** Detects deadlocks and zombie processes. Triggers restart.
 - **Readiness probe:** Detects temporary issues (storage blip, connection exhaustion). Removes from load balancer without killing.
 
@@ -227,7 +227,7 @@ If using an ALB with TCP pass-through via a target group:
 ### GCP Health Check
 
 ```bash
-gcloud compute health-checks create tcp slateduck-health \
+gcloud compute health-checks create tcp rocklake-health \
     --port=5432 \
     --check-interval=10s \
     --timeout=5s \
@@ -240,8 +240,8 @@ gcloud compute health-checks create tcp slateduck-health \
 ```bash
 az network lb probe create \
     --resource-group rg-analytics \
-    --lb-name slateduck-lb \
-    --name slateduck-probe \
+    --lb-name rocklake-lb \
+    --name rocklake-probe \
     --protocol tcp \
     --port 5432 \
     --interval 10 \
@@ -258,7 +258,7 @@ Type=notify
 WatchdogSec=30
 ```
 
-SlateDuck sends `WATCHDOG=1` notifications to systemd at regular intervals. If the notification stops (process deadlocked, event loop blocked), systemd kills and restarts the process after `WatchdogSec` seconds.
+Rocklake sends `WATCHDOG=1` notifications to systemd at regular intervals. If the notification stops (process deadlocked, event loop blocked), systemd kills and restarts the process after `WatchdogSec` seconds.
 
 ## Health Check Patterns
 
@@ -268,7 +268,7 @@ For read-only replicas, the readiness check should verify that the catalog snaps
 
 ```bash
 # Check that the catalog is not too stale (replica lag)
-slateduck inspect --catalog s3://bucket/catalog/ --check-freshness 300
+rocklake inspect --catalog s3://bucket/catalog/ --check-freshness 300
 # Fails if the latest snapshot is older than 300 seconds
 ```
 
@@ -278,7 +278,7 @@ For the writer, verify that the write path is functional:
 
 ```bash
 # Attempt a no-op write (touches the heartbeat key)
-psql -h localhost -p 5432 -c "SELECT slateduck_heartbeat()"
+psql -h localhost -p 5432 -c "SELECT rocklake_heartbeat()"
 ```
 
 ### Composite Health (External Monitor)
@@ -336,12 +336,12 @@ Liveness probes should be **very permissive** (restart only on clear death). Rea
 Track health check outcomes as metrics:
 
 ```yaml
-- alert: SlateDuckHealthCheckFlapping
-  expr: changes(kube_pod_container_status_restarts_total{container="slateduck"}[1h]) > 3
+- alert: RocklakeHealthCheckFlapping
+  expr: changes(kube_pod_container_status_restarts_total{container="rocklake"}[1h]) > 3
   labels:
     severity: warning
   annotations:
-    summary: "SlateDuck pod restarting frequently — health check may be too aggressive"
+    summary: "Rocklake pod restarting frequently — health check may be too aggressive"
 ```
 
 ## Health Check Anti-Patterns
@@ -350,11 +350,11 @@ Understanding what NOT to do is as important as knowing the correct patterns:
 
 ### Anti-Pattern: Full Catalog Scan in Readiness Probe
 
-Never use `slateduck inspect` (which counts all entities) as a readiness probe. This scans potentially thousands of keys and can take seconds on large catalogs. If the probe timeout is shorter than the scan time, the probe fails, the pod restarts, and the new pod also fails — creating a restart loop.
+Never use `rocklake inspect` (which counts all entities) as a readiness probe. This scans potentially thousands of keys and can take seconds on large catalogs. If the probe timeout is shorter than the scan time, the probe fails, the pod restarts, and the new pod also fails — creating a restart loop.
 
 ### Anti-Pattern: Write Operations in Liveness Probes
 
-Do not use write-based health checks (like `slateduck_heartbeat()`) for liveness probes. If the writer lease is temporarily contended during an upgrade or network partition, write failures would trigger a restart that makes the situation worse. Reserve write checks for deep checks only.
+Do not use write-based health checks (like `rocklake_heartbeat()`) for liveness probes. If the writer lease is temporarily contended during an upgrade or network partition, write failures would trigger a restart that makes the situation worse. Reserve write checks for deep checks only.
 
 ### Anti-Pattern: Checking Dependencies in Liveness
 
@@ -362,7 +362,7 @@ A liveness probe should only check whether the process itself is healthy. If you
 
 ### Anti-Pattern: Synchronous Checks in Hot Path
 
-If your health check runs a SQL query against SlateDuck, ensure it has its own dedicated connection rather than competing with production traffic. A health check that times out because the connection pool is exhausted creates misleading "unhealthy" signals when the system is actually just busy.
+If your health check runs a SQL query against Rocklake, ensure it has its own dedicated connection rather than competing with production traffic. A health check that times out because the connection pool is exhausted creates misleading "unhealthy" signals when the system is actually just busy.
 
 ## Incident Response Using Health Checks
 
@@ -382,7 +382,7 @@ Health Check Failed
 │       │   └── No → Readiness passes but clients report errors.
 │       │       └── Check error codes — likely specific SQL failures.
 │       └── Deep Check Failed?
-│           └── Run slateduck verify for detailed integrity report.
+│           └── Run rocklake verify for detailed integrity report.
 ```
 
 ### Health Degradation Timeline
@@ -391,18 +391,18 @@ When investigating past incidents, correlate health check state transitions with
 
 ```bash
 # Kubernetes: Get pod condition history
-kubectl get events --field-selector involvedObject.name=slateduck-0 --sort-by='.lastTimestamp'
+kubectl get events --field-selector involvedObject.name=rocklake-0 --sort-by='.lastTimestamp'
 
 # systemd: Check restart history
-journalctl -u slateduck | grep -E "Started|Stopped|Failed"
+journalctl -u rocklake | grep -E "Started|Stopped|Failed"
 
 # Docker: Container state history
-docker inspect slateduck --format '{{json .State}}' | jq '.Health.Log[-5:]'
+docker inspect rocklake --format '{{json .State}}' | jq '.Health.Log[-5:]'
 ```
 
 ## Custom Health Endpoints
 
-For teams that need health information beyond what standard probes provide, SlateDuck's metrics endpoint exposes a structured health summary:
+For teams that need health information beyond what standard probes provide, Rocklake's metrics endpoint exposes a structured health summary:
 
 ```bash
 curl -s http://localhost:9090/health | jq

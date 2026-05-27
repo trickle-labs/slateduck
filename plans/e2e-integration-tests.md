@@ -1,6 +1,6 @@
 # Integration & End-to-End Testing Plan
 
-> **Scope.** Complete testing strategy for SlateDuck covering all integration and E2E layers from unit-level in-process tests through full multi-node deployments against real object stores. Companion to the overall architecture in [plans/blueprint.md](blueprint.md) and the IVM implementation plan in [plans/incremental-view-maintenance-implementation.md](incremental-view-maintenance-implementation.md).
+> **Scope.** Complete testing strategy for Rocklake covering all integration and E2E layers from unit-level in-process tests through full multi-node deployments against real object stores. Companion to the overall architecture in [plans/blueprint.md](blueprint.md) and the IVM implementation plan in [plans/incremental-view-maintenance-implementation.md](incremental-view-maintenance-implementation.md).
 >
 > **Status.** Planning. Implement tier-by-tier alongside milestone delivery.
 >
@@ -64,12 +64,12 @@ Five rules govern every test decision.
 
 ## 3. Infrastructure & Helpers
 
-### 3.1 New workspace crate: `slateduck-testkit`
+### 3.1 New workspace crate: `rocklake-testkit`
 
-A dedicated test-helper crate that every integration test depends on. Lives at `crates/slateduck-testkit/`. Contains no production code. Not shipped in releases.
+A dedicated test-helper crate that every integration test depends on. Lives at `crates/rocklake-testkit/`. Contains no production code. Not shipped in releases.
 
 ```
-crates/slateduck-testkit/
+crates/rocklake-testkit/
 ├── Cargo.toml
 └── src/
     ├── lib.rs
@@ -86,15 +86,15 @@ crates/slateduck-testkit/
 
 ```toml
 [package]
-name = "slateduck-testkit"
+name = "rocklake-testkit"
 version.workspace = true
 edition.workspace = true
 publish = false
 
 [dependencies]
-slateduck-core    = { path = "../slateduck-core" }
-slateduck-catalog = { path = "../slateduck-catalog" }
-slateduck-pgwire  = { path = "../slateduck-pgwire" }
+rocklake-core    = { path = "../rocklake-core" }
+rocklake-catalog = { path = "../rocklake-catalog" }
+rocklake-pgwire  = { path = "../rocklake-pgwire" }
 object_store      = { workspace = true }
 tokio             = { workspace = true }
 tempfile          = { workspace = true }
@@ -147,7 +147,7 @@ impl CatalogHarness {
 
 ### 3.4 `PgWireHarness`
 
-Starts a live `slateduck-pgwire` server on a dynamically assigned loopback port. Returns a `tokio-postgres` client.
+Starts a live `rocklake-pgwire` server on a dynamically assigned loopback port. Returns a `tokio-postgres` client.
 
 ```rust
 pub struct PgWireHarness {
@@ -169,7 +169,7 @@ impl Drop for PgWireHarness {
 
 ### 3.5 `IvmWorkerHarness`
 
-Spawns one or more `slateduck-ivm` worker processes as `tokio::process::Command`, captures stdout/stderr, and exposes lag polling.
+Spawns one or more `rocklake-ivm` worker processes as `tokio::process::Command`, captures stdout/stderr, and exposes lag polling.
 
 ```rust
 pub struct IvmWorkerHarness {
@@ -208,7 +208,7 @@ A workspace-level `tests/` directory holds E2E tests that span multiple crates a
 
 ## 4. Tier 1 — Unit & Property Tests
 
-**Location:** `crates/slateduck-core/src/` (inline `#[cfg(test)]` modules) and `crates/slateduck-core/tests/property_tests.rs`.
+**Location:** `crates/rocklake-core/src/` (inline `#[cfg(test)]` modules) and `crates/rocklake-core/tests/property_tests.rs`.
 
 **Dependencies:** none beyond `proptest`.
 
@@ -251,7 +251,7 @@ A workspace-level `tests/` directory holds E2E tests that span multiple crates a
 
 ## 5. Tier 2 — Catalog Integration Tests
 
-**Location:** `crates/slateduck-catalog/tests/`
+**Location:** `crates/rocklake-catalog/tests/`
 **Backend:** `LocalFileSystem` via `tempfile` (fast, no external services)
 **Harness:** `CatalogHarness::local()`
 
@@ -301,7 +301,7 @@ Each fixture test asserts: round-trip encode/decode matches, key ordering is pre
 
 ## 6. Tier 3 — PG-Wire Integration Tests
 
-**Location:** `crates/slateduck-pgwire/tests/integration_tests.rs`
+**Location:** `crates/rocklake-pgwire/tests/integration_tests.rs`
 **Backend:** `LocalFileSystem` (for executor tests) + TCP loopback server
 **Harness:** `PgWireHarness`
 
@@ -344,7 +344,7 @@ All existing tests are retained. The wire corpus replay tests (`test_wire_handsh
 
 ## 7. Tier 4 — Object Store Integration Tests (MinIO)
 
-**Location:** `crates/slateduck-testkit/tests/minio_tests.rs` and `crates/slateduck-catalog/tests/minio_catalog_tests.rs`
+**Location:** `crates/rocklake-testkit/tests/minio_tests.rs` and `crates/rocklake-catalog/tests/minio_catalog_tests.rs`
 **Backend:** MinIO via Testcontainers
 **Harness:** `MinioHarness` + `CatalogHarness::on_minio`
 **Trigger:** Every merge to `main`
@@ -358,7 +358,7 @@ static MINIO: OnceLock<MinioHarness> = OnceLock::new();
 
 async fn minio() -> &'static MinioHarness {
     MINIO.get_or_init(|| async {
-        MinioHarness::start("slateduck-test").await
+        MinioHarness::start("rocklake-test").await
     })
     .await
 }
@@ -418,7 +418,7 @@ async fn flush_visibility_barrier_p99_below_1s() {
 
 ## 8. Tier 5 — Client Compatibility Tests (DuckDB, Spark, Trino)
 
-**Location:** `crates/slateduck-pgwire/tests/compat_tests.rs`
+**Location:** `crates/rocklake-pgwire/tests/compat_tests.rs`
 **Backend:** `LocalFileSystem` for wire corpus replay; `PgWireHarness` for live tests
 **Trigger:** Every merge to `main`
 
@@ -481,7 +481,7 @@ async fn duckdb_full_ducklake_tutorial_against_minio() {
 
 ## 9. Tier 6 — IVM Integration Tests
 
-**Location:** `crates/slateduck-ivm/tests/`
+**Location:** `crates/rocklake-ivm/tests/`
 **Backend:** MinIO via Testcontainers + `IvmWorkerHarness`
 **Trigger:** Every merge to `main` (Tiers 6a–6b); pre-release (6c–6d)
 
@@ -531,9 +531,9 @@ All tests use a single shard, single base table, no joins.
 
 | Test name | Assertion |
 |-----------|-----------|
-| `repair_shard_rebuilds_from_base` | Corrupt shard state store; `slateduck-ivm repair --shard N`; shard rebuilds; output correct |
+| `repair_shard_rebuilds_from_base` | Corrupt shard state store; `rocklake-ivm repair --shard N`; shard rebuilds; output correct |
 | `refresh_full_drops_all_state_and_rebuilds` | `REFRESH INCREMENTAL MATERIALIZED VIEW v FULL`; all shards rebuild from base; output matches reference |
-| `doctor_identifies_stuck_shard` | Kill one worker without releasing lease; `slateduck-ivm doctor` reports shard as `STUCK` |
+| `doctor_identifies_stuck_shard` | Kill one worker without releasing lease; `rocklake-ivm doctor` reports shard as `STUCK` |
 | `doctor_identifies_expired_lease` | Advance clock past TTL; doctor reports `lease=expired` |
 | `output_compaction_reduces_file_count` | After 100 publish cycles, `state_compaction` keeps SST count ≤ 32 |
 | `exactly_once_output_under_restart` | Kill output plane mid-publish; restart; output snapshot count is correct (no duplicates) |
@@ -542,7 +542,7 @@ All tests use a single shard, single base table, no joins.
 
 ## 10. Tier 7 — Fault Injection Tests
 
-**Location:** `crates/slateduck-ivm/tests/fault_injection_tests.rs` and `crates/slateduck-catalog/tests/fault_injection_tests.rs`
+**Location:** `crates/rocklake-ivm/tests/fault_injection_tests.rs` and `crates/rocklake-catalog/tests/fault_injection_tests.rs`
 **Backend:** MinIO + `fail` crate
 **Trigger:** Pre-release manual gate
 
@@ -581,7 +581,7 @@ Use `toxiproxy` (via Testcontainers) in front of MinIO to inject network faults:
 
 ## 11. Tier 8 — Scale & Soak Tests
 
-**Location:** `tests/scale/` (workspace level) + `crates/slateduck-ivm/benches/`
+**Location:** `tests/scale/` (workspace level) + `crates/rocklake-ivm/benches/`
 **Backend:** Real S3 Standard (same region as EC2 runner) or MinIO on large runner
 **Trigger:** Weekly scheduled + manual pre-release gate
 
@@ -602,9 +602,9 @@ Results written to `benchmarks/v{version}-tpch-{date}.json`. CI comparison job a
 ### 8.2 24-hour soak test
 
 ```
-slateduck-ivm serve \
-  --catalog-path s3://slateduck-scale-tests/soak-{run_id} \
-  --state-prefix s3://slateduck-scale-tests/soak-state-{run_id}/ \
+rocklake-ivm serve \
+  --catalog-path s3://rocklake-scale-tests/soak-{run_id} \
+  --state-prefix s3://rocklake-scale-tests/soak-state-{run_id}/ \
   --worker-id soak-0 \
   --shard-limit 8 \
   --lease-ttl-ms 30000
@@ -627,7 +627,7 @@ Soak test assertions (checked every 15 minutes):
 
 ## 12. Tier 9 — Security Tests
 
-**Location:** `crates/slateduck-pgwire/tests/security_tests.rs` and `tests/security/`
+**Location:** `crates/rocklake-pgwire/tests/security_tests.rs` and `tests/security/`
 **Backend:** MinIO with ACL-enforced credentials (Testcontainers) + real AWS IAM (pre-release only)
 
 ### 9.1 Credential isolation (MinIO)
@@ -672,7 +672,7 @@ All existing auth tests are retained. Extended with:
 
 ## 13. Tier 10 — Benchmark Regression Tests
 
-**Location:** `crates/slateduck-catalog/benches/catalog_bench.rs` (extended) + `crates/slateduck-ivm/benches/`
+**Location:** `crates/rocklake-catalog/benches/catalog_bench.rs` (extended) + `crates/rocklake-ivm/benches/`
 **Baseline:** `benchmarks/phase-2-baseline.json`
 **Trigger:** Weekly scheduled CI
 
@@ -705,8 +705,8 @@ A CI job runs `cargo bench --no-run` to confirm benchmark compilation, and a wee
 unit-and-integration:
   runs-on: ubuntu-latest
   steps:
-    - cargo test --all --exclude slateduck-testkit
-    - cargo test -p slateduck-testkit --features local-only
+    - cargo test --all --exclude rocklake-testkit
+    - cargo test -p rocklake-testkit --features local-only
 
 # Tier 4-5: runs on every merge to main (large runner)
 minio-and-compat:
@@ -716,30 +716,30 @@ minio-and-compat:
       image: docker:dind
   steps:
     - cargo test --all --features minio-tests
-    - cargo test -p slateduck-pgwire --test compat_tests
+    - cargo test -p rocklake-pgwire --test compat_tests
 
 # Tier 6a-6b: IVM integration (large runner, post-v0.11)
 ivm-integration:
   runs-on: ubuntu-latest-8-core
   if: contains(github.event.head_commit.message, 'ivm') || github.ref == 'refs/heads/main'
   steps:
-    - cargo test -p slateduck-ivm --features minio-tests --test integration_tests
-    - cargo test -p slateduck-ivm --features minio-tests --test sharded_tests
+    - cargo test -p rocklake-ivm --features minio-tests --test integration_tests
+    - cargo test -p rocklake-ivm --features minio-tests --test sharded_tests
 
 # Tier 7: Fault injection (large runner, pre-release)
 fault-injection:
   runs-on: ubuntu-latest-8-core
   if: startsWith(github.ref, 'refs/tags/v')
   steps:
-    - cargo test -p slateduck-ivm --features minio-tests,fault-injection --test fault_injection_tests
-    - cargo test -p slateduck-catalog --features fault-injection --test fault_injection_tests
+    - cargo test -p rocklake-ivm --features minio-tests,fault-injection --test fault_injection_tests
+    - cargo test -p rocklake-catalog --features fault-injection --test fault_injection_tests
 
 # Tier 9: Security (large runner, pre-release)
 security:
   runs-on: ubuntu-latest
   if: startsWith(github.ref, 'refs/tags/v')
   steps:
-    - cargo test -p slateduck-pgwire --features minio-tests --test security_tests
+    - cargo test -p rocklake-pgwire --features minio-tests --test security_tests
     - cargo audit
     - cargo deny check advisories bans sources
 
@@ -749,7 +749,7 @@ benchmark-regression:
   schedule:
     - cron: '0 2 * * 1'  # Monday 02:00 UTC
   steps:
-    - cargo bench -p slateduck-catalog
+    - cargo bench -p rocklake-catalog
     - python3 scripts/check_benchmark_regression.py benchmarks/phase-2-baseline.json
 ```
 
@@ -783,7 +783,7 @@ Final layout after all tiers are implemented:
 
 ```
 crates/
-  slateduck-testkit/              ← NEW: shared test helpers
+  rocklake-testkit/              ← NEW: shared test helpers
     Cargo.toml
     src/
       lib.rs
@@ -795,11 +795,11 @@ crates/
       corpus.rs                   ← wire corpus helpers
       ivm.rs                      ← IvmWorkerHarness
 
-  slateduck-core/
+  rocklake-core/
     tests/
       property_tests.rs           ← existing, extended
 
-  slateduck-catalog/
+  rocklake-catalog/
     tests/
       integration_tests.rs        ← existing, extended
       v011_catalog_tests.rs       ← NEW: IVM catalog primitives
@@ -808,14 +808,14 @@ crates/
     benches/
       catalog_bench.rs            ← existing, extended with MinIO
 
-  slateduck-pgwire/
+  rocklake-pgwire/
     tests/
       integration_tests.rs        ← existing, extended
       v011_pgwire_tests.rs        ← NEW: IVM SQL surface
       compat_tests.rs             ← NEW: Tier 5 client compat
       security_tests.rs           ← NEW: Tier 9 security
 
-  slateduck-ivm/                  ← NEW crate (v0.11)
+  rocklake-ivm/                  ← NEW crate (v0.11)
     tests/
       integration_tests.rs        ← Tier 6a single-shard
       sharded_tests.rs            ← Tier 6b multi-shard
@@ -850,7 +850,7 @@ scripts/
 | 5 | Scale tests: EC2 self-hosted runner vs. GitHub-managed ARM runner | Prefer managed runner if 8-vCPU available; fall back to self-hosted for TPC-H SF100 | Before Tier 8 implementation |
 | 6 | `fail` crate vs. `fail_parallel` for fault injection | Use `fail` for single-process faults; evaluate `fail_parallel` for multi-process IVM worker faults | Before Tier 7 IVM fault tests |
 | 7 | `SCRAM-SHA-256` implementation: `tokio-postgres` supports it natively; does `pgwire` crate expose it? | Audit `pgwire` 0.28 API; implement if exposed | Before Tier 9 auth extension |
-| 8 | `slateduck migrate-from-ducklake` integration test: requires PostgreSQL source; use Testcontainers `postgres` image | Use `testcontainers-modules::postgres` | Before v1.0 migration test (Tier 5) |
+| 8 | `rocklake migrate-from-ducklake` integration test: requires PostgreSQL source; use Testcontainers `postgres` image | Use `testcontainers-modules::postgres` | Before v1.0 migration test (Tier 5) |
 
 ---
 

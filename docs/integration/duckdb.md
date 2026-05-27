@@ -1,14 +1,14 @@
 # DuckDB Integration
 
-DuckDB is the primary client for SlateDuck. The integration uses DuckDB's `ducklake` extension, which connects to SlateDuck over the PostgreSQL wire protocol to manage lakehouse catalog metadata while executing analytical queries locally against Parquet data files in object storage. From DuckDB's perspective, SlateDuck is indistinguishable from a PostgreSQL-backed DuckLake catalog — the same SQL works, the same operations are supported, and the same transactional guarantees apply.
+DuckDB is the primary client for Rocklake. The integration uses DuckDB's `ducklake` extension, which connects to Rocklake over the PostgreSQL wire protocol to manage lakehouse catalog metadata while executing analytical queries locally against Parquet data files in object storage. From DuckDB's perspective, Rocklake is indistinguishable from a PostgreSQL-backed DuckLake catalog — the same SQL works, the same operations are supported, and the same transactional guarantees apply.
 
 This page covers the complete DuckDB integration: installation, connection configuration, the full lifecycle of catalog operations, performance characteristics, multi-instance topologies, and operational best practices.
 
 ## Prerequisites
 
 - **DuckDB v1.2.0 or later** (the `ducklake` extension was introduced in this version)
-- **A running SlateDuck instance** (see [Deployment](../deployment/index.md))
-- **Network connectivity** between DuckDB and SlateDuck (typically localhost or same-VPC)
+- **A running Rocklake instance** (see [Deployment](../deployment/index.md))
+- **Network connectivity** between DuckDB and Rocklake (typically localhost or same-VPC)
 - **Object storage credentials** configured for DuckDB (for reading/writing Parquet files)
 
 ## Installation
@@ -23,12 +23,12 @@ LOAD ducklake;
 
 The extension is part of DuckDB's official extension repository and installs automatically from the DuckDB extension hub.
 
-## Connecting to SlateDuck
+## Connecting to Rocklake
 
 ### Basic Connection
 
 ```sql
--- Attach a SlateDuck catalog (local sidecar)
+-- Attach a Rocklake catalog (local sidecar)
 ATTACH 'ducklake:host=localhost;port=5432' AS my_lake;
 
 -- Use the catalog as the default
@@ -39,38 +39,38 @@ USE my_lake;
 
 ```sql
 -- With password authentication
-ATTACH 'ducklake:host=slateduck.internal;port=5432;password=my-secret-token' AS my_lake;
+ATTACH 'ducklake:host=rocklake.internal;port=5432;password=my-secret-token' AS my_lake;
 ```
 
 ### Connection with TLS
 
 ```sql
 -- Require TLS (recommended for non-localhost connections)
-ATTACH 'ducklake:host=slateduck.prod.internal;port=5432;sslmode=require' AS my_lake;
+ATTACH 'ducklake:host=rocklake.prod.internal;port=5432;sslmode=require' AS my_lake;
 
 -- Full certificate verification
-ATTACH 'ducklake:host=slateduck.prod.internal;port=5432;sslmode=verify-full;sslrootcert=/path/to/ca.pem' AS my_lake;
+ATTACH 'ducklake:host=rocklake.prod.internal;port=5432;sslmode=verify-full;sslrootcert=/path/to/ca.pem' AS my_lake;
 ```
 
 ### Connection String Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `host` | `localhost` | SlateDuck server hostname or IP address |
-| `port` | `5432` | SlateDuck server port |
+| `host` | `localhost` | Rocklake server hostname or IP address |
+| `port` | `5432` | Rocklake server port |
 | `password` | (none) | Authentication token (if configured on server) |
 | `sslmode` | `prefer` | TLS mode: `disable`, `prefer`, `require`, `verify-ca`, `verify-full` |
 | `connect_timeout` | `10` | Connection timeout in seconds |
-| `application_name` | `duckdb` | Identifies this client in SlateDuck's logs |
+| `application_name` | `duckdb` | Identifies this client in Rocklake's logs |
 
 ### Multiple Catalogs
 
-You can attach multiple SlateDuck catalogs simultaneously:
+You can attach multiple Rocklake catalogs simultaneously:
 
 ```sql
 -- Attach production and staging catalogs
-ATTACH 'ducklake:host=prod-slateduck;port=5432' AS prod;
-ATTACH 'ducklake:host=staging-slateduck;port=5432' AS staging;
+ATTACH 'ducklake:host=prod-rocklake;port=5432' AS prod;
+ATTACH 'ducklake:host=staging-rocklake;port=5432' AS staging;
 
 -- Query across catalogs
 SELECT p.event_count, s.event_count 
@@ -89,16 +89,16 @@ When you execute DDL or DML through DuckDB against a DuckLake-attached catalog, 
 sequenceDiagram
     participant DuckDB
     participant DuckLake Extension
-    participant SlateDuck
+    participant Rocklake
     participant Object Storage
     
     DuckDB->>DuckLake Extension: Plan query
-    DuckLake Extension->>SlateDuck: List schemas (PG wire)
-    SlateDuck-->>DuckLake Extension: Schema list
-    DuckLake Extension->>SlateDuck: Get table metadata
-    SlateDuck-->>DuckLake Extension: Table definition + columns
-    DuckLake Extension->>SlateDuck: List data files
-    SlateDuck-->>DuckLake Extension: File paths + statistics
+    DuckLake Extension->>Rocklake: List schemas (PG wire)
+    Rocklake-->>DuckLake Extension: Schema list
+    DuckLake Extension->>Rocklake: Get table metadata
+    Rocklake-->>DuckLake Extension: Table definition + columns
+    DuckLake Extension->>Rocklake: List data files
+    Rocklake-->>DuckLake Extension: File paths + statistics
     DuckLake Extension->>DuckDB: Execution plan with file list
     DuckDB->>Object Storage: Read Parquet files directly
     Object Storage-->>DuckDB: Data
@@ -111,19 +111,19 @@ sequenceDiagram
 sequenceDiagram
     participant DuckDB
     participant DuckLake Extension
-    participant SlateDuck
+    participant Rocklake
     participant Object Storage
     
     DuckDB->>Object Storage: Write Parquet file
     Object Storage-->>DuckDB: File written (path, size, stats)
     DuckDB->>DuckLake Extension: Register file in catalog
-    DuckLake Extension->>SlateDuck: BEGIN + INSERT file metadata
-    SlateDuck-->>DuckLake Extension: OK
-    DuckLake Extension->>SlateDuck: COMMIT
-    SlateDuck-->>DuckLake Extension: Snapshot ID
+    DuckLake Extension->>Rocklake: BEGIN + INSERT file metadata
+    Rocklake-->>DuckLake Extension: OK
+    DuckLake Extension->>Rocklake: COMMIT
+    Rocklake-->>DuckLake Extension: Snapshot ID
 ```
 
-**Key insight:** SlateDuck never sees your actual data. It only manages metadata — which tables exist, what columns they have, where the data files are stored, and what statistics describe them. DuckDB reads and writes data files directly in object storage.
+**Key insight:** Rocklake never sees your actual data. It only manages metadata — which tables exist, what columns they have, where the data files are stored, and what statistics describe them. DuckDB reads and writes data files directly in object storage.
 
 ## Supported Operations
 
@@ -218,7 +218,7 @@ COMMIT;
 
 ### Catalog Overhead Per Query
 
-Each DuckDB query that touches a SlateDuck-backed table involves multiple catalog round-trips:
+Each DuckDB query that touches a Rocklake-backed table involves multiple catalog round-trips:
 
 | Operation | Round-trips | Typical Latency |
 |-----------|-------------|-----------------|
@@ -242,7 +242,7 @@ For analytical queries scanning gigabytes of Parquet data (seconds to minutes of
 
 ### Data Path Performance
 
-Data operations (reading/writing Parquet files) bypass SlateDuck entirely. Performance is determined by:
+Data operations (reading/writing Parquet files) bypass Rocklake entirely. Performance is determined by:
 
 - DuckDB's query engine (parallelism, vectorized execution)
 - Object storage throughput (S3 bandwidth: ~100 MB/s per connection, parallelizable)
@@ -252,15 +252,15 @@ Data operations (reading/writing Parquet files) bypass SlateDuck entirely. Perfo
 
 ### Read Scaling
 
-Multiple DuckDB instances can connect to the same SlateDuck catalog simultaneously for read operations. Each instance:
+Multiple DuckDB instances can connect to the same Rocklake catalog simultaneously for read operations. Each instance:
 
 - Gets a consistent snapshot view of the catalog
-- Reads data files directly from object storage (no bottleneck through SlateDuck)
+- Reads data files directly from object storage (no bottleneck through Rocklake)
 - Scales horizontally without catalog coordination
 
 ```
 DuckDB Instance 1 ──┐
-DuckDB Instance 2 ──┼──→ SlateDuck ──→ SlateDB (S3)
+DuckDB Instance 2 ──┼──→ Rocklake ──→ SlateDB (S3)
 DuckDB Instance 3 ──┘
      │
      └──→ Read Parquet directly from S3 (parallel)
@@ -274,11 +274,11 @@ In practice, most architectures designate a single "writer" DuckDB instance (typ
 
 ### Connection Pooling
 
-For deployments with many DuckDB instances, SlateDuck handles connections efficiently:
+For deployments with many DuckDB instances, Rocklake handles connections efficiently:
 
 - Each connection is lightweight (a few KB of state)
 - Connections are stateless between queries
-- No connection limit in SlateDuck (limited only by OS file descriptors)
+- No connection limit in Rocklake (limited only by OS file descriptors)
 
 ## Object Storage Configuration
 
@@ -304,7 +304,7 @@ SELECT * FROM lake.analytics.events;
 
 | Error | SQLSTATE | Cause | Solution |
 |-------|----------|-------|----------|
-| Connection refused | 08001 | SlateDuck not running | Start the server |
+| Connection refused | 08001 | Rocklake not running | Start the server |
 | WriterFenced | 57P04 | Another instance claimed the catalog | Reconnect (new instance handles requests) |
 | SnapshotNotFound | 22023 | Requested snapshot has been GC'd | Use a more recent snapshot |
 | TransactionConflict | 40001 | Concurrent write conflict | Retry the transaction |
@@ -324,11 +324,11 @@ SELECT * FROM lake.analytics.events;
 
 ### ETL Pipeline: Ingest Daily Parquet Export
 
-A common pattern is a nightly job that deposits Parquet files into an S3 prefix and registers them with SlateDuck so analysts can immediately query them:
+A common pattern is a nightly job that deposits Parquet files into an S3 prefix and registers them with Rocklake so analysts can immediately query them:
 
 ```sql
 LOAD ducklake;
-ATTACH 'ducklake:host=slateduck.internal;port=5432' AS lake;
+ATTACH 'ducklake:host=rocklake.internal;port=5432' AS lake;
 USE lake;
 
 -- Create the target table if it doesn't exist
@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS analytics.daily_events (
     region VARCHAR
 );
 
--- Register yesterday's export (DuckDB writes Parquet to S3, then registers metadata with SlateDuck)
+-- Register yesterday's export (DuckDB writes Parquet to S3, then registers metadata with Rocklake)
 INSERT INTO analytics.daily_events
 SELECT * FROM read_parquet('s3://data-lake/exports/events_2024_03_15.parquet');
 
@@ -348,7 +348,7 @@ SELECT * FROM read_parquet('s3://data-lake/exports/events_2024_03_15.parquet');
 SELECT count(*) FROM analytics.daily_events WHERE event_date = '2024-03-15';
 ```
 
-After the `INSERT`, the new Parquet file is immediately visible to all other DuckDB instances connected to the same SlateDuck catalog. The analyst's session that was already running sees the new data without reconnecting — snapshot isolation ensures they see a consistent point in time, and advancing to the latest snapshot is as simple as re-running the query.
+After the `INSERT`, the new Parquet file is immediately visible to all other DuckDB instances connected to the same Rocklake catalog. The analyst's session that was already running sees the new data without reconnecting — snapshot isolation ensures they see a consistent point in time, and advancing to the latest snapshot is as simple as re-running the query.
 
 ### Schema Evolution: Adding a Column
 
@@ -379,7 +379,7 @@ A compliance team needs to verify what the catalog state looked like at the star
 
 ```sql
 LOAD ducklake;
-ATTACH 'ducklake:host=slateduck.internal;port=5432' AS lake;
+ATTACH 'ducklake:host=rocklake.internal;port=5432' AS lake;
 
 -- Find the snapshot closest to April 1, 2024
 -- (In practice you'd look up the snapshot ID from your audit log or a checkpoint)
@@ -421,17 +421,17 @@ GROUP BY region;
 
 ## Operational Best Practices
 
-### Keep DuckDB and SlateDuck Versions Aligned
+### Keep DuckDB and Rocklake Versions Aligned
 
-The DuckLake wire protocol evolves with DuckDB releases. The `ducklake` extension in DuckDB v1.3 may emit SQL patterns that SlateDuck's bounded dispatcher does not recognize if built against the v1.2 protocol. Always test version upgrades in staging before production.
+The DuckLake wire protocol evolves with DuckDB releases. The `ducklake` extension in DuckDB v1.3 may emit SQL patterns that Rocklake's bounded dispatcher does not recognize if built against the v1.2 protocol. Always test version upgrades in staging before production.
 
 ### Minimize ATTACH/DETACH Overhead
 
-Each `ATTACH` call opens a new connection to SlateDuck and reads the catalog manifest. For interactive sessions or dashboards with per-query connections, reuse a long-lived DuckDB connection with a cached `ATTACH` rather than attaching and detaching on every query.
+Each `ATTACH` call opens a new connection to Rocklake and reads the catalog manifest. For interactive sessions or dashboards with per-query connections, reuse a long-lived DuckDB connection with a cached `ATTACH` rather than attaching and detaching on every query.
 
 ### Partition Large Tables
 
-Very large tables with millions of Parquet files create long `file listing` catalog queries. Partition data files by date or region so that queries with date/region filters only need to list files in the relevant partitions. SlateDuck's file listing is scoped to the queried partition.
+Very large tables with millions of Parquet files create long `file listing` catalog queries. Partition data files by date or region so that queries with date/region filters only need to list files in the relevant partitions. Rocklake's file listing is scoped to the queried partition.
 
 ### Monitor Catalog Size
 
@@ -439,9 +439,9 @@ As data accumulates over time, the catalog itself grows. Run GC regularly to adv
 
 ```bash
 # Monthly GC and excision
-slateduck gc apply --catalog s3://my-bucket/catalog/ --retain-days 90
-slateduck excise plan --catalog s3://my-bucket/catalog/
-slateduck excise apply --catalog s3://my-bucket/catalog/ --yes
+rocklake gc apply --catalog s3://my-bucket/catalog/ --retain-days 90
+rocklake excise plan --catalog s3://my-bucket/catalog/
+rocklake excise apply --catalog s3://my-bucket/catalog/ --yes
 ```
 
 A healthy catalog for most workloads stays under 100 MB of SST files with regular GC.
@@ -451,8 +451,8 @@ A healthy catalog for most workloads stays under 100 MB of SST files with regula
 ### "Cannot attach: connection refused"
 
 ```bash
-# Is SlateDuck running?
-ps aux | grep slateduck
+# Is Rocklake running?
+ps aux | grep rocklake
 
 # Is it listening on the expected port?
 nc -zv localhost 5432
@@ -460,11 +460,11 @@ nc -zv localhost 5432
 
 ### "Slow queries after ATTACH"
 
-This typically means high network latency between DuckDB and SlateDuck. Verify they are in the same region/AZ:
+This typically means high network latency between DuckDB and Rocklake. Verify they are in the same region/AZ:
 
 ```bash
 # Measure latency
-time psql -h <slateduck-host> -p 5432 -c "SELECT 1"
+time psql -h <rocklake-host> -p 5432 -c "SELECT 1"
 ```
 
 ### "Missing tables/schemas"

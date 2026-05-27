@@ -1,6 +1,6 @@
 # Quickstart — Local
 
-This guide delivers a working SlateDuck lakehouse in under five minutes on any machine with a Rust toolchain installed. No cloud credentials are required — you will use the local filesystem as the storage backend, which is functionally identical to object storage from SlateDuck's perspective (the same code paths, the same durability guarantees within the scope of your local disk, the same catalog structure). By the end of this page, you will have created a catalog, defined a schema and table, inserted data, queried it through DuckDB, and demonstrated time travel by querying a historical snapshot.
+This guide delivers a working Rocklake lakehouse in under five minutes on any machine with a Rust toolchain installed. No cloud credentials are required — you will use the local filesystem as the storage backend, which is functionally identical to object storage from Rocklake's perspective (the same code paths, the same durability guarantees within the scope of your local disk, the same catalog structure). By the end of this page, you will have created a catalog, defined a schema and table, inserted data, queried it through DuckDB, and demonstrated time travel by querying a historical snapshot.
 
 Every command on this page is shown with its expected output. If your output differs, something has gone wrong — check the troubleshooting notes at the end of each step before continuing. The quickstart is designed to be followed exactly as written; deviations (different ports, different paths, different DuckDB versions) are fine but may produce slightly different output.
 
@@ -8,15 +8,15 @@ Every command on this page is shown with its expected output. If your output dif
 
 You need two tools installed before you begin:
 
-**SlateDuck.** Either download a pre-built binary from the [releases page](https://github.com/trickle-labs/slateduck/releases), or build from source:
+**Rocklake.** Either download a pre-built binary from the [releases page](https://github.com/trickle-labs/rocklake/releases), or build from source:
 
 ```bash
-git clone https://github.com/trickle-labs/slateduck.git
-cd slateduck
+git clone https://github.com/trickle-labs/rocklake.git
+cd rocklake
 cargo build --release
 ```
 
-The binary will appear at `target/release/slateduck`. You can copy it to a directory on your PATH or reference it by its full path in the commands below.
+The binary will appear at `target/release/rocklake`. You can copy it to a directory on your PATH or reference it by its full path in the commands below.
 
 **DuckDB 1.2 or later.** Download from [duckdb.org](https://duckdb.org). After installation, verify the version:
 
@@ -30,22 +30,22 @@ You should see `v1.2.0` or later. Then install the `ducklake` extension (this on
 duckdb -c "INSTALL ducklake;"
 ```
 
-## Step 1: Start the SlateDuck Server
+## Step 1: Start the Rocklake Server
 
-Open a terminal and start SlateDuck, pointing it at a local directory where the catalog will be stored. The directory does not need to exist — SlateDuck will create it and initialize a fresh catalog:
+Open a terminal and start Rocklake, pointing it at a local directory where the catalog will be stored. The directory does not need to exist — Rocklake will create it and initialize a fresh catalog:
 
 ```bash
-slateduck serve --catalog /tmp/my-lakehouse --bind 127.0.0.1:5432
+rocklake serve --catalog /tmp/my-lakehouse --bind 127.0.0.1:5432
 ```
 
 You should see output like this:
 
 ```
-INFO slateduck: Catalog opened successfully
-INFO slateduck_pgwire::server: SlateDuck serving on 127.0.0.1:5432
+INFO rocklake: Catalog opened successfully
+INFO rocklake_pgwire::server: Rocklake serving on 127.0.0.1:5432
 ```
 
-What just happened? SlateDuck opened the specified path, determined that no existing catalog was present, and initialized a new one. The server is now listening for PostgreSQL wire protocol connections on port 5432. The catalog directory `/tmp/my-lakehouse` was created automatically and contains SlateDB's internal storage structure.
+What just happened? Rocklake opened the specified path, determined that no existing catalog was present, and initialized a new one. The server is now listening for PostgreSQL wire protocol connections on port 5432. The catalog directory `/tmp/my-lakehouse` was created automatically and contains SlateDB's internal storage structure.
 
 !!! tip "Port conflicts"
     If port 5432 is already in use (perhaps by an actual PostgreSQL installation), choose a different port: `--bind 127.0.0.1:5433`. Adjust the connection string in subsequent steps accordingly.
@@ -58,7 +58,7 @@ Open a second terminal and launch DuckDB in interactive mode:
 duckdb
 ```
 
-Inside DuckDB, load the `ducklake` extension and attach the SlateDuck catalog:
+Inside DuckDB, load the `ducklake` extension and attach the Rocklake catalog:
 
 ```sql
 LOAD ducklake;
@@ -68,7 +68,7 @@ USE lakehouse;
 
 You should see no errors. The connection string goes as the first argument to `ATTACH`. The `USE` command makes `lakehouse` the default catalog so you do not need to prefix table names.
 
-Behind the scenes, DuckDB's `ducklake` extension just performed a handshake with SlateDuck: it sent a startup message, authenticated (SlateDuck accepts all connections by default in development mode), queried `pg_catalog.pg_type` and other system tables to learn the available types, and issued a `SELECT max(snapshot_id) FROM ducklake_snapshot` to discover the current catalog version. SlateDuck responded to each query with the expected PostgreSQL wire messages, and DuckDB is now satisfied that it is talking to a valid DuckLake catalog backend.
+Behind the scenes, DuckDB's `ducklake` extension just performed a handshake with Rocklake: it sent a startup message, authenticated (Rocklake accepts all connections by default in development mode), queried `pg_catalog.pg_type` and other system tables to learn the available types, and issued a `SELECT max(snapshot_id) FROM ducklake_snapshot` to discover the current catalog version. Rocklake responded to each query with the expected PostgreSQL wire messages, and DuckDB is now satisfied that it is talking to a valid DuckLake catalog backend.
 
 ## Step 3: Create a Schema and Table
 
@@ -92,7 +92,7 @@ OK
 OK
 ```
 
-What happened in the catalog? DuckDB's `ducklake` extension translated these DDL statements into a series of catalog mutations. For `CREATE SCHEMA`, it sent an `INSERT INTO ducklake_schema` with the schema name. For `CREATE TABLE`, it sent an `INSERT INTO ducklake_table` with the table name and schema reference, followed by an `INSERT INTO ducklake_column` for each of the five columns. SlateDuck allocated unique IDs for each entity from its counter system, encoded the rows as Protobuf messages with SDKV headers, wrote them as key-value pairs to SlateDB, and committed each transaction atomically. The catalog now has snapshots for the initial empty state, the schema creation, and the table creation.
+What happened in the catalog? DuckDB's `ducklake` extension translated these DDL statements into a series of catalog mutations. For `CREATE SCHEMA`, it sent an `INSERT INTO ducklake_schema` with the schema name. For `CREATE TABLE`, it sent an `INSERT INTO ducklake_table` with the table name and schema reference, followed by an `INSERT INTO ducklake_column` for each of the five columns. Rocklake allocated unique IDs for each entity from its counter system, encoded the rows as Protobuf messages with SDKV headers, wrote them as key-value pairs to SlateDB, and committed each transaction atomically. The catalog now has snapshots for the initial empty state, the schema creation, and the table creation.
 
 ## Step 4: Insert Data
 
@@ -105,7 +105,7 @@ INSERT INTO analytics.events VALUES
     (3, 101, 'page_view', '2024-01-15 10:31:00', '{"page": "/pricing"}');
 ```
 
-DuckDB will confirm the insert with a row count. The data is stored inline within the SlateDuck catalog (no separate Parquet files are written for the local quickstart). Each insert creates a new catalog snapshot, so the data becomes visible to future queries at that snapshot ID. For production deployments with S3 or GCS as the object store, DuckDB would write the data as Parquet files to the specified `DATA_PATH` and register them with SlateDuck.
+DuckDB will confirm the insert with a row count. The data is stored inline within the Rocklake catalog (no separate Parquet files are written for the local quickstart). Each insert creates a new catalog snapshot, so the data becomes visible to future queries at that snapshot ID. For production deployments with S3 or GCS as the object store, DuckDB would write the data as Parquet files to the specified `DATA_PATH` and register them with Rocklake.
 
 ## Step 5: Query the Data
 
@@ -130,7 +130,7 @@ Expected output:
 └────────────┴───────┘
 ```
 
-When DuckDB executed this query, it asked SlateDuck for the data at the current snapshot. SlateDuck read the inline data from its catalog store and returned it. DuckDB then applied the `GROUP BY` and `ORDER BY` locally and returned the results.
+When DuckDB executed this query, it asked Rocklake for the data at the current snapshot. Rocklake read the inline data from its catalog store and returned it. DuckDB then applied the `GROUP BY` and `ORDER BY` locally and returned the results.
 
 ## Step 6: Time Travel
 
@@ -159,19 +159,19 @@ Expected output:
 └─────────────────────────────────────────────────────────┘
 ```
 
-The table exists (it was created at snapshot 2) but contains no data (the data was inserted at later snapshots). This is time travel: you are seeing the catalog exactly as it was at snapshot 2, not the current state. SlateDuck did not need to restore a backup, replay a log, or do anything special — it simply filtered the catalog rows by their `begin_snapshot` and `end_snapshot` bounds to show only what was visible at that version.
+The table exists (it was created at snapshot 2) but contains no data (the data was inserted at later snapshots). This is time travel: you are seeing the catalog exactly as it was at snapshot 2, not the current state. Rocklake did not need to restore a backup, replay a log, or do anything special — it simply filtered the catalog rows by their `begin_snapshot` and `end_snapshot` bounds to show only what was visible at that version.
 
-This works because SlateDuck never overwrites or deletes catalog entries during normal operation. Every row has a `begin_snapshot` marking when it became visible. When a row is superseded (for example, by a schema change), it gets an `end_snapshot` marking when it stopped being visible. Querying at a specific snapshot is just an MVCC filter — two integer comparisons per row. There is no performance penalty, no additional storage cost, and no configuration required.
+This works because Rocklake never overwrites or deletes catalog entries during normal operation. Every row has a `begin_snapshot` marking when it became visible. When a row is superseded (for example, by a schema change), it gets an `end_snapshot` marking when it stopped being visible. Querying at a specific snapshot is just an MVCC filter — two integer comparisons per row. There is no performance penalty, no additional storage cost, and no configuration required.
 
 !!! note "Snapshot IDs"
     Use `SELECT snapshot_id, changes FROM ducklake_snapshots('lakehouse')` to see your catalog's actual snapshot IDs — they may differ from the examples above if you ran other commands between steps.
 
 ## Step 7: Inspect the Catalog Internals
 
-Stop the SlateDuck server (Ctrl+C in the first terminal), then inspect the internal state of the catalog using the SlateDuck CLI:
+Stop the Rocklake server (Ctrl+C in the first terminal), then inspect the internal state of the catalog using the Rocklake CLI:
 
 ```bash
-slateduck inspect snapshot --latest --catalog /tmp/my-lakehouse
+rocklake inspect snapshot --latest --catalog /tmp/my-lakehouse
 ```
 
 Expected output (approximately):
@@ -197,7 +197,7 @@ Catalog State:
 This gives you a quick view of the catalog's health: how many snapshots have been created, what entities exist, and whether GC has advanced the retention horizon.
 
 !!! tip "Run inspect offline"
-    Run `slateduck inspect` only when the server is **not** running. Opening the catalog while the server is active will fence the server out of its own storage, causing errors.
+    Run `rocklake inspect` only when the server is **not** running. Opening the catalog while the server is active will fence the server out of its own storage, causing errors.
 
 ## What Lives on Disk
 
@@ -216,7 +216,7 @@ Every catalog mutation was first written to the WAL (a single `PUT` to storage �
 
 ## Cleanup
 
-When you are done experimenting, stop the SlateDuck server (Ctrl+C in the first terminal) and optionally remove the catalog directory:
+When you are done experimenting, stop the Rocklake server (Ctrl+C in the first terminal) and optionally remove the catalog directory:
 
 ```bash
 rm -rf /tmp/my-lakehouse
@@ -224,11 +224,11 @@ rm -rf /tmp/my-lakehouse
 
 ## Troubleshooting
 
-**"Connection refused" when attaching from DuckDB.** SlateDuck is not running, or it is bound to a different port than the one in your connection string. Check that the `slateduck` process is still running in the first terminal and verify the port number.
+**"Connection refused" when attaching from DuckDB.** Rocklake is not running, or it is bound to a different port than the one in your connection string. Check that the `rocklake` process is still running in the first terminal and verify the port number.
 
 **"relation ducklake_snapshot does not exist" after ATTACH.** You may be using an older version of the `ducklake` extension. Run `UPDATE EXTENSIONS;` in DuckDB and try again.
 
-**"Address already in use" when starting SlateDuck.** Port 5432 is occupied by another process (likely PostgreSQL). Use `--bind 127.0.0.1:5433` and update the connection string in DuckDB accordingly.
+**"Address already in use" when starting Rocklake.** Port 5432 is occupied by another process (likely PostgreSQL). Use `--bind 127.0.0.1:5433` and update the connection string in DuckDB accordingly.
 
 **DuckDB shows 0 rows after INSERT.** Make sure you are connected to `lakehouse` as your active catalog. Run `USE lakehouse;` and try the query again.
 
@@ -238,7 +238,7 @@ rm -rf /tmp/my-lakehouse
 
 ## Next Steps
 
-You now have a working SlateDuck catalog running locally. From here, you can:
+You now have a working Rocklake catalog running locally. From here, you can:
 
 - **[Quickstart — Cloud](quickstart-cloud.md)** — Run the same workflow against S3, GCS, or Azure for a production-realistic deployment
 - **[Your First Lakehouse](first-lakehouse.md)** — A deeper tutorial covering schema evolution, multiple tables, and garbage collection

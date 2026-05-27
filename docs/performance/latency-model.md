@@ -1,8 +1,8 @@
 # Latency Model
 
-Understanding SlateDuck's latency requires understanding the complete request path — every layer that a catalog operation passes through, what each layer contributes to total latency, and which layers dominate under different conditions. This page provides a detailed breakdown that will help you predict performance for your deployment configuration and identify optimization opportunities.
+Understanding Rocklake's latency requires understanding the complete request path — every layer that a catalog operation passes through, what each layer contributes to total latency, and which layers dominate under different conditions. This page provides a detailed breakdown that will help you predict performance for your deployment configuration and identify optimization opportunities.
 
-The key insight is that SlateDuck's latency is not one number. It is a sum of components, and the dominant component changes depending on cache state, storage backend, network topology, and catalog size. A cache-hot read in a co-located deployment takes under 2ms. A cache-cold read from S3 Standard across availability zones takes 80ms. Both are "SlateDuck latency" — but they represent fundamentally different scenarios.
+The key insight is that Rocklake's latency is not one number. It is a sum of components, and the dominant component changes depending on cache state, storage backend, network topology, and catalog size. A cache-hot read in a co-located deployment takes under 2ms. A cache-cold read from S3 Standard across availability zones takes 80ms. Both are "Rocklake latency" — but they represent fundamentally different scenarios.
 
 ## The Request Path
 
@@ -18,7 +18,7 @@ Each layer adds time. Some layers are constant (fractions of a millisecond regar
 
 ### Layer 1: Network Transport
 
-The first layer is the network between DuckDB and SlateDuck. DuckDB connects to SlateDuck via TCP using the PostgreSQL wire protocol.
+The first layer is the network between DuckDB and Rocklake. DuckDB connects to Rocklake via TCP using the PostgreSQL wire protocol.
 
 | Configuration | Typical Latency | Variance |
 |--------------|----------------|----------|
@@ -28,13 +28,13 @@ The first layer is the network between DuckDB and SlateDuck. DuckDB connects to 
 | Cross region | 20–100ms | High |
 | Native extension (in-process) | 0 | Zero |
 
-**When this dominates:** Cross-region deployments. If DuckDB is in `us-east-1` and SlateDuck is in `eu-west-1`, every catalog operation pays 60–100ms of network latency regardless of whether the data is cached.
+**When this dominates:** Cross-region deployments. If DuckDB is in `us-east-1` and Rocklake is in `eu-west-1`, every catalog operation pays 60–100ms of network latency regardless of whether the data is cached.
 
-**Optimization:** Co-locate DuckDB and SlateDuck in the same availability zone. For maximum performance, use the native extension (Strategy C) which eliminates network transport entirely by embedding SlateDuck in DuckDB's process.
+**Optimization:** Co-locate DuckDB and Rocklake in the same availability zone. For maximum performance, use the native extension (Strategy C) which eliminates network transport entirely by embedding Rocklake in DuckDB's process.
 
 ### Layer 2: PostgreSQL Wire Protocol
 
-SlateDuck speaks the PostgreSQL wire protocol (pgwire). Incoming bytes are parsed into protocol messages: Query, Parse, Bind, Execute, Describe, Sync. Outgoing results are serialized into RowDescription, DataRow, CommandComplete, ReadyForQuery messages.
+Rocklake speaks the PostgreSQL wire protocol (pgwire). Incoming bytes are parsed into protocol messages: Query, Parse, Bind, Execute, Describe, Sync. Outgoing results are serialized into RowDescription, DataRow, CommandComplete, ReadyForQuery messages.
 
 | Operation | Typical Latency |
 |-----------|----------------|
@@ -48,7 +48,7 @@ SlateDuck speaks the PostgreSQL wire protocol (pgwire). Incoming bytes are parse
 
 ### Layer 3: SQL Classification
 
-SlateDuck does not use a general SQL parser. It uses a pattern matcher (the SQL classifier) that recognizes the ~50 known DuckLake statement patterns and dispatches to the appropriate handler. This is implemented as a series of string comparisons and regex matches.
+Rocklake does not use a general SQL parser. It uses a pattern matcher (the SQL classifier) that recognizes the ~50 known DuckLake statement patterns and dispatches to the appropriate handler. This is implemented as a series of string comparisons and regex matches.
 
 | Operation | Typical Latency |
 |-----------|----------------|
@@ -93,7 +93,7 @@ For a prefix scan:
 | Key requires 1 SST block fetch (GCS) | 10–50ms |
 | Key requires 1 SST block fetch (local SSD) | 0.1–1ms |
 
-**When this dominates:** Whenever the block cache does not contain the required data. For a freshly started SlateDuck instance (cold cache), every operation pays the full object storage round-trip. After warm-up, the frequently accessed blocks stay in cache and this layer contributes minimal latency.
+**When this dominates:** Whenever the block cache does not contain the required data. For a freshly started Rocklake instance (cold cache), every operation pays the full object storage round-trip. After warm-up, the frequently accessed blocks stay in cache and this layer contributes minimal latency.
 
 ### Layer 6: Object Storage
 
@@ -120,7 +120,7 @@ Typical end-to-end: **1–5ms** (same AZ deployment)
 
 ### Cold Start / First Access
 
-Immediately after SlateDuck starts (or after accessing a rarely-used catalog section), the block cache is empty. The dominant factor is **object storage GET latency** (Layer 6).
+Immediately after Rocklake starts (or after accessing a rarely-used catalog section), the block cache is empty. The dominant factor is **object storage GET latency** (Layer 6).
 
 Typical end-to-end: **30–100ms** (S3 Standard)
 
@@ -159,11 +159,11 @@ At 1.0x amplification, scan performance is optimal. At 50x amplification, you ar
 
 ## Hot Key Optimization
 
-SlateDuck implements a "hot key" optimization for the most frequently accessed system key. This key contains high-level catalog metadata that DuckDB reads on every connection (or every query, depending on caching configuration).
+Rocklake implements a "hot key" optimization for the most frequently accessed system key. This key contains high-level catalog metadata that DuckDB reads on every connection (or every query, depending on caching configuration).
 
 The hot key is:
 
-- Cached in SlateDuck's memory (not in SlateDB's block cache — in application memory)
+- Cached in Rocklake's memory (not in SlateDB's block cache — in application memory)
 - Refreshed on every write transaction (the writer updates the hot key as part of the commit)
 - Served with zero I/O — it is a memory read, contributing < 0.01ms to response time
 
@@ -190,7 +190,7 @@ SQL Parse → Catalog Logic → Write Batch Construction → SlateDB Commit → 
 
 The critical insight: **write latency is independent of batch size** (up to the point where the batch is large enough to require multiple S3 PUTs, which is hundreds of MB). A transaction registering 1 file and a transaction registering 1,000 files have essentially the same latency — one object storage PUT.
 
-This is why write batching is SlateDuck's primary write optimization. Instead of "make writes faster," the strategy is "do more work per write."
+This is why write batching is Rocklake's primary write optimization. Instead of "make writes faster," the strategy is "do more work per write."
 
 ## End-to-End Examples
 
@@ -198,7 +198,7 @@ This is why write batching is SlateDuck's primary write optimization. Instead of
 
 ```
 Operation: SELECT * FROM ducklake_tables WHERE schema_id = 1
-Deployment: DuckDB and SlateDuck in same AZ (us-east-1a)
+Deployment: DuckDB and Rocklake in same AZ (us-east-1a)
 Cache state: Warm (tables block cached)
 ```
 
@@ -217,7 +217,7 @@ Cache state: Warm (tables block cached)
 
 ```
 Operation: BEGIN; INSERT INTO ducklake_data_files ...; (×100); COMMIT;
-Deployment: SlateDuck on EC2 in us-east-1, S3 Standard
+Deployment: Rocklake on EC2 in us-east-1, S3 Standard
 ```
 
 | Layer | Time |

@@ -1,22 +1,22 @@
 # Deploying on Azure Blob Storage
 
-Azure Blob Storage is an excellent backend for SlateDuck deployments on Microsoft Azure. It provides sixteen-nines durability (with RA-GRS), native integration with Azure Active Directory, Managed Identity for zero-credential deployments on Azure compute, and competitive pricing for both storage and requests. This guide walks through setting up a Storage Account, configuring Azure RBAC permissions, authenticating SlateDuck using Managed Identity or service principal credentials, and deploying on Azure Kubernetes Service (AKS), Azure Container Instances (ACI), and Azure Container Apps.
+Azure Blob Storage is an excellent backend for Rocklake deployments on Microsoft Azure. It provides sixteen-nines durability (with RA-GRS), native integration with Azure Active Directory, Managed Identity for zero-credential deployments on Azure compute, and competitive pricing for both storage and requests. This guide walks through setting up a Storage Account, configuring Azure RBAC permissions, authenticating Rocklake using Managed Identity or service principal credentials, and deploying on Azure Kubernetes Service (AKS), Azure Container Instances (ACI), and Azure Container Apps.
 
 ## Prerequisites
 
 - An Azure subscription
 - Azure CLI installed and authenticated (`az login`)
-- SlateDuck binary or Docker image
+- Rocklake binary or Docker image
 - Permissions to create Storage Accounts, resource groups, and Managed Identities (typically `Owner` or `Contributor` plus `User Access Administrator` on the subscription or resource group)
 
 ## Creating the Storage Account
 
-Azure Blob Storage organizes storage into **Storage Accounts** and within them **containers** (equivalent to S3 buckets). SlateDuck uses a container within a storage account as its catalog prefix.
+Azure Blob Storage organizes storage into **Storage Accounts** and within them **containers** (equivalent to S3 buckets). Rocklake uses a container within a storage account as its catalog prefix.
 
 ```bash
 # Create a resource group
 az group create \
-  --name slateduck-rg \
+  --name rocklake-rg \
   --location eastus
 
 # Create a storage account
@@ -25,7 +25,7 @@ az group create \
 # GRS = Geo-Redundant Storage (6 copies across 2 regions) — highest durability
 az storage account create \
   --name mylakelhouse \
-  --resource-group slateduck-rg \
+  --resource-group rocklake-rg \
   --location eastus \
   --sku Standard_ZRS \
   --kind StorageV2 \
@@ -60,29 +60,29 @@ Azure uses Role-Based Access Control (RBAC) for storage authorization. The relev
 | Role | Permissions | Use case |
 |------|------------|---------|
 | `Storage Blob Data Owner` | Full CRUD + ACLs | Not recommended — too broad |
-| `Storage Blob Data Contributor` | Read, write, delete blobs | SlateDuck catalog access |
+| `Storage Blob Data Contributor` | Read, write, delete blobs | Rocklake catalog access |
 | `Storage Blob Data Reader` | Read blobs only | DuckDB reader access |
 
-### Managed Identity for SlateDuck
+### Managed Identity for Rocklake
 
-Create a User-Assigned Managed Identity for SlateDuck:
+Create a User-Assigned Managed Identity for Rocklake:
 
 ```bash
 # Create the managed identity
 az identity create \
-  --name slateduck-identity \
-  --resource-group slateduck-rg
+  --name rocklake-identity \
+  --resource-group rocklake-rg
 
 # Get the principal ID for role assignment
 PRINCIPAL_ID=$(az identity show \
-  --name slateduck-identity \
-  --resource-group slateduck-rg \
+  --name rocklake-identity \
+  --resource-group rocklake-rg \
   --query principalId --output tsv)
 
 # Get the storage account resource ID
 STORAGE_ID=$(az storage account show \
   --name mylakehouse \
-  --resource-group slateduck-rg \
+  --resource-group rocklake-rg \
   --query id --output tsv)
 
 # Assign Storage Blob Data Contributor to the catalog container
@@ -103,7 +103,7 @@ For deployments outside Azure (on-premises, other clouds), create a service prin
 ```bash
 # Create service principal with no initial role
 SP_OUTPUT=$(az ad sp create-for-rbac \
-  --name slateduck-sp \
+  --name rocklake-sp \
   --skip-assignment \
   --output json)
 
@@ -129,13 +129,13 @@ echo "Tenant ID: $TENANT_ID"
 
 ## Authentication Methods
 
-Azure supports multiple authentication mechanisms, and the right choice depends on where SlateDuck runs.
+Azure supports multiple authentication mechanisms, and the right choice depends on where Rocklake runs.
 
 ### Managed Identity (Recommended for Azure Compute)
 
 Managed Identity is the zero-credential approach for workloads running on Azure Virtual Machines, AKS, ACI, or Container Apps. No secrets to rotate, no credentials to leak.
 
-Set the environment variable to tell SlateDuck to use Managed Identity:
+Set the environment variable to tell Rocklake to use Managed Identity:
 
 ```bash
 # For System-Assigned Managed Identity:
@@ -178,16 +178,16 @@ Retrieve the key with:
 ```bash
 az storage account keys list \
   --account-name mylakehouse \
-  --resource-group slateduck-rg \
+  --resource-group rocklake-rg \
   --query "[0].value" --output tsv
 ```
 
-## Starting SlateDuck
+## Starting Rocklake
 
-With credentials configured, start SlateDuck pointing at your Azure Blob Storage container:
+With credentials configured, start Rocklake pointing at your Azure Blob Storage container:
 
 ```bash
-slateduck serve \
+rocklake serve \
   --catalog az://mylakehouse/catalog/ \
   --bind 0.0.0.0:5432
 ```
@@ -195,7 +195,7 @@ slateduck serve \
 Expected startup output:
 
 ```
-INFO  SlateDuck v0.8.0 starting
+INFO  Rocklake v0.8.0 starting
 INFO  Storage backend: azure-blob
 INFO  Catalog path: az://mylakehouse/catalog/
 INFO  Opening SlateDB...
@@ -215,29 +215,29 @@ Create a pod identity for AKS using Azure Workload Identity (the modern replacem
 # Enable Workload Identity on the cluster
 az aks update \
   --name my-aks-cluster \
-  --resource-group slateduck-rg \
+  --resource-group rocklake-rg \
   --enable-oidc-issuer \
   --enable-workload-identity
 
 # Get the OIDC issuer URL
 OIDC_ISSUER=$(az aks show \
   --name my-aks-cluster \
-  --resource-group slateduck-rg \
+  --resource-group rocklake-rg \
   --query "oidcIssuerProfile.issuerUrl" --output tsv)
 
 # Get the managed identity client ID
 CLIENT_ID=$(az identity show \
-  --name slateduck-identity \
-  --resource-group slateduck-rg \
+  --name rocklake-identity \
+  --resource-group rocklake-rg \
   --query clientId --output tsv)
 
 # Create the federated identity credential linking the Kubernetes service account
 az identity federated-credential create \
-  --name slateduck-federated-credential \
-  --identity-name slateduck-identity \
-  --resource-group slateduck-rg \
+  --name rocklake-federated-credential \
+  --identity-name rocklake-identity \
+  --resource-group rocklake-rg \
   --issuer $OIDC_ISSUER \
-  --subject system:serviceaccount:slateduck-ns:slateduck-sa \
+  --subject system:serviceaccount:rocklake-ns:rocklake-sa \
   --audience api://AzureADTokenExchange
 ```
 
@@ -247,31 +247,31 @@ Kubernetes deployment manifest:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: slateduck-sa
-  namespace: slateduck-ns
+  name: rocklake-sa
+  namespace: rocklake-ns
   annotations:
     azure.workload.identity/client-id: "your-managed-identity-client-id"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: slateduck
-  namespace: slateduck-ns
+  name: rocklake
+  namespace: rocklake-ns
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: slateduck
+      app: rocklake
   template:
     metadata:
       labels:
-        app: slateduck
+        app: rocklake
         azure.workload.identity/use: "true"  # Enable workload identity
     spec:
-      serviceAccountName: slateduck-sa
+      serviceAccountName: rocklake-sa
       containers:
-        - name: slateduck
-          image: ghcr.io/slateduck/slateduck:latest
+        - name: rocklake
+          image: ghcr.io/rocklake/rocklake:latest
           args:
             - serve
             - --catalog
@@ -292,32 +292,32 @@ Container Apps supports Managed Identity natively:
 ```bash
 # Create the Container App environment
 az containerapp env create \
-  --name slateduck-env \
-  --resource-group slateduck-rg \
+  --name rocklake-env \
+  --resource-group rocklake-rg \
   --location eastus
 
 # Get the managed identity resource ID
 IDENTITY_ID=$(az identity show \
-  --name slateduck-identity \
-  --resource-group slateduck-rg \
+  --name rocklake-identity \
+  --resource-group rocklake-rg \
   --query id --output tsv)
 
 # Create the Container App with the managed identity
 az containerapp create \
-  --name slateduck \
-  --resource-group slateduck-rg \
-  --environment slateduck-env \
-  --image ghcr.io/slateduck/slateduck:latest \
+  --name rocklake \
+  --resource-group rocklake-rg \
+  --environment rocklake-env \
+  --image ghcr.io/rocklake/rocklake:latest \
   --target-port 5432 \
   --ingress external \
   --user-assigned $IDENTITY_ID \
-  --command '["slateduck", "serve", "--catalog", "az://mylakehouse/catalog/", "--bind", "0.0.0.0:5432"]' \
+  --command '["rocklake", "serve", "--catalog", "az://mylakehouse/catalog/", "--bind", "0.0.0.0:5432"]' \
   --env-vars AZURE_CLIENT_ID=your-managed-identity-client-id \
   --min-replicas 1 \
   --max-replicas 1
 ```
 
-The `--min-replicas 1` setting is important for the same reason as Cloud Run's minimum instances: SlateDuck holds a writer lock and must not scale to zero.
+The `--min-replicas 1` setting is important for the same reason as Cloud Run's minimum instances: Rocklake holds a writer lock and must not scale to zero.
 
 ## Connecting DuckDB
 
@@ -325,7 +325,7 @@ The `--min-replicas 1` setting is important for the same reason as Cloud Run's m
 INSTALL ducklake;
 LOAD ducklake;
 
-ATTACH 'ducklake:host=slateduck.internal;port=5432' AS lake;
+ATTACH 'ducklake:host=rocklake.internal;port=5432' AS lake;
 
 -- Verify access
 SHOW ALL TABLES FROM lake;
@@ -343,7 +343,7 @@ Azure Blob Storage offers performance comparable to AWS S3 Standard:
 | GET (SST block) | 10–50 ms | 50–120 ms | Hot tier for active catalogs |
 | LIST | 30–80 ms | 30–80 ms | Same across tiers |
 
-Use the **Hot access tier** for SlateDuck catalogs. The Cool and Archive tiers impose retrieval latency and minimum storage duration charges that make them unsuitable for active catalog storage.
+Use the **Hot access tier** for Rocklake catalogs. The Cool and Archive tiers impose retrieval latency and minimum storage duration charges that make them unsuitable for active catalog storage.
 
 Enable the **ZRS redundancy tier** (`Standard_ZRS`) for zone-fault tolerance with catalog data. This provides twelve nines durability (99.9999999999%) — adequate for nearly all production requirements.
 
@@ -362,7 +362,7 @@ az storage blob list \
 
 ```bash
 az monitor diagnostic-settings create \
-  --name slateduck-catalog-diag \
+  --name rocklake-catalog-diag \
   --resource $STORAGE_ID \
   --storage-account $STORAGE_ID \
   --logs '[{"category": "StorageRead", "enabled": true}, {"category": "StorageWrite", "enabled": true}]' \

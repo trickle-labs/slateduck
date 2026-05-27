@@ -2,7 +2,7 @@
 
 ## Overview
 
-SlateDuck uses a writer epoch to guarantee single-writer access to the catalog.
+Rocklake uses a writer epoch to guarantee single-writer access to the catalog.
 Only one process may hold the writer epoch at any time; all snapshot commits
 verify the epoch before writing.
 

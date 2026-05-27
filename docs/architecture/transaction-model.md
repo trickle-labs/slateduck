@@ -1,10 +1,10 @@
 # Transaction Model
 
-SlateDuck implements a simple but effective transaction model that maps DuckDB's logical catalog transactions to batched atomic writes in SlateDB. This model provides the full ACID guarantees — atomicity (all operations succeed or none do), consistency (MVCC invariants are maintained after every commit), isolation (readers at different snapshots see consistent views without being affected by concurrent writes), and durability (committed transactions survive arbitrary crashes including sudden power loss).
+Rocklake implements a simple but effective transaction model that maps DuckDB's logical catalog transactions to batched atomic writes in SlateDB. This model provides the full ACID guarantees — atomicity (all operations succeed or none do), consistency (MVCC invariants are maintained after every commit), isolation (readers at different snapshots see consistent views without being affected by concurrent writes), and durability (committed transactions survive arbitrary crashes including sudden power loss).
 
-The transaction model is simpler than what you would find in a general-purpose database because SlateDuck exploits two architectural constraints: single-writer (no concurrent write transactions to coordinate) and object-storage atomicity (a PUT to S3/GCS/Azure is either fully written or not written at all). These constraints eliminate entire categories of complexity: no write-write conflict detection, no deadlock handling, no two-phase commit, no undo logs, and no recovery replay.
+The transaction model is simpler than what you would find in a general-purpose database because Rocklake exploits two architectural constraints: single-writer (no concurrent write transactions to coordinate) and object-storage atomicity (a PUT to S3/GCS/Azure is either fully written or not written at all). These constraints eliminate entire categories of complexity: no write-write conflict detection, no deadlock handling, no two-phase commit, no undo logs, and no recovery replay.
 
-This page explains how DuckDB uses transactions, how SlateDuck buffers and commits them, what guarantees hold under various failure scenarios, and how the transaction model interacts with MVCC snapshots and garbage collection.
+This page explains how DuckDB uses transactions, how Rocklake buffers and commits them, what guarantees hold under various failure scenarios, and how the transaction model interacts with MVCC snapshots and garbage collection.
 
 ## How DuckDB Uses Transactions
 
@@ -21,7 +21,7 @@ INSERT INTO ducklake_snapshot_changes (snapshot_id, change_type, ...) VALUES (42
 COMMIT;
 ```
 
-The critical requirement is that this entire set of operations either succeeds completely (all six rows visible at the new snapshot) or fails completely (no partial state where the table exists but some columns are missing, or the table exists but no snapshot records the fact). SlateDuck guarantees this atomicity.
+The critical requirement is that this entire set of operations either succeeds completely (all six rows visible at the new snapshot) or fails completely (no partial state where the table exists but some columns are missing, or the table exists but no snapshot records the fact). Rocklake guarantees this atomicity.
 
 ### Transaction Size in Practice
 
@@ -40,7 +40,7 @@ Even the largest transactions (bulk file registration with hundreds of files) pr
 
 ## Transaction Buffering
 
-When SlateDuck receives a `BEGIN` message, it transitions the session into "in transaction" state. From this point until `COMMIT` or `ROLLBACK`, write operations are not immediately applied to the catalog. Instead, they are accumulated in a `PendingCatalogTxn` buffer:
+When Rocklake receives a `BEGIN` message, it transitions the session into "in transaction" state. From this point until `COMMIT` or `ROLLBACK`, write operations are not immediately applied to the catalog. Instead, they are accumulated in a `PendingCatalogTxn` buffer:
 
 ```rust
 struct PendingCatalogTxn {
@@ -52,9 +52,9 @@ struct PendingCatalogTxn {
 
 Each `BufferedOp` is a fully-classified, parameterized catalog operation ready for execution. The buffer serves two purposes:
 
-1. **Atomicity.** By deferring writes until commit, SlateDuck ensures that either all operations are written (on successful commit) or none are (on rollback or crash during buffering).
+1. **Atomicity.** By deferring writes until commit, Rocklake ensures that either all operations are written (on successful commit) or none are (on rollback or crash during buffering).
 
-2. **Batching efficiency.** Instead of issuing one WAL write per INSERT statement (which would be one S3 PUT per INSERT), SlateDuck combines all operations into a single `WriteBatch` and commits them as one WAL entry (one S3 PUT for the entire transaction).
+2. **Batching efficiency.** Instead of issuing one WAL write per INSERT statement (which would be one S3 PUT per INSERT), Rocklake combines all operations into a single `WriteBatch` and commits them as one WAL entry (one S3 PUT for the entire transaction).
 
 ### Size Monitoring
 
@@ -70,24 +70,24 @@ This prevents pathological cases (registering millions of tiny files in a single
 
 ## The Commit Sequence
 
-When SlateDuck receives `COMMIT`, it executes a carefully ordered sequence that is the most critical code path in the entire system:
+When Rocklake receives `COMMIT`, it executes a carefully ordered sequence that is the most critical code path in the entire system:
 
 ### Step 1: Acquire the Write Lock
 
-The catalog store's write mutex is acquired. This serializes all commits — only one transaction can be in the commit phase at a time. This is acceptable because the single-writer model already guarantees that only one SlateDuck instance is writing.
+The catalog store's write mutex is acquired. This serializes all commits — only one transaction can be in the commit phase at a time. This is acceptable because the single-writer model already guarantees that only one Rocklake instance is writing.
 
 If another session's commit is already in progress (possible with multiple DuckDB clients connected), the current commit blocks until the mutex is released. In practice, commits are fast (sub-millisecond for the local work, plus one network round-trip for the WAL PUT), so contention is rare.
 
 ### Step 2: Check Writer Epoch
 
-Before proceeding, SlateDuck reads the current `writer-epoch` system key from SlateDB and compares it to the epoch this instance claimed at startup. If the stored epoch does not match:
+Before proceeding, Rocklake reads the current `writer-epoch` system key from SlateDB and compares it to the epoch this instance claimed at startup. If the stored epoch does not match:
 
 ```
 ERROR: Writer has been fenced. Another instance has taken over as writer.
 SQLSTATE: 57P04 (database dropped)
 ```
 
-This check prevents split-brain writes. If a new SlateDuck instance started and incremented the epoch while this instance was still running, this instance's commit is rejected. The old writer must reconnect (which will also fail) or shut down.
+This check prevents split-brain writes. If a new Rocklake instance started and incremented the epoch while this instance was still running, this instance's commit is rejected. The old writer must reconnect (which will also fail) or shut down.
 
 ### Step 3: Allocate IDs
 
@@ -122,7 +122,7 @@ The catalog mutex is released. Subsequent commits (from other connections) can n
 
 ## Auto-Commit Mode
 
-When DuckDB sends write statements without an explicit `BEGIN`/`COMMIT` wrapper, SlateDuck operates in auto-commit mode. Each individual statement is treated as its own single-statement transaction:
+When DuckDB sends write statements without an explicit `BEGIN`/`COMMIT` wrapper, Rocklake operates in auto-commit mode. Each individual statement is treated as its own single-statement transaction:
 
 1. The statement is buffered (single entry)
 2. The commit sequence runs immediately
@@ -132,7 +132,7 @@ This is equivalent to wrapping every statement in `BEGIN; statement; COMMIT;`. A
 
 ## Rollback
 
-On `ROLLBACK` (or connection close while in a transaction), SlateDuck discards the `PendingCatalogTxn` buffer. This is instantaneous and has no side effects because nothing was written to SlateDB during the transaction. The session returns to idle state.
+On `ROLLBACK` (or connection close while in a transaction), Rocklake discards the `PendingCatalogTxn` buffer. This is instantaneous and has no side effects because nothing was written to SlateDB during the transaction. The session returns to idle state.
 
 There is no rollback of committed transactions — once a commit succeeds, it is permanent. To "undo" a committed change, you perform a new transaction that creates the desired state (e.g., to undo a DROP TABLE, you would CREATE TABLE again with the same definition).
 
@@ -166,17 +166,17 @@ The transaction model's crash behavior depends on where in the sequence the cras
 
 ### Key Insight: No Recovery Phase
 
-SlateDuck has no "recovery" phase on startup. It does not need to replay logs, check for incomplete transactions, or resolve in-doubt states. The catalog state in SlateDB is always consistent because:
+Rocklake has no "recovery" phase on startup. It does not need to replay logs, check for incomplete transactions, or resolve in-doubt states. The catalog state in SlateDB is always consistent because:
 
 - Committed transactions are fully written (atomic PUT)
 - Uncommitted transactions leave no trace (in-memory only)
 - Counter values are committed atomically with the rows they identify
 
-On startup, SlateDuck opens SlateDB, reads the manifest, and is immediately ready to serve queries. There is nothing to recover.
+On startup, Rocklake opens SlateDB, reads the manifest, and is immediately ready to serve queries. There is nothing to recover.
 
 ## Read "Transactions" (Snapshots)
 
-SlateDuck does not implement read transactions in the traditional sense. Instead, reads are bound to a specific snapshot ID. A reader at snapshot N always sees the consistent state at snapshot N, regardless of any concurrent writes creating snapshots N+1, N+2, etc.
+Rocklake does not implement read transactions in the traditional sense. Instead, reads are bound to a specific snapshot ID. A reader at snapshot N always sees the consistent state at snapshot N, regardless of any concurrent writes creating snapshots N+1, N+2, etc.
 
 This is possible because:
 
@@ -188,7 +188,7 @@ There is no "read lock," no "begin read transaction," and no possibility of a re
 
 ## Transaction Isolation Level
 
-SlateDuck provides **snapshot isolation** — each transaction sees a consistent snapshot of the catalog as of its start time. Within a single transaction, the visible state does not change regardless of concurrent commits by other sessions.
+Rocklake provides **snapshot isolation** — each transaction sees a consistent snapshot of the catalog as of its start time. Within a single transaction, the visible state does not change regardless of concurrent commits by other sessions.
 
 This is weaker than serializable isolation (which would prevent write skew anomalies) but stronger than read committed (which would allow a transaction to see newly committed data between statements). For a catalog server where writes are serialized by the single-writer model and reads are parameterized by snapshot, snapshot isolation provides the exact guarantees needed without any overhead.
 
@@ -366,7 +366,7 @@ its lease as expired before the server-side clock does (or vice versa). The
 recommended tolerance is ≤ 5 seconds of skew for the default 1-hour lease TTL.
 
 For test isolation and future replacement, a `Clock` trait is available in
-`slateduck-core`:
+`rocklake-core`:
 
 ```rust
 pub trait Clock: Send + Sync {

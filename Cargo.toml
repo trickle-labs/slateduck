@@ -1,12 +1,12 @@
 [workspace]
 members = [
-    "crates/slateduck-core",
-    "crates/slateduck-catalog",
-    "crates/slateduck-sql",
-    "crates/slateduck-pgwire",
-    "crates/slateduck-ffi",
-    "crates/slateduck-datafusion",
-    "crates/slateduck-testkit",
+    "crates/rocklake-core",
+    "crates/rocklake-catalog",
+    "crates/rocklake-sql",
+    "crates/rocklake-pgwire",
+    "crates/rocklake-ffi",
+    "crates/rocklake-datafusion",
+    "crates/rocklake-testkit",
 ]
 resolver = "2"
 
@@ -15,7 +15,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.93"
 license = "Apache-2.0"
-repository = "https://github.com/trickle-labs/slateduck"
+repository = "https://github.com/trickle-labs/rocklake"
 
 [workspace.dependencies]
 # Storage

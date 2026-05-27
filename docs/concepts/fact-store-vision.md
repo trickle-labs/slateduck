@@ -1,12 +1,12 @@
 # The Fact Store Vision
 
-This page describes a direction that SlateDuck is committed to exploring in its v2.x roadmap, and it is written honestly as such. The ideas presented here are architectural motivations — they explain why certain current design choices exist and where they lead — but the implementation does not yet exist. Reading this page will help you understand why SlateDuck's storage substrate is designed with more generality than DuckLake alone requires, and why certain decisions (like the 1-byte tag namespace, the separation between `slateduck-core` and `slateduck-catalog`, the strict naming conventions) feel over-engineered for a "just a DuckLake catalog" interpretation of the project.
+This page describes a direction that Rocklake is committed to exploring in its v2.x roadmap, and it is written honestly as such. The ideas presented here are architectural motivations — they explain why certain current design choices exist and where they lead — but the implementation does not yet exist. Reading this page will help you understand why Rocklake's storage substrate is designed with more generality than DuckLake alone requires, and why certain decisions (like the 1-byte tag namespace, the separation between `rocklake-core` and `rocklake-catalog`, the strict naming conventions) feel over-engineered for a "just a DuckLake catalog" interpretation of the project.
 
 ## The Core Observation
 
-The storage substrate that SlateDuck uses for DuckLake — append-only keys scoped by a monotonically increasing version identifier, Protobuf values with a versioned header, counter allocation under a dedicated namespace, `retain-from` advancement for visibility gating, and audited excision for physical deletion — is not specific to DuckLake. It is a generic pattern for storing versioned facts in object storage.
+The storage substrate that Rocklake uses for DuckLake — append-only keys scoped by a monotonically increasing version identifier, Protobuf values with a versioned header, counter allocation under a dedicated namespace, `retain-from` advancement for visibility gating, and audited excision for physical deletion — is not specific to DuckLake. It is a generic pattern for storing versioned facts in object storage.
 
-Consider what SlateDuck's storage layer actually provides:
+Consider what Rocklake's storage layer actually provides:
 
 - **Immutable fact storage.** You can assert facts ("table X exists with name Y at version V") and they persist forever unless explicitly excised.
 - **Temporal versioning.** Every fact has a begin-version and an optional end-version, enabling point-in-time queries across the entire history.
@@ -18,7 +18,7 @@ These properties describe a general-purpose immutable fact log over object stora
 
 ## What a General Fact Store Looks Like
 
-Imagine a `slateduck-factstore` crate that provides a generic API for storing versioned facts:
+Imagine a `rocklake-factstore` crate that provides a generic API for storing versioned facts:
 
 ```rust
 // Hypothetical API — not yet implemented
@@ -42,15 +42,15 @@ txn.commit().await?;
 let order = store.as_of(version).get("order", order_id).await?;
 ```
 
-This API would provide the same guarantees that DuckLake gets through SlateDuck: immutability, time travel, crash safety, horizontal read scale-out. But it would be available for any schema — user profiles, configuration records, audit logs, compliance records, financial transactions, sensor readings — anything that benefits from an append-only fact log with temporal queries.
+This API would provide the same guarantees that DuckLake gets through Rocklake: immutability, time travel, crash safety, horizontal read scale-out. But it would be available for any schema — user profiles, configuration records, audit logs, compliance records, financial transactions, sensor readings — anything that benefits from an append-only fact log with temporal queries.
 
-## Why This Matters for SlateDuck's Current Design
+## Why This Matters for Rocklake's Current Design
 
 The fact store vision explains several design choices in the current codebase that might otherwise seem like unnecessary generality:
 
-**The `slateduck-core` / `slateduck-catalog` separation.** The `slateduck-core` crate defines the key encoding primitives, the SDKV value header, the counter allocation protocol, and the MVCC visibility filter — all generic mechanisms that do not know about DuckLake's specific tables. The `slateduck-catalog` crate maps DuckLake's 28 tables onto these primitives. In the fact store future, additional crates would map additional schemas onto the same `slateduck-core` primitives.
+**The `rocklake-core` / `rocklake-catalog` separation.** The `rocklake-core` crate defines the key encoding primitives, the SDKV value header, the counter allocation protocol, and the MVCC visibility filter — all generic mechanisms that do not know about DuckLake's specific tables. The `rocklake-catalog` crate maps DuckLake's 28 tables onto these primitives. In the fact store future, additional crates would map additional schemas onto the same `rocklake-core` primitives.
 
-**The 1-byte tag namespace with 256 slots.** DuckLake needs 28 table tags plus 3 system tags (counters, system metadata, inlined data). That is 31 out of 256 possible tags. The remaining 225 slots are reserved for future schemas that might be hosted on the same storage substrate. If SlateDuck ever supports multiple independent schemas (each with their own tables), the tag namespace has room.
+**The 1-byte tag namespace with 256 slots.** DuckLake needs 28 table tags plus 3 system tags (counters, system metadata, inlined data). That is 31 out of 256 possible tags. The remaining 225 slots are reserved for future schemas that might be hosted on the same storage substrate. If Rocklake ever supports multiple independent schemas (each with their own tables), the tag namespace has room.
 
 **The strict naming conventions.** `dl_snapshot_id` (DuckLake-level snapshot) is carefully distinguished from `kv_snapshot` (SlateDB-level read view) because in a multi-schema future, each hosted schema might have its own version counter, and confusing them would be catastrophic.
 
@@ -61,12 +61,12 @@ The fact store vision explains several design choices in the current codebase th
 To be transparent about what is committed versus what is exploration:
 
 **Committed (exists in the current design):**
-- The storage primitives in `slateduck-core` are schema-independent
+- The storage primitives in `rocklake-core` are schema-independent
 - The tag namespace has room for growth
 - The MVCC filter, counter allocation, and excision mechanisms are generic
 
 **Under active consideration (v2.x roadmap):**
-- A `slateduck-factstore` crate that exposes the generic API
+- A `rocklake-factstore` crate that exposes the generic API
 - Multi-schema isolation (one SlateDB `Db` per schema, or tag-range-based isolation within a single `Db`)
 - A generic `assert`/`retract`/`as_of` API
 
@@ -75,13 +75,13 @@ To be transparent about what is committed versus what is exploration:
 - Cross-schema joins with temporal alignment
 - Federation across multiple fact stores in different buckets
 
-The purpose of this page is not to promise features that do not exist. It is to give you the conceptual context that makes certain current design choices feel like deliberate architecture rather than arbitrary decisions. When you see that `slateduck-core` is carefully separated from `slateduck-catalog`, or that the tag namespace is far larger than DuckLake needs, or that the MVCC filter is parameterized rather than hardcoded to DuckLake's column names — now you know why.
+The purpose of this page is not to promise features that do not exist. It is to give you the conceptual context that makes certain current design choices feel like deliberate architecture rather than arbitrary decisions. When you see that `rocklake-core` is carefully separated from `rocklake-catalog`, or that the tag namespace is far larger than DuckLake needs, or that the MVCC filter is parameterized rather than hardcoded to DuckLake's column names — now you know why.
 
 ## The Philosophical Foundation
 
 At a deeper level, the fact store vision rests on an observation about how organizations relate to their data: most valuable data is factual (it records something that happened or something that is true) and most facts should be preserved rather than discarded. Traditional databases model data as mutable state — a row exists, you update it, the old value is gone. This makes sense for operational systems (the customer's address should be their current address, not their historical address), but it destroys information that turns out to be valuable later (auditing, compliance, analytics, debugging, reproducing past decisions).
 
-An immutable fact store preserves everything by default and provides temporal queries as the natural read mode. The current state is just the most recent version. The historical state is just an older version. Both are equally accessible, equally fast, equally reliable. This is not a new idea — Datomic, Event Store, and various event-sourcing architectures have explored it — but SlateDuck's contribution is hosting it on commodity object storage with no infrastructure beyond a bucket, using the same operational model (single-writer, infinite readers, audited excision) that has proven correct and practical for the DuckLake use case.
+An immutable fact store preserves everything by default and provides temporal queries as the natural read mode. The current state is just the most recent version. The historical state is just an older version. Both are equally accessible, equally fast, equally reliable. This is not a new idea — Datomic, Event Store, and various event-sourcing architectures have explored it — but Rocklake's contribution is hosting it on commodity object storage with no infrastructure beyond a bucket, using the same operational model (single-writer, infinite readers, audited excision) that has proven correct and practical for the DuckLake use case.
 
 ## Why "Fact Store" Rather Than "Event Store"
 
@@ -89,11 +89,11 @@ The terminology matters. An event store records *events* — things that happene
 
 A fact store records *facts* — assertions about what is true, valid at a specific version. A fact store entry might be `user:42 has email alice@example.com (begin_version=100, end_version=NULL)`. Finding the current state is a key lookup, not a replay. Finding the historical state is the same key lookup with an older version filter. There is no event replay, no projection logic, no materialized view needed.
 
-SlateDuck uses the fact model because catalog data is naturally factual: "table X exists with these columns" is an assertion about a state of affairs, not an event in a stream. The snapshot ID is a version counter, not a timestamp of occurrence. This framing keeps the data model simple, queries fast, and the storage format elegant — there is no event schema to design, no projection to materialize, and no replay budget to worry about.
+Rocklake uses the fact model because catalog data is naturally factual: "table X exists with these columns" is an assertion about a state of affairs, not an event in a stream. The snapshot ID is a version counter, not a timestamp of occurrence. This framing keeps the data model simple, queries fast, and the storage format elegant — there is no event schema to design, no projection to materialize, and no replay budget to worry about.
 
 ## Conclusion
 
-The fact store vision is not a product announcement. It is an architectural compass — a direction that explains why certain current decisions are made the way they are, and where the project aspires to go. Today, SlateDuck uses this substrate exclusively for DuckLake. Tomorrow, it might support other schemas. The infrastructure is ready. The abstractions are clean. When the use case arrives, the foundation will be there.
+The fact store vision is not a product announcement. It is an architectural compass — a direction that explains why certain current decisions are made the way they are, and where the project aspires to go. Today, Rocklake uses this substrate exclusively for DuckLake. Tomorrow, it might support other schemas. The infrastructure is ready. The abstractions are clean. When the use case arrives, the foundation will be there.
 
 If you are building something that would benefit from an immutable, temporally-queryable, object-storage-backed fact store, we would love to hear about it. Open an issue or discussion on GitHub — that conversation shapes the roadmap more than any internal planning document.
 
@@ -108,15 +108,15 @@ If you are building something that would benefit from an immutable, temporally-q
 
 Several systems have explored immutable fact storage, each with different trade-offs:
 
-**Datomic** (Cognitect) pioneered the idea of a database as an immutable accumulation of facts with temporal queries. Datomic provides Datalog queries, entity-attribute-value storage, and automatic indexing. However, it requires a JVM runtime, a specific peer library, and either DynamoDB or a specialized storage backend. SlateDuck's approach trades Datomic's query sophistication for infrastructure simplicity — commodity object storage via a REST API.
+**Datomic** (Cognitect) pioneered the idea of a database as an immutable accumulation of facts with temporal queries. Datomic provides Datalog queries, entity-attribute-value storage, and automatic indexing. However, it requires a JVM runtime, a specific peer library, and either DynamoDB or a specialized storage backend. Rocklake's approach trades Datomic's query sophistication for infrastructure simplicity — commodity object storage via a REST API.
 
-**Event Sourcing** (pattern, many implementations) stores domain events as the primary source of truth and derives current state by replaying events. Event sourcing provides complete auditability and enables arbitrary read-model projections. The downside is operational complexity: event schemas evolve, replay times grow unbounded without snapshots, and each read model requires explicit materialization logic. SlateDuck's fact store is simpler — facts are already indexed by entity and version, so "current state" is a single key lookup rather than an event replay.
+**Event Sourcing** (pattern, many implementations) stores domain events as the primary source of truth and derives current state by replaying events. Event sourcing provides complete auditability and enables arbitrary read-model projections. The downside is operational complexity: event schemas evolve, replay times grow unbounded without snapshots, and each read model requires explicit materialization logic. Rocklake's fact store is simpler — facts are already indexed by entity and version, so "current state" is a single key lookup rather than an event replay.
 
-**Apache Kafka** (with compaction disabled) provides an append-only log of records. Like SlateDuck, records are immutable once written. Unlike SlateDuck, Kafka does not provide point-in-time queries, entity-level addressing, or schema enforcement at the storage layer. Kafka is optimized for streaming throughput; SlateDuck's fact store would be optimized for temporal queries and long-term persistence at low cost.
+**Apache Kafka** (with compaction disabled) provides an append-only log of records. Like Rocklake, records are immutable once written. Unlike Rocklake, Kafka does not provide point-in-time queries, entity-level addressing, or schema enforcement at the storage layer. Kafka is optimized for streaming throughput; Rocklake's fact store would be optimized for temporal queries and long-term persistence at low cost.
 
-**Git** stores versioned snapshots of a filesystem as an immutable object graph. Conceptually, this is similar to SlateDuck's approach — each commit is a snapshot, history is preserved, any past state is retrievable. Git, however, is optimized for file-tree diffs, not structured data queries. You cannot efficiently ask "what was the value of key X at version 500?" without checking out that version.
+**Git** stores versioned snapshots of a filesystem as an immutable object graph. Conceptually, this is similar to Rocklake's approach — each commit is a snapshot, history is preserved, any past state is retrievable. Git, however, is optimized for file-tree diffs, not structured data queries. You cannot efficiently ask "what was the value of key X at version 500?" without checking out that version.
 
-The distinctive position of a SlateDuck fact store would be: the persistence cost of object storage (pennies per gigabyte-month), the query model of a key-value store with temporal dimensions, the operational simplicity of no infrastructure beyond a bucket, and the consistency guarantees of single-writer MVCC. This combination does not exist in any current system.
+The distinctive position of a Rocklake fact store would be: the persistence cost of object storage (pennies per gigabyte-month), the query model of a key-value store with temporal dimensions, the operational simplicity of no infrastructure beyond a bucket, and the consistency guarantees of single-writer MVCC. This combination does not exist in any current system.
 
 ## Potential Use Cases
 

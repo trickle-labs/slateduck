@@ -1,8 +1,8 @@
 # SQL Dispatcher
 
-The SQL dispatcher is the heart of SlateDuck's translation layer. It sits between the raw SQL strings that arrive over the PostgreSQL wire protocol and the structured catalog operations that the executor performs against the key-value store. Its job is deceptively simple: take a SQL string, determine which specific catalog operation it represents, extract its parameters, and hand everything off to the executor in a strongly-typed form. No ambiguity, no interpretation, no creative SQL execution — just pattern recognition against a finite set of known statement shapes.
+The SQL dispatcher is the heart of Rocklake's translation layer. It sits between the raw SQL strings that arrive over the PostgreSQL wire protocol and the structured catalog operations that the executor performs against the key-value store. Its job is deceptively simple: take a SQL string, determine which specific catalog operation it represents, extract its parameters, and hand everything off to the executor in a strongly-typed form. No ambiguity, no interpretation, no creative SQL execution — just pattern recognition against a finite set of known statement shapes.
 
-The dispatcher is intentionally bounded. It recognizes approximately 50 statement patterns and rejects everything else. This is not a limitation born of laziness — it is a deliberate architectural choice that provides security guarantees (no SQL injection, no information disclosure), predictability (the complete behavior of SlateDuck is enumerable), and testability (every supported pattern can be exhaustively tested against recorded wire sessions).
+The dispatcher is intentionally bounded. It recognizes approximately 50 statement patterns and rejects everything else. This is not a limitation born of laziness — it is a deliberate architectural choice that provides security guarantees (no SQL injection, no information disclosure), predictability (the complete behavior of Rocklake is enumerable), and testability (every supported pattern can be exhaustively tested against recorded wire sessions).
 
 This page explains how the classification pipeline works, catalogs every recognized statement kind, describes the pattern matching algorithm, and discusses the security and extensibility properties of this design.
 
@@ -23,13 +23,13 @@ The pipeline has four distinct stages, each with clear inputs and outputs:
 
 The raw SQL string is parsed using `sqlparser-rs` configured with the PostgreSQL dialect. This produces a structured Abstract Syntax Tree (AST) that represents the syntactic structure of the SQL without any semantic interpretation. Parse errors at this stage (malformed SQL, unrecognized syntax) are returned immediately as `SqlDispatchError::ParseError` with the original error message, which is then encoded as a PostgreSQL ErrorResponse wire message with SQLSTATE `42601` (syntax error).
 
-The parser is intentionally lenient about SQL features it does not need to understand deeply. It parses `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `BEGIN`, `COMMIT`, `ROLLBACK`, `SET`, `SHOW`, `CREATE`, `ALTER`, and `DROP` at the syntactic level. The semantic filtering (determining whether the specific statement is one SlateDuck supports) happens in the next stage.
+The parser is intentionally lenient about SQL features it does not need to understand deeply. It parses `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `BEGIN`, `COMMIT`, `ROLLBACK`, `SET`, `SHOW`, `CREATE`, `ALTER`, and `DROP` at the syntactic level. The semantic filtering (determining whether the specific statement is one Rocklake supports) happens in the next stage.
 
 ### Stage 2: Classification
 
 The AST is matched against a catalog of known patterns. Each pattern is a structural predicate: "Is this a SELECT from the table named `ducklake_schema`?" or "Is this an INSERT into `ducklake_data_file` with these specific columns?" The classification checks the shape of the AST — which tables are referenced, what columns appear in the SELECT list or INSERT column list, what the WHERE clause looks like — and maps it to a specific `StatementKind` variant.
 
-If no pattern matches, the statement is classified as `StatementKind::Unsupported`, and the executor returns an error. There is no fallback execution path, no "try to run it anyway" behavior, and no pass-through to an underlying database. If SlateDuck does not explicitly recognize a statement pattern, it does not execute it.
+If no pattern matches, the statement is classified as `StatementKind::Unsupported`, and the executor returns an error. There is no fallback execution path, no "try to run it anyway" behavior, and no pass-through to an underlying database. If Rocklake does not explicitly recognize a statement pattern, it does not execute it.
 
 ### Stage 3: Parameter Extraction
 
@@ -55,7 +55,7 @@ The following tables document every recognized statement kind, organized by cate
 
 | Statement Kind | SQL Pattern | Purpose |
 |---------------|-------------|---------|
-| `SelectVersion` | `SELECT version()` | Returns SlateDuck's version string (mimics PostgreSQL) |
+| `SelectVersion` | `SELECT version()` | Returns Rocklake's version string (mimics PostgreSQL) |
 | `SelectCurrentSchema` | `SELECT current_schema` | Returns "public" (DuckDB compatibility) |
 | `SelectCurrentDatabase` | `SELECT current_database()` | Returns "ducklake" |
 | `SelectPgType` | `SELECT * FROM pg_type WHERE ...` | OID resolution for DuckDB type mapping |
@@ -215,7 +215,7 @@ When a new version of DuckDB's `ducklake` extension introduces new SQL patterns 
 6. **Test:** Run the new patterns through the dispatcher and verify correct classification
 7. **Regression test:** Ensure existing patterns still classify correctly
 
-This explicit, manual process ensures that every new SQL pattern SlateDuck supports is a deliberate decision with test coverage. There is no "auto-discovery" of new SQL patterns — each one is reviewed, understood, and intentionally supported.
+This explicit, manual process ensures that every new SQL pattern Rocklake supports is a deliberate decision with test coverage. There is no "auto-discovery" of new SQL patterns — each one is reviewed, understood, and intentionally supported.
 
 ## Further Reading
 

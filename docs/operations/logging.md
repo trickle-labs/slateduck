@@ -1,16 +1,16 @@
 # Logging
 
-SlateDuck uses structured logging via Rust's `tracing` crate, providing configurable verbosity levels, JSON output for machine parsing, contextual spans for correlating related log entries, and per-crate granularity for targeted debugging. Logs are your primary diagnostic tool when something goes wrong — they tell you what the system was doing, what it encountered, and how it responded.
+Rocklake uses structured logging via Rust's `tracing` crate, providing configurable verbosity levels, JSON output for machine parsing, contextual spans for correlating related log entries, and per-crate granularity for targeted debugging. Logs are your primary diagnostic tool when something goes wrong — they tell you what the system was doing, what it encountered, and how it responded.
 
 This page covers log level configuration, structured JSON output, per-module filtering, common diagnostic scenarios, log aggregation integration, and best practices for production logging.
 
 ## Log Output Destination
 
-SlateDuck writes all log output to **stderr** by default. It does not write to files, rotate logs, or manage log lifecycle. This is intentional — your deployment platform (Docker, systemd, Kubernetes) handles log collection and rotation. SlateDuck's responsibility is producing useful log entries; your platform's responsibility is storing and managing them.
+Rocklake writes all log output to **stderr** by default. It does not write to files, rotate logs, or manage log lifecycle. This is intentional — your deployment platform (Docker, systemd, Kubernetes) handles log collection and rotation. Rocklake's responsibility is producing useful log entries; your platform's responsibility is storing and managing them.
 
 ## Log Levels
 
-SlateDuck uses five standard log levels, each with a clear contract about what it captures:
+Rocklake uses five standard log levels, each with a clear contract about what it captures:
 
 | Level | Purpose | Volume | Production Use |
 |-------|---------|--------|----------------|
@@ -25,47 +25,47 @@ SlateDuck uses five standard log levels, each with a clear contract about what i
 **Error** — situations where an operation cannot be completed:
 
 ```
-ERROR slateduck_catalog: Writer fenced - another writer has a higher epoch (theirs: 42, ours: 41)
-ERROR slateduck_pgwire: TLS handshake failed: certificate expired
-ERROR slateduck_catalog: Object storage unreachable after 3 retries: connection refused
+ERROR rocklake_catalog: Writer fenced - another writer has a higher epoch (theirs: 42, ours: 41)
+ERROR rocklake_pgwire: TLS handshake failed: certificate expired
+ERROR rocklake_catalog: Object storage unreachable after 3 retries: connection refused
 ```
 
 **Warn** — problems that were handled but indicate something is suboptimal:
 
 ```
-WARN slateduck_catalog: Object storage throttled (429), retrying in 500ms (attempt 2/3)
-WARN slateduck_pgwire: Client sent unsupported SSL version (TLS 1.0), rejecting
-WARN slateduck_catalog: GC blocked by 3 pinned snapshots older than 90 days
+WARN rocklake_catalog: Object storage throttled (429), retrying in 500ms (attempt 2/3)
+WARN rocklake_pgwire: Client sent unsupported SSL version (TLS 1.0), rejecting
+WARN rocklake_catalog: GC blocked by 3 pinned snapshots older than 90 days
 ```
 
 **Info** — normal operational events that mark important state transitions:
 
 ```
-INFO slateduck: SlateDuck v0.8.0 starting
-INFO slateduck: Storage: s3://my-bucket/catalog/
-INFO slateduck: Listening on 0.0.0.0:5432
-INFO slateduck: Writer epoch acquired: 42
-INFO slateduck_pgwire: Session connected: remote=10.0.1.5:52431 session_id=abc123
-INFO slateduck_pgwire: Session disconnected: session_id=abc123 duration=45m
-INFO slateduck_catalog: Snapshot committed: id=1502 keys_written=7 duration=12ms
-INFO slateduck_catalog: GC completed: horizon advanced to snapshot 1400, 102 snapshots collected
+INFO rocklake: Rocklake v0.8.0 starting
+INFO rocklake: Storage: s3://my-bucket/catalog/
+INFO rocklake: Listening on 0.0.0.0:5432
+INFO rocklake: Writer epoch acquired: 42
+INFO rocklake_pgwire: Session connected: remote=10.0.1.5:52431 session_id=abc123
+INFO rocklake_pgwire: Session disconnected: session_id=abc123 duration=45m
+INFO rocklake_catalog: Snapshot committed: id=1502 keys_written=7 duration=12ms
+INFO rocklake_catalog: GC completed: horizon advanced to snapshot 1400, 102 snapshots collected
 ```
 
 **Debug** — detailed operation traces for investigating specific issues:
 
 ```
-DEBUG slateduck_catalog: Prefix scan: prefix=t/1/c/ keys_found=12 cache_hits=10 storage_reads=2 duration=3ms
-DEBUG slateduck_sql: Statement classified: type=SELECT table=analytics.events
-DEBUG slateduck_catalog: Hot key cache miss: key="t/1/latest" fetching from storage
-DEBUG slateduck_pgwire: Extended query: parse="SELECT 1" bind=[] describe=true execute=true
+DEBUG rocklake_catalog: Prefix scan: prefix=t/1/c/ keys_found=12 cache_hits=10 storage_reads=2 duration=3ms
+DEBUG rocklake_sql: Statement classified: type=SELECT table=analytics.events
+DEBUG rocklake_catalog: Hot key cache miss: key="t/1/latest" fetching from storage
+DEBUG rocklake_pgwire: Extended query: parse="SELECT 1" bind=[] describe=true execute=true
 ```
 
 **Trace** — byte-level details (never for production):
 
 ```
-TRACE slateduck_pgwire: Received bytes: [51 00 00 00 04]  (Query message, 4 bytes)
-TRACE slateduck_catalog: SlateDB get: key=[116 47 49 47 108 97 116 65 115 116] -> Some(152 bytes)
-TRACE slateduck_pgwire: Sending: RowDescription [name="count", oid=20, typlen=8]
+TRACE rocklake_pgwire: Received bytes: [51 00 00 00 04]  (Query message, 4 bytes)
+TRACE rocklake_catalog: SlateDB get: key=[116 47 49 47 108 97 116 65 115 116] -> Some(152 bytes)
+TRACE rocklake_pgwire: Sending: RowDescription [name="count", oid=20, typlen=8]
 ```
 
 ## Configuration
@@ -76,54 +76,54 @@ The `RUST_LOG` environment variable controls logging with fine-grained, per-modu
 
 ```bash
 # Standard production
-RUST_LOG=info slateduck serve --catalog s3://bucket/catalog/
+RUST_LOG=info rocklake serve --catalog s3://bucket/catalog/
 
 # Debug catalog operations only
-RUST_LOG=info,slateduck_catalog=debug slateduck serve --catalog s3://bucket/catalog/
+RUST_LOG=info,rocklake_catalog=debug rocklake serve --catalog s3://bucket/catalog/
 
 # Debug PG wire protocol handling
-RUST_LOG=info,slateduck_pgwire=debug slateduck serve --catalog s3://bucket/catalog/
+RUST_LOG=info,rocklake_pgwire=debug rocklake serve --catalog s3://bucket/catalog/
 
 # Debug everything (noisy, use briefly)
-RUST_LOG=debug slateduck serve --catalog s3://bucket/catalog/
+RUST_LOG=debug rocklake serve --catalog s3://bucket/catalog/
 
 # Multiple specific targets
-RUST_LOG=info,slateduck_catalog=debug,slateduck_sql=debug,slateduck_pgwire=trace slateduck ...
+RUST_LOG=info,rocklake_catalog=debug,rocklake_sql=debug,rocklake_pgwire=trace rocklake ...
 ```
 
 ### CLI Flag
 
 ```bash
-slateduck serve --catalog s3://bucket/catalog/ --log-level info
+rocklake serve --catalog s3://bucket/catalog/ --log-level info
 ```
 
 The `--log-level` flag sets a global level. For per-module control, use `RUST_LOG`.
 
 ### Module Names
 
-SlateDuck's log targets correspond to its crate names:
+Rocklake's log targets correspond to its crate names:
 
 | Target | Crate | What It Logs |
 |--------|-------|-------------|
-| `slateduck` | Main binary | Startup, shutdown, top-level config |
-| `slateduck_catalog` | slateduck-catalog | Key-value operations, MVCC, GC, snapshots |
-| `slateduck_pgwire` | slateduck-pgwire | Session lifecycle, protocol messages, TLS |
-| `slateduck_sql` | slateduck-sql | SQL parsing, classification, dispatch |
-| `slateduck_core` | slateduck-core | Shared types, encoding, protobuf |
-| `slateduck_datafusion` | slateduck-datafusion | DataFusion integration |
+| `rocklake` | Main binary | Startup, shutdown, top-level config |
+| `rocklake_catalog` | rocklake-catalog | Key-value operations, MVCC, GC, snapshots |
+| `rocklake_pgwire` | rocklake-pgwire | Session lifecycle, protocol messages, TLS |
+| `rocklake_sql` | rocklake-sql | SQL parsing, classification, dispatch |
+| `rocklake_core` | rocklake-core | Shared types, encoding, protobuf |
+| `rocklake_datafusion` | rocklake-datafusion | DataFusion integration |
 
 ## Structured JSON Output
 
 For log aggregation systems (Elasticsearch, Loki, CloudWatch Logs, Datadog, Splunk), enable JSON-formatted output:
 
 ```bash
-SLATEDUCK_LOG_FORMAT=json slateduck serve --catalog s3://bucket/catalog/
+ROCKLAKE_LOG_FORMAT=json rocklake serve --catalog s3://bucket/catalog/
 ```
 
 Or with CLI:
 
 ```bash
-slateduck serve --catalog s3://bucket/catalog/ --log-format json
+rocklake serve --catalog s3://bucket/catalog/ --log-format json
 ```
 
 ### JSON Format
@@ -134,7 +134,7 @@ Each log line is a single JSON object:
 {
   "timestamp": "2024-03-15T14:30:22.456Z",
   "level": "INFO",
-  "target": "slateduck_pgwire",
+  "target": "rocklake_pgwire",
   "message": "Session connected",
   "fields": {
     "remote_addr": "10.0.1.5:52431",
@@ -165,18 +165,18 @@ Key fields included automatically:
 
 ```bash
 # Find all errors in the last hour
-cat /var/log/slateduck.json | jq 'select(.level == "ERROR")'
+cat /var/log/rocklake.json | jq 'select(.level == "ERROR")'
 
 # Find all session events for a specific client
-cat /var/log/slateduck.json | jq 'select(.fields.remote_addr == "10.0.1.5:52431")'
+cat /var/log/rocklake.json | jq 'select(.fields.remote_addr == "10.0.1.5:52431")'
 
 # Count operations by type
-cat /var/log/slateduck.json | jq 'select(.target == "slateduck_sql") | .fields.statement_type' | sort | uniq -c
+cat /var/log/rocklake.json | jq 'select(.target == "rocklake_sql") | .fields.statement_type' | sort | uniq -c
 ```
 
 ## Request Correlation
 
-SlateDuck uses tracing spans to correlate log entries belonging to the same operation:
+Rocklake uses tracing spans to correlate log entries belonging to the same operation:
 
 ```json
 {"timestamp":"...","level":"DEBUG","message":"Prefix scan started","span":{"session_id":"abc123","query_id":"q-789"}}
@@ -192,7 +192,7 @@ The `session_id` and `query_id` span fields let you trace a single operation acr
 
 ```bash
 # Temporarily increase verbosity for catalog operations
-RUST_LOG=info,slateduck_catalog=debug slateduck ...
+RUST_LOG=info,rocklake_catalog=debug rocklake ...
 ```
 
 Look for:
@@ -204,14 +204,14 @@ Look for:
 ### Investigating Writer Fencing
 
 ```bash
-RUST_LOG=info,slateduck_catalog=debug slateduck ...
+RUST_LOG=info,rocklake_catalog=debug rocklake ...
 ```
 
 Look for:
 
 ```
-WARN slateduck_catalog: Epoch check failed: stored_epoch=43, our_epoch=42
-ERROR slateduck_catalog: Writer fenced - shutting down
+WARN rocklake_catalog: Epoch check failed: stored_epoch=43, our_epoch=42
+ERROR rocklake_catalog: Writer fenced - shutting down
 ```
 
 This means another instance has taken the writer role. Check for accidental duplicate deployments.
@@ -219,7 +219,7 @@ This means another instance has taken the writer role. Check for accidental dupl
 ### Troubleshooting Connection Failures
 
 ```bash
-RUST_LOG=info,slateduck_pgwire=debug slateduck ...
+RUST_LOG=info,rocklake_pgwire=debug rocklake ...
 ```
 
 Look for:
@@ -232,7 +232,7 @@ Look for:
 ### Diagnosing Object Storage Issues
 
 ```bash
-RUST_LOG=info,slateduck_catalog=debug slateduck ...
+RUST_LOG=info,rocklake_catalog=debug rocklake ...
 ```
 
 Look for:
@@ -248,9 +248,9 @@ Look for:
 
 ```yaml
 services:
-  slateduck:
+  rocklake:
     environment:
-      SLATEDUCK_LOG_FORMAT: json
+      ROCKLAKE_LOG_FORMAT: json
     logging:
       driver: json-file
       options:
@@ -263,9 +263,9 @@ services:
 Kubernetes captures stdout/stderr automatically. Use a DaemonSet log collector (Fluentd, Fluent Bit, Vector):
 
 ```yaml
-# Fluent Bit parser for SlateDuck JSON logs
+# Fluent Bit parser for Rocklake JSON logs
 [PARSER]
-    Name        slateduck
+    Name        rocklake
     Format      json
     Time_Key    timestamp
     Time_Format %Y-%m-%dT%H:%M:%S.%LZ
@@ -276,14 +276,14 @@ Kubernetes captures stdout/stderr automatically. Use a DaemonSet log collector (
 When running under systemd, logs go to the journal automatically:
 
 ```bash
-# View SlateDuck logs
-journalctl -u slateduck -f
+# View Rocklake logs
+journalctl -u rocklake -f
 
 # Filter by level
-journalctl -u slateduck -p err
+journalctl -u rocklake -p err
 
 # Export structured fields
-journalctl -u slateduck -o json | jq '.MESSAGE | fromjson | select(.level == "ERROR")'
+journalctl -u rocklake -o json | jq '.MESSAGE | fromjson | select(.level == "ERROR")'
 ```
 
 ### AWS CloudWatch Logs
@@ -295,8 +295,8 @@ journalctl -u slateduck -o json | jq '.MESSAGE | fromjson | select(.level == "ER
       "files": {
         "collect_list": [
           {
-            "file_path": "/var/log/slateduck/*.json",
-            "log_group_name": "/slateduck/production",
+            "file_path": "/var/log/rocklake/*.json",
+            "log_group_name": "/rocklake/production",
             "log_stream_name": "{instance_id}"
           }
         ]
@@ -338,14 +338,14 @@ The overhead comes from:
 A healthy startup produces exactly this sequence:
 
 ```
-INFO slateduck: SlateDuck v0.8.0 starting
-INFO slateduck: Storage: s3://my-bucket/catalog/
-INFO slateduck_catalog: Opening SlateDB at s3://my-bucket/catalog/
-INFO slateduck_catalog: Manifest loaded: format_version=1, latest_snapshot=1247
-INFO slateduck_catalog: Writer epoch acquired: 42
-INFO slateduck: Listening on 0.0.0.0:5432 (TLS enabled)
-INFO slateduck: Metrics endpoint on 0.0.0.0:9090/metrics
-INFO slateduck: Ready to accept connections
+INFO rocklake: Rocklake v0.8.0 starting
+INFO rocklake: Storage: s3://my-bucket/catalog/
+INFO rocklake_catalog: Opening SlateDB at s3://my-bucket/catalog/
+INFO rocklake_catalog: Manifest loaded: format_version=1, latest_snapshot=1247
+INFO rocklake_catalog: Writer epoch acquired: 42
+INFO rocklake: Listening on 0.0.0.0:5432 (TLS enabled)
+INFO rocklake: Metrics endpoint on 0.0.0.0:9090/metrics
+INFO rocklake: Ready to accept connections
 ```
 
 If any of these lines are missing, something interrupted startup.
@@ -353,9 +353,9 @@ If any of these lines are missing, something interrupted startup.
 ### Storage Throttling (Transient)
 
 ```
-WARN slateduck_catalog: Storage throttled (HTTP 429), backing off 200ms
-WARN slateduck_catalog: Storage throttled (HTTP 429), backing off 400ms  
-INFO slateduck_catalog: Storage request succeeded after 2 retries
+WARN rocklake_catalog: Storage throttled (HTTP 429), backing off 200ms
+WARN rocklake_catalog: Storage throttled (HTTP 429), backing off 400ms  
+INFO rocklake_catalog: Storage request succeeded after 2 retries
 ```
 
 This is normal under load. S3 throttles at the prefix level. If this occurs frequently, consider using S3 Express One Zone or spreading data across multiple prefixes.
@@ -363,8 +363,8 @@ This is normal under load. S3 throttles at the prefix level. If this occurs freq
 ### Client Protocol Error (Non-Critical)
 
 ```
-WARN slateduck_pgwire: Unrecognized SQL pattern from session abc123: "SHOW search_path"
-WARN slateduck_pgwire: Responding with SQLSTATE 42601 (syntax error)
+WARN rocklake_pgwire: Unrecognized SQL pattern from session abc123: "SHOW search_path"
+WARN rocklake_pgwire: Responding with SQLSTATE 42601 (syntax error)
 ```
 
 This means a client sent SQL that does not match any known DuckDB pattern. If the client is DuckDB and this happens, it may indicate a version incompatibility — check whether the DuckDB version is supported.
@@ -372,25 +372,25 @@ This means a client sent SQL that does not match any known DuckDB pattern. If th
 ### Memory Pressure (Investigate)
 
 ```
-WARN slateduck: Memory usage approaching limit: 450MB / 512MB
-WARN slateduck: Evicting block cache entries to free memory
+WARN rocklake: Memory usage approaching limit: 450MB / 512MB
+WARN rocklake: Evicting block cache entries to free memory
 ```
 
 This suggests the instance needs more memory or the `max-sessions` limit should be reduced.
 
 ## Correlating Logs Across Components
 
-In a production deployment with multiple components (DuckDB clients, SlateDuck server, object storage), correlating events across systems requires shared identifiers:
+In a production deployment with multiple components (DuckDB clients, Rocklake server, object storage), correlating events across systems requires shared identifiers:
 
 | Component | Correlation Key | Where to Find |
 |-----------|----------------|---------------|
 | DuckDB | Connection ID | Client-side connection string |
-| SlateDuck | Session ID | Logged with every session event |
+| Rocklake | Session ID | Logged with every session event |
 | Object Storage | Request ID | S3 response headers (x-amz-request-id) |
 | Load Balancer | Trace ID | X-Request-ID header (if configured) |
 
 When investigating a slow query reported by a DuckDB user:
-1. Get the session ID from SlateDuck logs (correlate by timestamp and client IP)
+1. Get the session ID from Rocklake logs (correlate by timestamp and client IP)
 2. Filter all logs for that session: `session_id=abc123`
 3. Look for storage latency spikes in that session's operations
 4. If storage was slow, use the S3 request ID from debug logs to check CloudTrail

@@ -1,25 +1,25 @@
 # Bounded SQL
 
-This page documents the decision to implement a bounded SQL dispatcher rather than a general-purpose SQL engine. It is one of SlateDuck's most surprising design choices — a system that speaks the PostgreSQL wire protocol but deliberately rejects most SQL statements. This decision reveals a core philosophy: match the solution's complexity to the problem's complexity, not to the interface's expectations.
+This page documents the decision to implement a bounded SQL dispatcher rather than a general-purpose SQL engine. It is one of Rocklake's most surprising design choices — a system that speaks the PostgreSQL wire protocol but deliberately rejects most SQL statements. This decision reveals a core philosophy: match the solution's complexity to the problem's complexity, not to the interface's expectations.
 
 For a detailed explanation of what bounded SQL is and how it works at a technical level, see [Architecture: SQL Dispatcher](../architecture/sql-dispatcher.md). This page focuses on the trade-off analysis: why we made this choice, what we considered instead, what we gain, and what we lose.
 
 ## The Decision
 
-SlateDuck's SQL layer recognizes exactly the SQL statement shapes emitted by DuckDB's `ducklake` extension — approximately 50 patterns — and rejects everything else. It does not support arbitrary queries, joins, subqueries, aggregations, window functions, CTEs, or user-defined functions. When an unrecognized statement arrives, it returns SQLSTATE 42601 (syntax error) with a clear message explaining that only DuckLake catalog SQL is supported.
+Rocklake's SQL layer recognizes exactly the SQL statement shapes emitted by DuckDB's `ducklake` extension — approximately 50 patterns — and rejects everything else. It does not support arbitrary queries, joins, subqueries, aggregations, window functions, CTEs, or user-defined functions. When an unrecognized statement arrives, it returns SQLSTATE 42601 (syntax error) with a clear message explaining that only DuckLake catalog SQL is supported.
 
 This is not a temporary limitation waiting to be lifted. It is a deliberate, permanent design choice.
 
 ## The Problem Context
 
-To understand why bounded SQL makes sense, consider what SlateDuck actually does:
+To understand why bounded SQL makes sense, consider what Rocklake actually does:
 
 1. DuckDB's `ducklake` extension constructs SQL statements that manage catalog metadata
-2. These statements are sent over the PostgreSQL wire protocol to SlateDuck
-3. SlateDuck executes the catalog operation and returns results
+2. These statements are sent over the PostgreSQL wire protocol to Rocklake
+3. Rocklake executes the catalog operation and returns results
 4. DuckDB uses the results for query planning and execution
 
-The crucial insight is that DuckDB's ducklake extension produces a **finite, well-defined set of SQL patterns**. It does not generate arbitrary SQL. The extension was written by specific developers who made specific implementation choices. Those choices produce specific SQL text. SlateDuck only needs to handle exactly that text.
+The crucial insight is that DuckDB's ducklake extension produces a **finite, well-defined set of SQL patterns**. It does not generate arbitrary SQL. The extension was written by specific developers who made specific implementation choices. Those choices produce specific SQL text. Rocklake only needs to handle exactly that text.
 
 Here is the complete picture of what DuckDB sends:
 
@@ -58,7 +58,7 @@ We could embed GlueSQL, DataFusion's SQL planner, or sqlparser-rs with a custom 
 - Type coercion complexity (hundreds of implicit cast rules)
 - Bug surface is proportional to SQL feature count (combinatorial explosion)
 
-**Assessment:** The effort to build and maintain a general SQL engine exceeds the effort to build the entire rest of SlateDuck combined. This is not an exaggeration — SQL engines are among the most complex software artifacts in existence.
+**Assessment:** The effort to build and maintain a general SQL engine exceeds the effort to build the entire rest of Rocklake combined. This is not an exaggeration — SQL engines are among the most complex software artifacts in existence.
 
 ### Option B: Subset SQL Engine
 
@@ -145,7 +145,7 @@ Compare to a general SQL engine where even a simple `SELECT * FROM t WHERE id = 
 7. Plan selection
 8. Execution
 
-SlateDuck skips steps 1–7 entirely. The "plan" is determined by the pattern classification, which takes nanoseconds.
+Rocklake skips steps 1–7 entirely. The "plan" is determined by the pattern classification, which takes nanoseconds.
 
 ### Maintenance Burden Stays Constant
 
@@ -161,12 +161,12 @@ The bounded dispatcher's maintenance is proportional to the number of supported 
 
 ### Testing Is Exhaustive
 
-The wire corpus captures actual SQL emitted by each supported DuckDB version and replays it against SlateDuck. This provides:
+The wire corpus captures actual SQL emitted by each supported DuckDB version and replays it against Rocklake. This provides:
 
 - 100% coverage of the supported pattern space
 - Regression detection when DuckDB changes SQL formatting
 - Cross-version compatibility validation
-- A living specification of SlateDuck's SQL surface
+- A living specification of Rocklake's SQL surface
 
 With a general SQL engine, achieving this level of coverage is infeasible (the input space is infinite).
 
@@ -186,19 +186,19 @@ SELECT * FROM ducklake_schemas WHERE schema_name LIKE 'analytics%';
 **Mitigation:** Export the catalog to NDJSON and query it with DuckDB directly:
 
 ```bash
-slateduck export --catalog s3://bucket/catalog/ --output catalog.ndjson
+rocklake export --catalog s3://bucket/catalog/ --output catalog.ndjson
 duckdb -c "SELECT * FROM read_ndjson('catalog.ndjson') WHERE table = 'ducklake_schemas'"
 ```
 
 ### Tight Coupling to DuckDB's SQL Patterns
 
-If DuckDB changes how it formats a query (reorders columns in a SELECT list, changes a WHERE clause condition, adds a new query type), SlateDuck's classifier must be updated.
+If DuckDB changes how it formats a query (reorders columns in a SELECT list, changes a WHERE clause condition, adds a new query type), Rocklake's classifier must be updated.
 
 **Mitigation:** The wire corpus test suite detects these changes immediately when testing against a new DuckDB version. The changes are typically trivial to accommodate (adding a new pattern or adjusting an existing regex).
 
 ### Cannot Serve General PostgreSQL Clients
 
-psql, pgAdmin, Grafana, and other PostgreSQL tools will find that most queries fail. SlateDuck is not a PostgreSQL replacement.
+psql, pgAdmin, Grafana, and other PostgreSQL tools will find that most queries fail. Rocklake is not a PostgreSQL replacement.
 
 **Mitigation:** This is clearly documented. Custom clients can use the recognized patterns (see [Custom Clients](../integration/custom-clients.md)). For ad-hoc exploration, use the export + DuckDB pattern.
 
@@ -222,4 +222,4 @@ After 8 months of development and testing against multiple DuckDB versions (1.1.
 - **[Architecture: SQL Dispatcher](../architecture/sql-dispatcher.md)** — Technical implementation details
 - **[DuckDB Compatibility](../integration/duckdb-compatibility.md)** — Complete pattern listing
 - **[Internals: Wire Corpus](../internals/wire-corpus.md)** — Testing methodology
-- **[What SlateDuck Is Not](what-slateduck-is-not.md)** — Related non-goals
+- **[What Rocklake Is Not](what-rocklake-is-not.md)** — Related non-goals

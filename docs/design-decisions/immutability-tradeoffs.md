@@ -1,6 +1,6 @@
 # Immutability Trade-offs
 
-SlateDuck's append-only, immutable data model is its most distinctive architectural property — and its most controversial. Catalog entries are never modified in place. Updates create new versions, and old versions remain indefinitely until explicitly excised through a deliberate, audited process. This page honestly examines the costs of this approach, quantifies the trade-offs, compares them to mutable alternatives, and explains why immutability is the right choice for lakehouse catalogs despite its costs.
+Rocklake's append-only, immutable data model is its most distinctive architectural property — and its most controversial. Catalog entries are never modified in place. Updates create new versions, and old versions remain indefinitely until explicitly excised through a deliberate, audited process. This page honestly examines the costs of this approach, quantifies the trade-offs, compares them to mutable alternatives, and explains why immutability is the right choice for lakehouse catalogs despite its costs.
 
 ## What You Get
 
@@ -16,7 +16,7 @@ In a mutable system, time travel requires either:
 - Change data capture to a separate store (operational overhead, lag)
 - Periodic snapshots (coarse granularity, storage-expensive)
 
-SlateDuck provides snapshot-level time travel as a natural consequence of its data model — no additional infrastructure required.
+Rocklake provides snapshot-level time travel as a natural consequence of its data model — no additional infrastructure required.
 
 ### Automatic Crash Safety
 
@@ -29,7 +29,7 @@ In a mutable system, crash safety requires:
 - Crash-consistent index maintenance
 - Undo/redo logic for partially-applied transactions
 
-SlateDuck needs none of this. SlateDB's atomic `WriteBatch` either makes all new rows visible or none of them. Old rows are never touched.
+Rocklake needs none of this. SlateDB's atomic `WriteBatch` either makes all new rows visible or none of them. Old rows are never touched.
 
 ### Lock-Free Readers
 
@@ -41,7 +41,7 @@ In a mutable system, read-write conflicts require:
 - MVCC with visibility checks and vacuum (complex, requires tuning)
 - Snapshot isolation with rollback segments (garbage generation)
 
-SlateDuck readers simply seek to the appropriate key prefix and iterate. No visibility check is needed beyond comparing snapshot IDs (two integer comparisons per row).
+Rocklake readers simply seek to the appropriate key prefix and iterate. No visibility check is needed beyond comparing snapshot IDs (two integer comparisons per row).
 
 ### Horizontal Read Scale-Out
 
@@ -84,7 +84,7 @@ For a much larger catalog (10,000 tables, 500,000 columns, 1,000 changes per day
 
 Still negligible. Storage costs become meaningful only at extreme scales (100,000+ tables with thousands of daily mutations for years without GC).
 
-**Mitigation:** Run `slateduck gc --retain-days 30` to advance the retention horizon. This makes old versions inaccessible via time travel but does not physically delete them. Run `slateduck excise` periodically to physically remove superseded rows beyond the retention horizon. For most catalogs, monthly GC with 30-day retention keeps storage growth well-bounded.
+**Mitigation:** Run `rocklake gc --retain-days 30` to advance the retention horizon. This makes old versions inaccessible via time travel but does not physically delete them. Run `rocklake excise` periodically to physically remove superseded rows beyond the retention horizon. For most catalogs, monthly GC with 30-day retention keeps storage growth well-bounded.
 
 ### 2. Read Amplification (Scan Overhead)
 
@@ -112,14 +112,14 @@ At ~150 bytes per row, reading 500 rows means reading 75 KB from SlateDB. With a
 
 Operators must understand and manage the two-phase GC process:
 
-1. **Advance retention:** `slateduck gc --retain-days 30` moves the `retain_from` marker forward
-2. **Excise (optional):** `slateduck excise --before-snapshot N` physically removes old versions
+1. **Advance retention:** `rocklake gc --retain-days 30` moves the `retain_from` marker forward
+2. **Excise (optional):** `rocklake excise --before-snapshot N` physically removes old versions
 
 This is an additional operational task that PostgreSQL-backed DuckLake does not require (PostgreSQL has automatic VACUUM).
 
 **Comparing operational burden:**
 
-| Task | SlateDuck | PostgreSQL |
+| Task | Rocklake | PostgreSQL |
 |------|-----------|-----------|
 | Retention management | Manual `gc` command (automatable) | Automatic vacuum |
 | Physical cleanup | Manual `excise` (optional, rare) | Automatic vacuum |
@@ -127,7 +127,7 @@ This is an additional operational task that PostgreSQL-backed DuckLake does not 
 | Failure mode | Unbounded growth if GC never runs | Table bloat if vacuum is blocked |
 | Recovery from failure | Run GC (catches up instantly) | Vacuum may take hours for large tables |
 
-**Mitigation:** GC can be automated via a cron job or Kubernetes CronJob. A single daily command (`slateduck gc --retain-days 30`) is sufficient for most catalogs. The operational burden is comparable to (not worse than) managing PostgreSQL's autovacuum.
+**Mitigation:** GC can be automated via a cron job or Kubernetes CronJob. A single daily command (`rocklake gc --retain-days 30`) is sufficient for most catalogs. The operational burden is comparable to (not worse than) managing PostgreSQL's autovacuum.
 
 ### 4. No True Immediate Delete
 
@@ -148,7 +148,7 @@ For GDPR compliance, the relevant question is: "when is the data irrecoverable?"
 
 ## The Trade-off Matrix
 
-| Concern | Immutable (SlateDuck) | Mutable (PostgreSQL DuckLake) |
+| Concern | Immutable (Rocklake) | Mutable (PostgreSQL DuckLake) |
 |---------|----------------------|-------------------------------|
 | Time travel | Free, natural, unlimited (until GC) | Expensive, limited by WAL retention |
 | Crash safety | Automatic (no partial updates possible) | Requires WAL + checkpoint + recovery |
@@ -177,7 +177,7 @@ The costs (storage growth, GC scheduling, delete latency) are real but manageabl
 
 ## When Immutability Is Wrong
 
-If your use case has these characteristics, SlateDuck's immutability model may not be appropriate:
+If your use case has these characteristics, Rocklake's immutability model may not be appropriate:
 
 - **Very high catalog churn:** Thousands of schema changes per second (rare, but possible in automated testing environments)
 - **Strict immediate-deletion requirements:** Regulations that demand data destruction within seconds, not hours

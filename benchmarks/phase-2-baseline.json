@@ -2,7 +2,7 @@
   "benchmark": "phase-2-baseline",
   "version": "0.2.0",
   "timestamp": "2025-01-01T00:00:00Z",
-  "note": "Baseline recorded by criterion bench harness. Run `cargo bench -p slateduck-catalog` to regenerate.",
+  "note": "Baseline recorded by criterion bench harness. Run `cargo bench -p rocklake-catalog` to regenerate.",
   "targets": {
     "get_current_snapshot": { "p50_us": 50, "p95_us": 200, "p99_us": 500 },
     "list_data_files_100": { "p50_us": 500, "p95_us": 2000, "p99_us": 5000 },

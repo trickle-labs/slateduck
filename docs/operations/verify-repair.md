@@ -1,14 +1,14 @@
 # Verify & Repair
 
-SlateDuck includes tools for verifying catalog integrity and performing conservative repairs when issues are detected. These tools are designed for situations where you suspect corruption — unexpected errors, inconsistent query results, or anomalies reported by monitoring — and need to diagnose and potentially fix the problem without risking further damage.
+Rocklake includes tools for verifying catalog integrity and performing conservative repairs when issues are detected. These tools are designed for situations where you suspect corruption — unexpected errors, inconsistent query results, or anomalies reported by monitoring — and need to diagnose and potentially fix the problem without risking further damage.
 
-Verify performs a comprehensive read-only scan of the entire catalog, checking every invariant that SlateDuck depends on. Repair takes the findings from verify and applies safe, conservative fixes. The guiding principle is "first, do no harm" — repair will never modify data that might be needed by a valid reader, and it will never act on ambiguous findings.
+Verify performs a comprehensive read-only scan of the entire catalog, checking every invariant that Rocklake depends on. Repair takes the findings from verify and applies safe, conservative fixes. The guiding principle is "first, do no harm" — repair will never modify data that might be needed by a valid reader, and it will never act on ambiguous findings.
 
 ## When to Use
 
 ### Run Verify When:
 
-- `slateduck inspect` reports unexpected counter values
+- `rocklake inspect` reports unexpected counter values
 - DuckDB queries return inconsistent results (missing columns, wrong types)
 - After an unclean shutdown (power loss, OOM kill, SIGKILL)
 - After a failed upgrade or migration
@@ -28,16 +28,16 @@ Verify performs a comprehensive read-only scan of the entire catalog, checking e
 
 ```bash
 # Basic verify
-slateduck verify --catalog s3://bucket/catalog/
+rocklake verify --catalog s3://bucket/catalog/
 
 # Verbose output (shows every check as it runs)
-slateduck verify --catalog s3://bucket/catalog/ --verbose
+rocklake verify --catalog s3://bucket/catalog/ --verbose
 
 # JSON output (for automated pipelines)
-slateduck verify --catalog s3://bucket/catalog/ --format json
+rocklake verify --catalog s3://bucket/catalog/ --format json
 
 # Verify at a specific snapshot (historical state)
-slateduck verify --catalog s3://bucket/catalog/ --at-snapshot 1000
+rocklake verify --catalog s3://bucket/catalog/ --at-snapshot 1000
 ```
 
 ### What Verify Checks
@@ -111,7 +111,7 @@ Identifies entries that reference deleted parents:
 ### Verify Output
 
 ```
-SlateDuck Catalog Verification
+Rocklake Catalog Verification
 ═══════════════════════════════════════════════════════════════
 Storage:         s3://my-bucket/lakehouse/catalog/
 Snapshot:        latest (1,247)
@@ -153,7 +153,7 @@ WARNINGS (informational, no immediate action needed):
     Repair can safely remove them.
 
 ═══════════════════════════════════════════════════════════════
-Run `slateduck repair --dry-run` to preview fixes for the errors above.
+Run `rocklake repair --dry-run` to preview fixes for the errors above.
 ```
 
 ### JSON Output
@@ -192,14 +192,14 @@ Run `slateduck repair --dry-run` to preview fixes for the errors above.
 
 ```bash
 # Always start with dry-run
-slateduck repair --catalog s3://bucket/catalog/ --dry-run
+rocklake repair --catalog s3://bucket/catalog/ --dry-run
 
 # Apply repairs (requires --confirm for destructive operations)
-slateduck repair --catalog s3://bucket/catalog/ --confirm
+rocklake repair --catalog s3://bucket/catalog/ --confirm
 
 # Apply only specific repair types
-slateduck repair --catalog s3://bucket/catalog/ --only counters --confirm
-slateduck repair --catalog s3://bucket/catalog/ --only orphans --confirm
+rocklake repair --catalog s3://bucket/catalog/ --only counters --confirm
+rocklake repair --catalog s3://bucket/catalog/ --only orphans --confirm
 ```
 
 ### What Repair Can Fix
@@ -226,7 +226,7 @@ When repair encounters an unfixable error, it logs the error and continues check
 ### Repair Output
 
 ```
-SlateDuck Catalog Repair (DRY RUN)
+Rocklake Catalog Repair (DRY RUN)
 ═══════════════════════════════════════════════════════════════
 
 Proposed repairs:
@@ -253,8 +253,8 @@ To apply these repairs, run without --dry-run and with --confirm.
 After applying repairs, always re-run verify to confirm the catalog is clean:
 
 ```bash
-slateduck repair --catalog s3://bucket/catalog/ --confirm
-slateduck verify --catalog s3://bucket/catalog/
+rocklake repair --catalog s3://bucket/catalog/ --confirm
+rocklake verify --catalog s3://bucket/catalog/
 ```
 
 Expected output after successful repair:
@@ -285,29 +285,29 @@ Repair follows strict safety principles:
 
 ```bash
 # SlateDB's WAL ensures consistency, but verify anyway
-slateduck verify --catalog s3://bucket/catalog/
+rocklake verify --catalog s3://bucket/catalog/
 
 # Usually clean — SlateDB handles crash recovery
 # If errors found, repair counters (most common issue)
-slateduck repair --catalog s3://bucket/catalog/ --only counters --confirm
+rocklake repair --catalog s3://bucket/catalog/ --only counters --confirm
 ```
 
 ### After Failed Upgrade
 
 ```bash
 # Check if the migration left the catalog in a consistent state
-slateduck verify --catalog s3://bucket/catalog/
+rocklake verify --catalog s3://bucket/catalog/
 
 # If format_version was updated but data wasn't fully migrated:
 # Restore from pre-upgrade backup
-slateduck import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
+rocklake import --catalog s3://bucket/catalog-restored/ --input pre-upgrade-backup.ndjson
 ```
 
 ### After Excision
 
 ```bash
 # Verify that excision didn't leave orphans
-slateduck verify --catalog s3://bucket/catalog/
+rocklake verify --catalog s3://bucket/catalog/
 
 # Expected: some warnings about "ended rows beyond retention" — normal
 # Unexpected: referential integrity errors — run repair
@@ -317,7 +317,7 @@ slateduck verify --catalog s3://bucket/catalog/
 
 ```bash
 # Weekly cron job
-0 3 * * 0 slateduck verify --catalog s3://bucket/catalog/ --format json >> /var/log/slateduck-verify.json
+0 3 * * 0 rocklake verify --catalog s3://bucket/catalog/ --format json >> /var/log/rocklake-verify.json
 ```
 
 ## Performance

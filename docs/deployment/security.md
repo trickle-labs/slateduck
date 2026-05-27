@@ -1,13 +1,13 @@
 # Security Guide
 
-This page describes the security configuration options for SlateDuck's PG-Wire
+This page describes the security configuration options for Rocklake's PG-Wire
 server, the risks of each configuration, and the recommended mitigations.
 
 ## Authentication
 
-SlateDuck supports password-based authentication for PG-Wire connections.
+Rocklake supports password-based authentication for PG-Wire connections.
 Authentication is configured via the `--auth-user` and `--auth-password` flags
-(or the `SLATEDUCK_AUTH_USER` / `SLATEDUCK_AUTH_PASSWORD` environment
+(or the `ROCKLAKE_AUTH_USER` / `ROCKLAKE_AUTH_PASSWORD` environment
 variables).
 
 When no `--auth-user` is set, the server accepts all connections without
@@ -25,11 +25,11 @@ refuses all non-TLS connections (including plain-text clients).
 > **Warning:** Enabling password authentication without TLS transmits
 > credentials in plaintext over the network.
 
-When SlateDuck starts with `--auth-user` set but without `--tls-cert` /
+When Rocklake starts with `--auth-user` set but without `--tls-cert` /
 `--tls-key`, it emits a startup warning:
 
 ```
-WARN slateduck_pgwire::server: Password authentication is enabled without TLS.
+WARN rocklake_pgwire::server: Password authentication is enabled without TLS.
 Credentials will be sent in plaintext. Use --tls-cert / --tls-key to enable
 TLS, or pass --insecure-no-tls-warning-suppress if this is intentional.
 ```
@@ -48,7 +48,7 @@ username and password from the PG-Wire `PasswordMessage` packet.
 ### Enabling TLS
 
 ```bash
-slateduck serve \
+rocklake serve \
   --tls-cert /path/to/cert.pem \
   --tls-key  /path/to/key.pem  \
   --tls-required               \
@@ -72,5 +72,5 @@ catalog:
   lease TTL.
 - Use NTP or a similar time-synchronisation service on all nodes.
 
-Lease logic is tested against a `MockClock` (from `slateduck_core::clock`)
+Lease logic is tested against a `MockClock` (from `rocklake_core::clock`)
 that eliminates real-time dependencies in unit tests.

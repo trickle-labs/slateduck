@@ -1,12 +1,12 @@
 # Release Process
 
-This page documents how SlateDuck releases are versioned, built, tested, tagged, and published. It is primarily intended for maintainers who perform releases, but it is documented publicly for transparency — contributors should understand how their merged code reaches users, and users should understand the quality gates that every release passes through.
+This page documents how Rocklake releases are versioned, built, tested, tagged, and published. It is primarily intended for maintainers who perform releases, but it is documented publicly for transparency — contributors should understand how their merged code reaches users, and users should understand the quality gates that every release passes through.
 
-SlateDuck follows a deliberate, predictable release cadence. Every release goes through the same process regardless of its size. A one-line bug fix and a major feature addition both pass through the same CI pipeline, the same testing matrix, the same review requirements. This consistency ensures that users can upgrade with confidence — if a release is tagged, it has been validated.
+Rocklake follows a deliberate, predictable release cadence. Every release goes through the same process regardless of its size. A one-line bug fix and a major feature addition both pass through the same CI pipeline, the same testing matrix, the same review requirements. This consistency ensures that users can upgrade with confidence — if a release is tagged, it has been validated.
 
 ## Version Numbering
 
-SlateDuck follows [Semantic Versioning](https://semver.org/) (SemVer):
+Rocklake follows [Semantic Versioning](https://semver.org/) (SemVer):
 
 | Version Component | When Incremented | Example |
 |-------------------|-----------------|---------|
@@ -45,7 +45,7 @@ All of these are updated together in the release PR.
 
 ## Release Cadence
 
-SlateDuck does not follow a fixed time-based release schedule. Instead, releases happen when:
+Rocklake does not follow a fixed time-based release schedule. Instead, releases happen when:
 
 - A meaningful set of changes has accumulated (features, fixes, improvements)
 - A critical bug fix needs to reach users quickly (hotfix release)
@@ -115,9 +115,9 @@ mkdocs build --strict
 
 ```bash
 # Run benchmarks and compare to the previous release
-cargo bench -p slateduck-catalog -- --save-baseline v0.8.0
+cargo bench -p rocklake-catalog -- --save-baseline v0.8.0
 # ... checkout previous release tag ...
-cargo bench -p slateduck-catalog -- --baseline v0.8.0
+cargo bench -p rocklake-catalog -- --baseline v0.8.0
 ```
 
 If any benchmark regresses by more than 10%, investigate before releasing. Performance regressions are bugs.
@@ -190,9 +190,9 @@ The tag triggers an automated workflow that:
 **Publishes Docker images:**
 
 ```
-ghcr.io/slateduck/slateduck:0.8.0
-ghcr.io/slateduck/slateduck:0.8
-ghcr.io/slateduck/slateduck:latest
+ghcr.io/rocklake/rocklake:0.8.0
+ghcr.io/rocklake/rocklake:0.8
+ghcr.io/rocklake/rocklake:latest
 ```
 
 Multi-architecture images (linux/amd64, linux/arm64) built with Docker buildx.
@@ -205,7 +205,7 @@ Multi-architecture images (linux/amd64, linux/arm64) built with Docker buildx.
 
 **Publishes to crates.io (when applicable):**
 
-Library crates (`slateduck-core`, `slateduck-catalog`) may be published to crates.io for use as Rust dependencies. This happens selectively — not every release publishes to crates.io.
+Library crates (`rocklake-core`, `rocklake-catalog`) may be published to crates.io for use as Rust dependencies. This happens selectively — not every release publishes to crates.io.
 
 ### 5. Post-Release
 
@@ -335,13 +335,13 @@ Every item must be green before the release tag is applied.
 - [x] F-23: `sqlite-vfs` experimental feature gate
 - [x] F-24: `MissingParam` structured error + `require_param_u64` helper
 - [x] F-25: `#[tracing::instrument]` on 5 key code paths
-- [x] Virtual catalog SQL tables (`SELECT * FROM slateduck_catalog.*`)
+- [x] Virtual catalog SQL tables (`SELECT * FROM rocklake_catalog.*`)
 - [x] DataFusion pg-wire mode (`--datafusion-pg-wire <port>`)
 - [x] Spark 3.5 / Trino 432 wire corpus fixtures + classifier tests
 
 ### CI Quality Gates
 
-- [x] F-26: CLI smoke test — `slateduck serve --help` validates all documented flags
+- [x] F-26: CLI smoke test — `rocklake serve --help` validates all documented flags
 - [x] F-28: `deny.toml` with ignored transitive advisories
 - [x] F-29: MSRV = 1.86 declared in workspace `Cargo.toml`; MSRV verified by security job
 - [x] F-33: Coverage job (warns if below 80%) + security job (`cargo deny` + `cargo audit`)

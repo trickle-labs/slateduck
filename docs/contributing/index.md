@@ -1,8 +1,8 @@
-# Contributing to SlateDuck
+# Contributing to Rocklake
 
-Thank you for your interest in contributing to SlateDuck. Whether you are fixing a typo in documentation, adding a test case, implementing a new feature, or reporting a bug — your contribution makes the project better for everyone who uses it. This section provides everything you need to go from "I want to help" to "my PR is merged" with confidence.
+Thank you for your interest in contributing to Rocklake. Whether you are fixing a typo in documentation, adding a test case, implementing a new feature, or reporting a bug — your contribution makes the project better for everyone who uses it. This section provides everything you need to go from "I want to help" to "my PR is merged" with confidence.
 
-Contributing to an unfamiliar codebase can feel intimidating. The project uses Rust (which has a learning curve), deals with database internals (which are complex), and targets a specific protocol (DuckLake) that you may not have encountered before. This guide is designed to reduce that intimidation. We assume nothing about your prior experience with SlateDuck — only that you know enough Rust to compile and run code, and that you are willing to learn the domain-specific details.
+Contributing to an unfamiliar codebase can feel intimidating. The project uses Rust (which has a learning curve), deals with database internals (which are complex), and targets a specific protocol (DuckLake) that you may not have encountered before. This guide is designed to reduce that intimidation. We assume nothing about your prior experience with Rocklake — only that you know enough Rust to compile and run code, and that you are willing to learn the domain-specific details.
 
 The project is structured to make contributions tractable. Each crate has a focused responsibility, the test suite is comprehensive (so you can validate your changes quickly), and the code style is consistent (so you spend less time on formatting decisions and more time on logic). The maintainers are committed to reviewing PRs promptly and providing constructive feedback.
 
@@ -17,9 +17,9 @@ The most common contribution types, in rough order of how often they occur:
 | Add a wire corpus entry | `tests/fixtures/wire-corpus/` | Low–Medium |
 | Fix a bug | The relevant crate | Medium |
 | Add a test case | `tests/` in the relevant crate | Medium |
-| Implement a new SQL statement | `slateduck-sql` + `slateduck-catalog` | Medium–High |
-| Add a new catalog table | `slateduck-core` + `slateduck-catalog` | High |
-| Performance optimization | `slateduck-catalog` | High |
+| Implement a new SQL statement | `rocklake-sql` + `rocklake-catalog` | Medium–High |
+| Add a new catalog table | `rocklake-core` + `rocklake-catalog` | High |
+| Performance optimization | `rocklake-catalog` | High |
 
 For your first contribution, we recommend starting with something in the Low or Low–Medium range — a documentation fix, a new wire corpus entry, or a test case. This familiarizes you with the development workflow (clone, branch, change, test, PR) without requiring deep understanding of the codebase.
 
@@ -67,8 +67,8 @@ If you want to get started immediately and read details later:
 # Prerequisites: Rust 1.80+ via rustup, Git, C compiler
 
 # Clone and build
-git clone https://github.com/slateduck/slateduck.git
-cd slateduck
+git clone https://github.com/rocklake/rocklake.git
+cd rocklake
 cargo build
 
 # Run the test suite (verify everything works)
@@ -97,15 +97,15 @@ git push origin fix/my-improvement
 - **PR discussions:** Directly on the PR
 
 When opening an issue, include:
-- SlateDuck version (from `slateduck --version` or `Cargo.toml`)
+- Rocklake version (from `rocklake --version` or `Cargo.toml`)
 - Storage backend (S3 Standard, S3 Express, GCS, local)
 - Steps to reproduce (for bugs)
 - Expected vs. actual behavior
 
 ## Code of Conduct
 
-SlateDuck follows the [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct). Be respectful, constructive, and collaborative. Toxic behavior, harassment, and discrimination are not tolerated.
+Rocklake follows the [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct). Be respectful, constructive, and collaborative. Toxic behavior, harassment, and discrimination are not tolerated.
 
 ## License
 
-Contributions to SlateDuck are licensed under the same terms as the project (see the LICENSE file in the repository root). By submitting a PR, you agree that your contribution is licensed under these terms.
+Contributions to Rocklake are licensed under the same terms as the project (see the LICENSE file in the repository root). By submitting a PR, you agree that your contribution is licensed under these terms.

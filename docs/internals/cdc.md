@@ -60,23 +60,23 @@ The warn log includes:
 - `file_path` — the Parquet file path that triggered the mismatch
 - `expected_record_count` — the value stored in catalog metadata
 - `actual_record_count` — the real scanned count
-- `counter` — the Prometheus counter name (`slateduck_cdc_record_count_mismatch_total`)
+- `counter` — the Prometheus counter name (`rocklake_cdc_record_count_mismatch_total`)
 
 **Why this can happen:** A writer that crashed after writing part of a Parquet file, but before updating the catalog's `record_count`, will leave a file with fewer rows than expected. The scanned count is always used — the catalog metadata is informational. This is the correct recovery behaviour (CDC consumers receive the partial write, not fabricated rows).
 
 ### Prometheus counter
 
 ```
-# HELP slateduck_cdc_record_count_mismatch_total Times a Parquet file's scanned row count differed from catalog metadata (N-04).
-# TYPE slateduck_cdc_record_count_mismatch_total counter
-slateduck_cdc_record_count_mismatch_total 0
+# HELP rocklake_cdc_record_count_mismatch_total Times a Parquet file's scanned row count differed from catalog metadata (N-04).
+# TYPE rocklake_cdc_record_count_mismatch_total counter
+rocklake_cdc_record_count_mismatch_total 0
 ```
 
-The counter value is read from the `CDC_RECORD_COUNT_MISMATCHES` global atomic in `slateduck-sql` and synced to `CatalogMetrics` by a background task in `slateduck-pgwire/src/main.rs` every 5 seconds.
+The counter value is read from the `CDC_RECORD_COUNT_MISMATCHES` global atomic in `rocklake-sql` and synced to `CatalogMetrics` by a background task in `rocklake-pgwire/src/main.rs` every 5 seconds.
 
 ## Object Store Error Handling
 
-If the object store returns any error (including `NotFound` for a missing data file path), `extract_rows_from_parquet()` returns `TableChangesError::Storage(message)` with SQLSTATE `58030` (external object store error). This propagates through `execute_table_changes()` in the PG-Wire executor as a `SlateDuckError::SqlState { code: "58030", .. }`.
+If the object store returns any error (including `NotFound` for a missing data file path), `extract_rows_from_parquet()` returns `TableChangesError::Storage(message)` with SQLSTATE `58030` (external object store error). This propagates through `execute_table_changes()` in the PG-Wire executor as a `RocklakeError::SqlState { code: "58030", .. }`.
 
 The caller receives a proper PostgreSQL error response with `SQLSTATE 58030` rather than a panic or opaque internal error.
 
@@ -96,7 +96,7 @@ The caller receives a proper PostgreSQL error response with `SQLSTATE 58030` rat
 
 ## Integration with `execute_table_changes()`
 
-The PG-Wire executor (`crates/slateduck-pgwire/src/executor/catalog.rs`) orchestrates the full CDC pipeline:
+The PG-Wire executor (`crates/rocklake-pgwire/src/executor/catalog.rs`) orchestrates the full CDC pipeline:
 
 1. Acquire the catalog lock and read the snapshot diff (`snapshot_diff(start, end)`).
 2. Release the catalog lock **before** any async I/O to avoid holding the mutex during Parquet scans.

@@ -1,8 +1,8 @@
 # PG-Wire Protocol
 
-SlateDuck implements a subset of the PostgreSQL wire protocol (version 3) — just enough to serve DuckDB's `ducklake` extension. It does not implement a full PostgreSQL server, does not support arbitrary SQL execution, and does not aim for compatibility with general-purpose PostgreSQL clients. Instead, it implements precisely the protocol messages and behaviors that DuckDB uses when communicating with a DuckLake catalog server, and nothing more.
+Rocklake implements a subset of the PostgreSQL wire protocol (version 3) — just enough to serve DuckDB's `ducklake` extension. It does not implement a full PostgreSQL server, does not support arbitrary SQL execution, and does not aim for compatibility with general-purpose PostgreSQL clients. Instead, it implements precisely the protocol messages and behaviors that DuckDB uses when communicating with a DuckLake catalog server, and nothing more.
 
-This deliberate minimalism means the implementation is small (approximately 2,000 lines of Rust), auditable, and unlikely to contain bugs in rarely-exercised protocol paths. If DuckDB does not use a particular protocol feature, SlateDuck does not implement it. This page describes the full connection lifecycle, the supported protocol messages, authentication, query execution, type mapping, error handling, and the operational limits that protect the server from resource exhaustion.
+This deliberate minimalism means the implementation is small (approximately 2,000 lines of Rust), auditable, and unlikely to contain bugs in rarely-exercised protocol paths. If DuckDB does not use a particular protocol feature, Rocklake does not implement it. This page describes the full connection lifecycle, the supported protocol messages, authentication, query execution, type mapping, error handling, and the operational limits that protect the server from resource exhaustion.
 
 ## Why PostgreSQL Wire Protocol?
 
@@ -13,7 +13,7 @@ The choice of PostgreSQL wire protocol is not arbitrary. DuckDB's `ducklake` ext
 3. **Existing infrastructure.** Load balancers, proxies, connection poolers, and monitoring tools all understand PostgreSQL wire protocol.
 4. **Simple for catalog operations.** The protocol supports the exact operations needed: send SQL, receive tabular results. No streaming, no cursors, no notifications — just request-response.
 
-SlateDuck uses the `pgwire` Rust crate for protocol message framing and type definitions, adding custom handlers for the specific messages DuckDB sends.
+Rocklake uses the `pgwire` Rust crate for protocol message framing and type definitions, adding custom handlers for the specific messages DuckDB sends.
 
 ## Connection Lifecycle
 
@@ -22,7 +22,7 @@ Every connection follows the same lifecycle from initial TCP connection to final
 ```mermaid
 sequenceDiagram
     participant C as DuckDB Client
-    participant S as SlateDuck Server
+    participant S as Rocklake Server
 
     Note over C,S: TCP Connection Established
     
@@ -42,7 +42,7 @@ sequenceDiagram
         S->>C: AuthenticationOk
     end
     
-    S->>C: ParameterStatus (server_version = "15.0 (SlateDuck)")
+    S->>C: ParameterStatus (server_version = "15.0 (Rocklake)")
     S->>C: ParameterStatus (server_encoding = "UTF8")
     S->>C: ParameterStatus (client_encoding = "UTF8")
     S->>C: ParameterStatus (DateStyle = "ISO, MDY")
@@ -78,21 +78,21 @@ sequenceDiagram
 
 ### Phase 1: Connection Setup
 
-When a client connects, SlateDuck's TCP accept loop checks the concurrent session count against the configured limit (default: 50). If the limit is reached, the connection is immediately closed. Otherwise, a new Tokio task is spawned to handle the connection.
+When a client connects, Rocklake's TCP accept loop checks the concurrent session count against the configured limit (default: 50). If the limit is reached, the connection is immediately closed. Otherwise, a new Tokio task is spawned to handle the connection.
 
 The first message from the client is either an `SSLRequest` (indicating the client wants to negotiate TLS) or a `StartupMessage` (indicating the client wants to proceed without TLS or has already completed TLS in a prior exchange).
 
 ### Phase 2: TLS Negotiation
 
-If configured with TLS (`--tls-cert` and `--tls-key`), SlateDuck responds to `SSLRequest` with byte `'S'` and then performs a TLS handshake using `tokio-rustls`. The server supports TLS 1.2 and 1.3 with modern cipher suites. After the handshake completes, all subsequent protocol messages are encrypted.
+If configured with TLS (`--tls-cert` and `--tls-key`), Rocklake responds to `SSLRequest` with byte `'S'` and then performs a TLS handshake using `tokio-rustls`. The server supports TLS 1.2 and 1.3 with modern cipher suites. After the handshake completes, all subsequent protocol messages are encrypted.
 
-If not configured with TLS, SlateDuck responds to `SSLRequest` with byte `'N'` (not available). The client can then choose to continue unencrypted or disconnect.
+If not configured with TLS, Rocklake responds to `SSLRequest` with byte `'N'` (not available). The client can then choose to continue unencrypted or disconnect.
 
 ### Phase 3: Authentication
 
-SlateDuck supports two authentication modes:
+Rocklake supports two authentication modes:
 
-**No authentication (default).** The server sends `AuthenticationOk` immediately after parsing the `StartupMessage`. This is suitable for local development, environments where network-level access control (security groups, VPC) provides sufficient isolation, or when SlateDuck is used as an in-process sidecar.
+**No authentication (default).** The server sends `AuthenticationOk` immediately after parsing the `StartupMessage`. This is suitable for local development, environments where network-level access control (security groups, VPC) provides sufficient isolation, or when Rocklake is used as an in-process sidecar.
 
 **Cleartext password.** When `--auth-user` and `--auth-password` are configured, the server sends `AuthenticationCleartextPassword`, waits for a `PasswordMessage` from the client, verifies the credentials using constant-time comparison (to prevent timing attacks), and responds with `AuthenticationOk` on success or `ErrorResponse` on failure.
 
@@ -103,14 +103,14 @@ SlateDuck supports two authentication modes:
 
 After authentication, the server sends several `ParameterStatus` messages to inform the client about server configuration:
 
-- `server_version` — `"15.0 (SlateDuck)"` (mimics PostgreSQL to satisfy client drivers)
+- `server_version` — `"15.0 (Rocklake)"` (mimics PostgreSQL to satisfy client drivers)
 - `server_encoding` — `"UTF8"`
 - `client_encoding` — `"UTF8"`
 - `DateStyle` — `"ISO, MDY"`
 - `TimeZone` — `"UTC"`
 - `integer_datetimes` — `"on"`
 
-The `BackendKeyData` message provides a process ID and secret key that the client can use for cancellation requests. SlateDuck generates a random process ID per connection (it has no real notion of processes) and a random secret key.
+The `BackendKeyData` message provides a process ID and secret key that the client can use for cancellation requests. Rocklake generates a random process ID per connection (it has no real notion of processes) and a random secret key.
 
 Finally, `ReadyForQuery` with transaction status `'I'` (idle) signals that the connection is ready to accept queries.
 
@@ -120,7 +120,7 @@ The connection enters the main query loop, handling messages until the client se
 
 ## Simple Query Mode
 
-In Simple Query mode, the client sends a `Query` message containing a complete SQL string with all parameter values embedded as literals. SlateDuck:
+In Simple Query mode, the client sends a `Query` message containing a complete SQL string with all parameter values embedded as literals. Rocklake:
 
 1. Receives the `Query` message
 2. Splits on semicolons if multiple statements are present
@@ -136,21 +136,21 @@ DuckDB uses Simple Query mode for most catalog operations. The simplicity of thi
 
 In Extended Query mode, the client separates statement preparation from execution, allowing parameter binding. The message flow is:
 
-1. **Parse** — The client sends a SQL string with `$1`, `$2` parameter placeholders. SlateDuck stores the SQL string keyed by the statement name but does not pre-process it (classification is cheap enough to defer to execution time).
+1. **Parse** — The client sends a SQL string with `$1`, `$2` parameter placeholders. Rocklake stores the SQL string keyed by the statement name but does not pre-process it (classification is cheap enough to defer to execution time).
 
-2. **Bind** — The client provides parameter values for a previously parsed statement. SlateDuck captures the values into a `ParamValues` struct with typed accessors.
+2. **Bind** — The client provides parameter values for a previously parsed statement. Rocklake captures the values into a `ParamValues` struct with typed accessors.
 
-3. **Describe** — The client requests column metadata for the prepared statement. SlateDuck classifies the statement (if not already classified) and returns `RowDescription` based on the expected output columns for that statement kind.
+3. **Describe** — The client requests column metadata for the prepared statement. Rocklake classifies the statement (if not already classified) and returns `RowDescription` based on the expected output columns for that statement kind.
 
-4. **Execute** — The client requests execution of the bound statement. SlateDuck classifies the SQL with the bound parameters, executes against the catalog, and streams results as `DataRow` messages.
+4. **Execute** — The client requests execution of the bound statement. Rocklake classifies the SQL with the bound parameters, executes against the catalog, and streams results as `DataRow` messages.
 
-5. **Sync** — The client signals the end of the extended query pipeline. SlateDuck sends `ReadyForQuery`.
+5. **Sync** — The client signals the end of the extended query pipeline. Rocklake sends `ReadyForQuery`.
 
 DuckDB uses Extended Query mode for parameterized operations — particularly INSERT statements where column values vary between executions. The `ducklake` extension prepares statements like `INSERT INTO ducklake_data_file ($1, $2, $3, ...)` once and executes them multiple times with different file metadata.
 
 ## Type System Mapping
 
-SlateDuck maps DuckLake's logical types to PostgreSQL OIDs for wire protocol encoding:
+Rocklake maps DuckLake's logical types to PostgreSQL OIDs for wire protocol encoding:
 
 | PostgreSQL Type | OID | Format | Used For |
 |----------------|-----|--------|----------|
@@ -176,7 +176,7 @@ Errors are encoded as PostgreSQL `ErrorResponse` messages with structured fields
 | Detail | Additional context (optional) |
 | Hint | Suggested action (optional) |
 
-SlateDuck maps internal errors to PostgreSQL SQLSTATE codes:
+Rocklake maps internal errors to PostgreSQL SQLSTATE codes:
 
 | Internal Error | SQLSTATE | Category | Meaning |
 |---------------|----------|----------|---------|
@@ -206,7 +206,7 @@ Each connection maintains per-session state in a `SessionState` struct:
 
 ## Connection Limits and Resource Protection
 
-SlateDuck enforces several limits to prevent resource exhaustion:
+Rocklake enforces several limits to prevent resource exhaustion:
 
 | Limit | Default | Purpose |
 |-------|---------|---------|
@@ -222,14 +222,14 @@ These limits are configurable via the server configuration. Exceeding a limit re
 TLS is configured via command-line arguments:
 
 ```bash
-slateduck \
+rocklake \
     --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
     --tls-cert /path/to/certificate.pem \
     --tls-key /path/to/private-key.pem
 ```
 
-SlateDuck supports:
+Rocklake supports:
 
 - TLS 1.2 and TLS 1.3
 - ECDSA and RSA certificates
@@ -241,7 +241,7 @@ For development, self-signed certificates work. For production, use certificates
 
 ## Protocol Compatibility Notes
 
-SlateDuck intentionally does not implement several PostgreSQL protocol features:
+Rocklake intentionally does not implement several PostgreSQL protocol features:
 
 - **COPY protocol** — Bulk data loading/unloading (not needed for catalog operations)
 - **Notifications (LISTEN/NOTIFY)** — Async event channels
@@ -250,7 +250,7 @@ SlateDuck intentionally does not implement several PostgreSQL protocol features:
 - **SASL authentication** — SCRAM-SHA-256 (planned for a future release)
 - **SSL session resumption** — Each connection performs a full TLS handshake
 
-These omissions are intentional: DuckDB's `ducklake` extension does not use any of these features. If a client sends an unexpected message type, SlateDuck responds with an `ErrorResponse` (SQLSTATE `0A000`, "feature not supported") rather than silently ignoring it.
+These omissions are intentional: DuckDB's `ducklake` extension does not use any of these features. If a client sends an unexpected message type, Rocklake responds with an `ErrorResponse` (SQLSTATE `0A000`, "feature not supported") rather than silently ignoring it.
 
 ## Further Reading
 

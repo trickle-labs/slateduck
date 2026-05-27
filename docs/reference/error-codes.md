@@ -1,6 +1,6 @@
 # Error Codes Reference
 
-This page documents all SQLSTATE error codes that SlateDuck may return to clients over the PostgreSQL wire protocol. SQLSTATE codes are the standard mechanism for programmatic error handling — your application code should match on these codes, NOT on error message strings. Error messages are human-readable descriptions intended for logs and debugging; they may change between SlateDuck versions without notice. SQLSTATE codes are stable across versions and safe for programmatic use.
+This page documents all SQLSTATE error codes that Rocklake may return to clients over the PostgreSQL wire protocol. SQLSTATE codes are the standard mechanism for programmatic error handling — your application code should match on these codes, NOT on error message strings. Error messages are human-readable descriptions intended for logs and debugging; they may change between Rocklake versions without notice. SQLSTATE codes are stable across versions and safe for programmatic use.
 
 Each code consists of five characters: two characters for the error class (the broad category) and three characters for the specific condition within that class. For example, `42P01` belongs to class `42` (Syntax Error or Access Rule Violation) with specific condition `P01` (Undefined Table).
 
@@ -46,7 +46,7 @@ The operation completed without errors.
 
 ## Class 08 — Connection Exception
 
-Connection errors indicate problems with the network connection between the client and SlateDuck.
+Connection errors indicate problems with the network connection between the client and Rocklake.
 
 ### 08000: connection_exception
 
@@ -84,13 +84,13 @@ A network error occurred during an operation. The connection is no longer usable
 
 ### 0A000: feature_not_supported
 
-The requested operation or feature is not supported by this version of SlateDuck.
+The requested operation or feature is not supported by this version of Rocklake.
 
 | Aspect | Detail |
 |--------|--------|
 | **When returned** | Unrecognized catalog format version, unsupported DuckLake protocol feature |
-| **Common causes** | Catalog created by a newer SlateDuck version, DuckDB using a protocol extension not yet implemented |
-| **Client action** | Upgrade SlateDuck to a version that supports the requested feature |
+| **Common causes** | Catalog created by a newer Rocklake version, DuckDB using a protocol extension not yet implemented |
+| **Client action** | Upgrade Rocklake to a version that supports the requested feature |
 | **Example message** | `"catalog format version 3 not supported (maximum supported: 2)"` |
 
 ---
@@ -129,7 +129,7 @@ A write operation was attempted on a connection or instance that is configured a
 | Aspect | Detail |
 |--------|--------|
 | **When returned** | INSERT, UPDATE, DELETE, or DDL on a read-only instance |
-| **Common causes** | Connected to a read-only replica, SLATEDUCK_READ_ONLY=true |
+| **Common causes** | Connected to a read-only replica, ROCKLAKE_READ_ONLY=true |
 | **Client action** | Connect to the writer instance for write operations |
 | **Example message** | `"cannot execute INSERT in a read-only transaction"` |
 
@@ -152,7 +152,7 @@ A referenced schema does not exist at the requested snapshot.
 
 ## Class 42 — Syntax Error or Access Rule Violation
 
-The most common error class in SlateDuck. These errors indicate that the SQL statement is either not recognized or references objects that do not exist.
+The most common error class in Rocklake. These errors indicate that the SQL statement is either not recognized or references objects that do not exist.
 
 ### 42000: syntax_error_or_access_rule_violation
 
@@ -165,17 +165,17 @@ General catch-all for class 42 errors that do not fit a more specific code.
 
 ### 42601: syntax_error
 
-The SQL statement was not recognized by SlateDuck's bounded SQL classifier. This is the most frequently encountered error for clients sending arbitrary SQL.
+The SQL statement was not recognized by Rocklake's bounded SQL classifier. This is the most frequently encountered error for clients sending arbitrary SQL.
 
 | Aspect | Detail |
 |--------|--------|
-| **When returned** | Any SQL statement not in SlateDuck's bounded set |
-| **Common causes** | Sending SELECT queries (SlateDuck is not a query engine), using SQL syntax from a newer DuckDB version not yet supported, typos in DuckLake protocol SQL |
+| **When returned** | Any SQL statement not in Rocklake's bounded set |
+| **Common causes** | Sending SELECT queries (Rocklake is not a query engine), using SQL syntax from a newer DuckDB version not yet supported, typos in DuckLake protocol SQL |
 | **Client action** | Verify the statement matches a supported pattern (see [Supported SQL](sql-supported.md)) |
 | **Example message** | `"statement not recognized by bounded SQL classifier"` |
-| **Hint included** | `"SlateDuck only accepts DuckLake protocol statements"` |
+| **Hint included** | `"Rocklake only accepts DuckLake protocol statements"` |
 
-**Important:** This error does NOT mean the SQL is syntactically invalid in general — it means SlateDuck specifically does not handle this statement pattern.
+**Important:** This error does NOT mean the SQL is syntactically invalid in general — it means Rocklake specifically does not handle this statement pattern.
 
 ### 42P01: undefined_table
 
@@ -253,7 +253,7 @@ The current writer has been fenced (invalidated) because another writer started 
 
 ### 58000: system_error
 
-An error occurred in the underlying object storage system. SlateDuck could not complete the operation due to an infrastructure issue.
+An error occurred in the underlying object storage system. Rocklake could not complete the operation due to an infrastructure issue.
 
 | Aspect | Detail |
 |--------|--------|
@@ -267,7 +267,7 @@ An error occurred in the underlying object storage system. SlateDuck could not c
 | Detail | Meaning | Action |
 |--------|---------|--------|
 | `AccessDenied` | IAM credentials insufficient | Check IAM role/policy |
-| `NoSuchBucket` | Storage bucket does not exist | Verify SLATEDUCK_STORAGE path |
+| `NoSuchBucket` | Storage bucket does not exist | Verify ROCKLAKE_STORAGE path |
 | `RequestTimeout` | Storage did not respond in time | Retry (transient) |
 | `SlowDown` | Storage is throttling requests | Back off, retry later |
 | `ServiceUnavailable` | Storage service is down | Wait and retry |
@@ -278,18 +278,18 @@ An error occurred in the underlying object storage system. SlateDuck could not c
 
 ### XX000: internal_error
 
-An unexpected internal error occurred. This indicates a bug in SlateDuck or data corruption.
+An unexpected internal error occurred. This indicates a bug in Rocklake or data corruption.
 
 | Aspect | Detail |
 |--------|--------|
 | **When returned** | Protobuf decode failure, invariant violation, unexpected state |
-| **Common causes** | Bug in SlateDuck, catalog data corruption (extremely rare), version mismatch between binary and catalog format |
-| **Client action** | Report this as a bug. Include the full error message and any relevant context (SlateDuck version, operation being performed, storage backend). |
+| **Common causes** | Bug in Rocklake, catalog data corruption (extremely rare), version mismatch between binary and catalog format |
+| **Client action** | Report this as a bug. Include the full error message and any relevant context (Rocklake version, operation being performed, storage backend). |
 | **Example message** | `"internal error: failed to decode value for key [0x05 0x00...]: unexpected field tag"` |
 
 **If you see XX000 errors repeatedly:**
 
-1. Check SlateDuck version matches the catalog format version
+1. Check Rocklake version matches the catalog format version
 2. Run the verify tool (see [Operations: Verify & Repair](../operations/verify-repair.md))
 3. Report the issue on GitHub with full error output
 
@@ -348,6 +348,6 @@ This is particularly important for `08006` (connection_failure) where the commit
 
 ## Further Reading
 
-- **[Supported SQL](sql-supported.md)** — What SQL statements SlateDuck accepts
+- **[Supported SQL](sql-supported.md)** — What SQL statements Rocklake accepts
 - **[Internals: SQLSTATE Mapping](../internals/sqlstate-mapping.md)** — How internal errors map to SQLSTATE codes
 - **[Operations: Troubleshooting](../operations/troubleshooting.md)** — Diagnosing common error scenarios

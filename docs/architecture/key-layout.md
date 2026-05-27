@@ -1,6 +1,6 @@
 # Key Layout
 
-Every piece of catalog metadata in SlateDuck is stored as a key-value pair in SlateDB's LSM-tree. The key encoding is the foundation upon which everything else is built: efficient prefix scans, lexicographic ordering that matches logical ordering, hierarchical relationships without secondary indexes, and MVCC version ranges embedded directly in the key structure. Understanding the key layout is essential for contributors working on the catalog store and valuable for operators who want to reason about scan performance and storage characteristics.
+Every piece of catalog metadata in Rocklake is stored as a key-value pair in SlateDB's LSM-tree. The key encoding is the foundation upon which everything else is built: efficient prefix scans, lexicographic ordering that matches logical ordering, hierarchical relationships without secondary indexes, and MVCC version ranges embedded directly in the key structure. Understanding the key layout is essential for contributors working on the catalog store and valuable for operators who want to reason about scan performance and storage characteristics.
 
 This page documents the complete key schema, explains the encoding principles behind it, walks through the common access patterns it optimizes, and discusses the trade-offs that shaped its design.
 
@@ -206,7 +206,7 @@ A catalog with 50 tables, 500 columns, and 10,000 data files occupies approximat
 
 ### Why Not Composite String Keys?
 
-Some key-value systems use string keys like `/schema/1/table/42/column/7`. SlateDuck uses binary encoding instead because:
+Some key-value systems use string keys like `/schema/1/table/42/column/7`. Rocklake uses binary encoding instead because:
 
 - Binary keys are shorter (25 bytes vs. 30+ bytes for the equivalent string)
 - Binary comparison is faster (memcmp vs. string parsing)
@@ -215,7 +215,7 @@ Some key-value systems use string keys like `/schema/1/table/42/column/7`. Slate
 
 ### Why Not Separate MVCC from Entity Keys?
 
-An alternative design would store `begin_snapshot` and `end_snapshot` only in the value, not in the key. SlateDuck includes `begin_snapshot` in the key for versioned entities because:
+An alternative design would store `begin_snapshot` and `end_snapshot` only in the value, not in the key. Rocklake includes `begin_snapshot` in the key for versioned entities because:
 
 - It makes all versions of an entity contiguous (important for efficient version resolution)
 - It enables writing a new version without modifying the old one (the old key is untouched; only its value gets `end_snapshot` updated)

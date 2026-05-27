@@ -1,6 +1,6 @@
 # Excision
 
-Excision is the physical deletion of catalog entries that are no longer visible to any valid reader. It is the second phase of garbage collection (after advancing the retention horizon) and represents the only operation in SlateDuck that permanently destroys data. Because of its destructive and irreversible nature, excision includes multiple safety checks, requires explicit confirmation, and produces a permanent audit trail.
+Excision is the physical deletion of catalog entries that are no longer visible to any valid reader. It is the second phase of garbage collection (after advancing the retention horizon) and represents the only operation in Rocklake that permanently destroys data. Because of its destructive and irreversible nature, excision includes multiple safety checks, requires explicit confirmation, and produces a permanent audit trail.
 
 Think of it this way: garbage collection (Phase 1) closes the blinds — old snapshots become invisible to readers, but the data still exists behind the blinds. Excision tears out the walls — the data is gone forever. Most operators never need excision. Those who do should treat it with the same caution as `DROP DATABASE`.
 
@@ -15,7 +15,7 @@ Think of it this way: garbage collection (Phase 1) closes the blinds — old sna
 
 ### NOT Appropriate Uses
 
-- **Hiding old snapshots.** Use `slateduck gc --retain-days N` instead — this is reversible.
+- **Hiding old snapshots.** Use `rocklake gc --retain-days N` instead — this is reversible.
 - **Routine maintenance.** Normal catalogs accumulate negligible storage overhead.
 - **"Cleaning up."** If you cannot articulate why the data must be physically gone, you do not need excision.
 - **Performance tuning.** SlateDB's compaction handles storage efficiency at the LSM level. Excision is about compliance, not performance.
@@ -74,7 +74,7 @@ These checks ensure you cannot accidentally delete data that readers still need.
 Always start with a dry run to understand the impact:
 
 ```bash
-slateduck excise --catalog s3://bucket/catalog/ --before-snapshot 1000 --dry-run
+rocklake excise --catalog s3://bucket/catalog/ --before-snapshot 1000 --dry-run
 ```
 
 Output:
@@ -103,13 +103,13 @@ Excision Dry Run:
 Before excision, create an NDJSON export as a safety net:
 
 ```bash
-slateduck export --catalog s3://bucket/catalog/ --output pre-excision-backup.ndjson
+rocklake export --catalog s3://bucket/catalog/ --output pre-excision-backup.ndjson
 ```
 
 ### Step 3: Execute
 
 ```bash
-slateduck excise \
+rocklake excise \
     --catalog s3://bucket/catalog/ \
     --before-snapshot 1000 \
     --operator "ops-team@company.com" \
@@ -133,11 +133,11 @@ Excision completed:
 
 ```bash
 # Confirm the excised data is gone
-slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/v/800"
+rocklake inspect --catalog s3://bucket/catalog/ --key "t/5/v/800"
 # Key not found (expected)
 
 # Confirm live data is unaffected
-slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/latest"
+rocklake inspect --catalog s3://bucket/catalog/ --key "t/5/latest"
 # Found: table_id=5, name="events", ...
 ```
 
@@ -166,7 +166,7 @@ Every excision creates a permanent audit entry stored under the `0xFF|audit` pre
 ### Viewing Audit History
 
 ```bash
-slateduck audit --catalog s3://bucket/catalog/
+rocklake audit --catalog s3://bucket/catalog/
 
 # Output:
 # Timestamp            Type       Rows    Operator
@@ -180,7 +180,7 @@ For GDPR right-to-erasure requests targeting specific entities:
 
 ```bash
 # Excise all versions of a specific table's metadata
-slateduck excise \
+rocklake excise \
     --catalog s3://bucket/catalog/ \
     --table-id 42 \
     --all-versions \
@@ -193,7 +193,7 @@ This removes all historical versions of a specific table's catalog entries witho
 
 ## Recovery After Accidental Excision
 
-Excision is irreversible from SlateDuck's perspective. Recovery options:
+Excision is irreversible from Rocklake's perspective. Recovery options:
 
 | Recovery Method | Availability | Completeness | Complexity |
 |----------------|-------------|--------------|------------|
@@ -221,7 +221,7 @@ Kubernetes CronJob for monthly excision:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: slateduck-excise
+  name: rocklake-excise
 spec:
   schedule: "0 4 1 * *"  # First of every month at 4 AM
   jobTemplate:
@@ -230,9 +230,9 @@ spec:
         spec:
           containers:
             - name: excise
-              image: ghcr.io/slateduck/slateduck:0.8.0
+              image: ghcr.io/rocklake/rocklake:0.8.0
               command:
-                - "slateduck"
+                - "rocklake"
                 - "excise"
                 - "--storage"
                 - "s3://bucket/catalog/"
@@ -276,7 +276,7 @@ For operators planning excision of large row counts, it is advisable to trigger 
 
 ```bash
 # After excision, force compaction to reclaim space immediately
-slateduck compact --catalog s3://bucket/catalog/ --full
+rocklake compact --catalog s3://bucket/catalog/ --full
 ```
 
 ### Concurrent Operations During Excision
@@ -294,7 +294,7 @@ For large excision operations, schedule during maintenance windows to avoid bloc
 
 **Q: Does excision delete the actual data files (Parquet files in the data lake)?**
 
-No. Excision removes only catalog metadata — the entries in SlateDuck that describe the data files. The Parquet files themselves remain in the data lake untouched. If you need to delete the actual data files for compliance, you must do so separately after identifying them via the export or inspect commands.
+No. Excision removes only catalog metadata — the entries in Rocklake that describe the data files. The Parquet files themselves remain in the data lake untouched. If you need to delete the actual data files for compliance, you must do so separately after identifying them via the export or inspect commands.
 
 **Q: Can I excise a single row without affecting everything before a snapshot?**
 

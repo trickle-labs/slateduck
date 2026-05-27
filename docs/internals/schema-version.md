@@ -1,12 +1,12 @@
 # Schema Version
 
-SlateDuck stores a format version in every catalog to ensure that binaries never accidentally read or write incompatible data. This is the simplest and most critical safety mechanism in the system: if a SlateDuck binary encounters a catalog whose format version does not match its expectations, it refuses to operate. No corruption, no silent data loss, no mysterious errors hours later. An immediate, clear rejection.
+Rocklake stores a format version in every catalog to ensure that binaries never accidentally read or write incompatible data. This is the simplest and most critical safety mechanism in the system: if a Rocklake binary encounters a catalog whose format version does not match its expectations, it refuses to operate. No corruption, no silent data loss, no mysterious errors hours later. An immediate, clear rejection.
 
 This page documents how format versions are stored, how compatibility is checked, what constitutes a breaking change versus a compatible change, and how future migrations will work when the format eventually evolves.
 
 ## Why Format Versioning Matters
 
-Catalog data is long-lived. A SlateDuck catalog created today will still be accessed in two years, five years, possibly longer. Over that time, the SlateDuck binary will be updated many times. Each update may change:
+Catalog data is long-lived. A Rocklake catalog created today will still be accessed in two years, five years, possibly longer. Over that time, the Rocklake binary will be updated many times. Each update may change:
 
 - How keys are encoded (new fields, different ordering)
 - How values are serialized (protobuf schema changes)
@@ -17,7 +17,7 @@ Without version tracking, an old binary could read new-format data and misinterp
 
 ## Current Format Version
 
-The current catalog format version is **1**. This version has been stable since SlateDuck's initial release and encompasses the following contracts:
+The current catalog format version is **1**. This version has been stable since Rocklake's initial release and encompasses the following contracts:
 
 | Component | Format Version 1 Specification |
 |-----------|-------------------------------|
@@ -44,7 +44,7 @@ This key is stored in the same keyspace as all other catalog data. It is written
 
 ### Startup Check
 
-When a SlateDuck binary starts, it performs this sequence:
+When a Rocklake binary starts, it performs this sequence:
 
 1. Open the SlateDB manifest at the configured storage path
 2. Read the system key `0xFF | "catalog-format-version"`
@@ -52,11 +52,11 @@ When a SlateDuck binary starts, it performs this sequence:
 4. If they match: proceed normally
 5. If they do not match: emit error `FormatVersionMismatch` (SQLSTATE 0A000) and refuse to operate
 
-This check happens before any catalog operations are served. No client can connect to a SlateDuck instance that has detected a format mismatch.
+This check happens before any catalog operations are served. No client can connect to a Rocklake instance that has detected a format mismatch.
 
 ### New Catalog Initialization
 
-When creating a new catalog (first write to an empty storage path), SlateDuck writes the format version as part of the initialization batch:
+When creating a new catalog (first write to an empty storage path), Rocklake writes the format version as part of the initialization batch:
 
 ```
 Write batch (atomic):
@@ -100,17 +100,17 @@ Protobuf's wire format is specifically designed for forward and backward compati
 
 ## Forward Compatibility
 
-SlateDuck is designed to be maximally forward-compatible:
+Rocklake is designed to be maximally forward-compatible:
 
 ### Adding New Table Types
 
-When a new DuckLake protocol version adds a new table type (e.g., "ducklake_partitions"), SlateDuck:
+When a new DuckLake protocol version adds a new table type (e.g., "ducklake_partitions"), Rocklake:
 
 1. Allocates a new tag (e.g., 0x0E)
 2. Implements the new row type with new protobuf message
 3. Adds handling in the catalog reader and writer
 
-An older SlateDuck binary encountering keys with tag 0x0E will:
+An older Rocklake binary encountering keys with tag 0x0E will:
 - Skip them during scans (unknown tag, not part of any known prefix)
 - Not serve them to DuckDB (DuckDB of the old version does not know about partitions either)
 - Not corrupt them (reads are non-destructive)
@@ -119,7 +119,7 @@ This means you can upgrade the catalog format (by writing new tag types) without
 
 ### Adding New Fields to Existing Rows
 
-When SlateDuck adds information to an existing row type (e.g., adding a "created_by" field to table rows):
+When Rocklake adds information to an existing row type (e.g., adding a "created_by" field to table rows):
 
 1. Add a new protobuf field with the next available field number
 2. New binaries write the field; old binaries do not
@@ -153,8 +153,8 @@ The new binary detects the old format version, transforms all data in place, and
 A migration tool exports the catalog state, creates a fresh format-2 catalog, and imports:
 
 ```
-1. Run: slateduck export --format v1 --output catalog-v1.ndjson
-2. Run: slateduck import --format v2 --input catalog-v1.ndjson --catalog new-path
+1. Run: rocklake export --format v1 --output catalog-v1.ndjson
+2. Run: rocklake import --format v2 --input catalog-v1.ndjson --catalog new-path
 3. Switch to new catalog path
 4. (Optionally) archive old catalog
 ```
@@ -180,15 +180,15 @@ The test suite includes format compatibility tests:
 
 ## Practical Implications for Operators
 
-### Upgrading SlateDuck
+### Upgrading Rocklake
 
-When upgrading SlateDuck to a new version:
+When upgrading Rocklake to a new version:
 
 1. Check the release notes for format version changes (extremely rare)
 2. If no format change: simply replace the binary and restart
 3. If format change: follow the migration guide in the release notes
 
-### Downgrading SlateDuck
+### Downgrading Rocklake
 
 Downgrading to an older binary is safe as long as:
 

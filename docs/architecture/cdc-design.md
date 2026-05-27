@@ -3,7 +3,7 @@
 ## Overview
 
 The `table_changes(table_ref, start_snapshot, end_snapshot)` function provides
-row-level Change Data Capture (CDC) for DuckLake tables managed by SlateDuck.
+row-level Change Data Capture (CDC) for DuckLake tables managed by Rocklake.
 It returns the set of row-level mutations that occurred between two catalog
 snapshots: inserts, deletes, and (when detectable) update pre/post-image pairs.
 

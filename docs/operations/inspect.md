@@ -2,22 +2,22 @@
 
 The inspect command provides a comprehensive summary of a catalog's internal state without requiring a DuckDB connection. It reads system keys, entity counts, snapshot metadata, and storage configuration directly from SlateDB, presenting them in a human-readable format. Inspect is the first tool you should reach for when diagnosing operational issues, verifying deployments, or simply understanding what a catalog contains.
 
-Think of inspect as SlateDuck's equivalent of `SHOW STATUS` in MySQL or `pg_stat_activity` in PostgreSQL — a quick health check that reveals the catalog's vital signs.
+Think of inspect as Rocklake's equivalent of `SHOW STATUS` in MySQL or `pg_stat_activity` in PostgreSQL — a quick health check that reveals the catalog's vital signs.
 
 ## Basic Usage
 
 ```bash
 # Inspect a catalog on S3
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 
 # Inspect a local catalog
-slateduck inspect --catalog ./local-catalog/
+rocklake inspect --catalog ./local-catalog/
 
 # Inspect with JSON output (for scripts)
-slateduck inspect --catalog s3://bucket/catalog/ --format json
+rocklake inspect --catalog s3://bucket/catalog/ --format json
 
 # Inspect at a specific snapshot (historical state)
-slateduck inspect --catalog s3://bucket/catalog/ --at-snapshot 500
+rocklake inspect --catalog s3://bucket/catalog/ --at-snapshot 500
 ```
 
 ## Output
@@ -25,7 +25,7 @@ slateduck inspect --catalog s3://bucket/catalog/ --at-snapshot 500
 ### Human-Readable Format
 
 ```
-SlateDuck Catalog Inspection
+Rocklake Catalog Inspection
 ════════════════════════════════════════════════════════════════
 Storage:           s3://my-bucket/lakehouse/catalog/
 Format Version:    1
@@ -83,7 +83,7 @@ Inspection completed in 320ms
 For programmatic consumption:
 
 ```bash
-slateduck inspect --catalog s3://bucket/catalog/ --format json
+rocklake inspect --catalog s3://bucket/catalog/ --format json
 ```
 
 ```json
@@ -170,15 +170,15 @@ For low-level debugging, inspect individual keys:
 
 ```bash
 # Look up a specific table's current version
-slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/latest"
+rocklake inspect --catalog s3://bucket/catalog/ --key "t/5/latest"
 
 # Look up a specific historical version
-slateduck inspect --catalog s3://bucket/catalog/ --key "t/5/v/300"
+rocklake inspect --catalog s3://bucket/catalog/ --key "t/5/v/300"
 
 # Look up system keys
-slateduck inspect --catalog s3://bucket/catalog/ --key "sys/epoch"
-slateduck inspect --catalog s3://bucket/catalog/ --key "sys/format_version"
-slateduck inspect --catalog s3://bucket/catalog/ --key "sys/retain_from"
+rocklake inspect --catalog s3://bucket/catalog/ --key "sys/epoch"
+rocklake inspect --catalog s3://bucket/catalog/ --key "sys/format_version"
+rocklake inspect --catalog s3://bucket/catalog/ --key "sys/retain_from"
 ```
 
 Output for key inspection:
@@ -198,13 +198,13 @@ List all keys under a prefix:
 
 ```bash
 # List all versions of table 5
-slateduck inspect --catalog s3://bucket/catalog/ --prefix "t/5/"
+rocklake inspect --catalog s3://bucket/catalog/ --prefix "t/5/"
 
 # List all column entries for table 5
-slateduck inspect --catalog s3://bucket/catalog/ --prefix "c/5/"
+rocklake inspect --catalog s3://bucket/catalog/ --prefix "c/5/"
 
 # List all system keys
-slateduck inspect --catalog s3://bucket/catalog/ --prefix "sys/"
+rocklake inspect --catalog s3://bucket/catalog/ --prefix "sys/"
 ```
 
 ## Operational Patterns
@@ -215,7 +215,7 @@ slateduck inspect --catalog s3://bucket/catalog/ --prefix "sys/"
 #!/bin/bash
 # health-check.sh - Returns exit code 0 if catalog is healthy
 
-OUTPUT=$(slateduck inspect --catalog "$CATALOG_URL" --format json 2>&1)
+OUTPUT=$(rocklake inspect --catalog "$CATALOG_URL" --format json 2>&1)
 if [ $? -ne 0 ]; then
     echo "CRITICAL: Cannot reach catalog"
     exit 2
@@ -240,23 +240,23 @@ Feed inspect output into Prometheus/Datadog:
 
 ```bash
 # Emit metrics in StatsD format
-OUTPUT=$(slateduck inspect --catalog s3://bucket/catalog/ --format json)
-echo "slateduck.latest_snapshot:$(echo $OUTPUT | jq '.latest_snapshot')|g" | nc -u -w1 localhost 8125
-echo "slateduck.writer_epoch:$(echo $OUTPUT | jq '.writer_epoch')|g" | nc -u -w1 localhost 8125
-echo "slateduck.tables:$(echo $OUTPUT | jq '.counts.tables')|g" | nc -u -w1 localhost 8125
-echo "slateduck.data_files:$(echo $OUTPUT | jq '.counts.data_files')|g" | nc -u -w1 localhost 8125
+OUTPUT=$(rocklake inspect --catalog s3://bucket/catalog/ --format json)
+echo "rocklake.latest_snapshot:$(echo $OUTPUT | jq '.latest_snapshot')|g" | nc -u -w1 localhost 8125
+echo "rocklake.writer_epoch:$(echo $OUTPUT | jq '.writer_epoch')|g" | nc -u -w1 localhost 8125
+echo "rocklake.tables:$(echo $OUTPUT | jq '.counts.tables')|g" | nc -u -w1 localhost 8125
+echo "rocklake.data_files:$(echo $OUTPUT | jq '.counts.data_files')|g" | nc -u -w1 localhost 8125
 ```
 
 ### Deployment Verification
 
-After deploying a new SlateDuck instance:
+After deploying a new Rocklake instance:
 
 ```bash
 # Verify the new instance can read the catalog
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 
 # Compare with expected state
-LATEST=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
+LATEST=$(rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.latest_snapshot')
 if [ "$LATEST" -lt 1000 ]; then
     echo "ERROR: Snapshot too low — possible wrong catalog path"
     exit 1
@@ -269,7 +269,7 @@ When DuckDB reports stale data:
 
 ```bash
 # Check what snapshot the catalog is at
-slateduck inspect --catalog s3://bucket/catalog/ --format json | jq '.last_snapshot'
+rocklake inspect --catalog s3://bucket/catalog/ --format json | jq '.last_snapshot'
 
 # If last_snapshot.time is old, the writer may have stopped
 # If last_snapshot.id is current, the reader may be pinned to an old snapshot
@@ -282,9 +282,9 @@ For multi-region or multi-environment setups:
 ```bash
 # Compare production vs staging
 echo "=== Production ==="
-slateduck inspect --catalog s3://prod-bucket/catalog/
+rocklake inspect --catalog s3://prod-bucket/catalog/
 echo "=== Staging ==="
-slateduck inspect --catalog s3://staging-bucket/catalog/
+rocklake inspect --catalog s3://staging-bucket/catalog/
 ```
 
 ## Performance
@@ -347,7 +347,7 @@ A healthy retention window is typically 1,000–10,000 snapshots, corresponding 
 ```bash
 #!/bin/bash
 # Alert if no new snapshots in 1 hour
-LATEST_TIME=$(slateduck inspect --catalog s3://bucket/catalog/ --format json | jq -r '.last_snapshot.time')
+LATEST_TIME=$(rocklake inspect --catalog s3://bucket/catalog/ --format json | jq -r '.last_snapshot.time')
 LATEST_EPOCH=$(date -d "$LATEST_TIME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$LATEST_TIME" +%s)
 NOW=$(date +%s)
 AGE=$((NOW - LATEST_EPOCH))
@@ -355,7 +355,7 @@ AGE=$((NOW - LATEST_EPOCH))
 if [ "$AGE" -gt 3600 ]; then
     curl -X POST "$SLACK_WEBHOOK" \
         -H 'Content-Type: application/json' \
-        -d "{\"text\":\"⚠️ SlateDuck catalog stale: last snapshot was ${AGE}s ago\"}"
+        -d "{\"text\":\"⚠️ Rocklake catalog stale: last snapshot was ${AGE}s ago\"}"
 fi
 ```
 
@@ -364,7 +364,7 @@ fi
 ```bash
 #!/bin/bash
 # Weekly capacity report
-OUTPUT=$(slateduck inspect --catalog s3://bucket/catalog/ --format json)
+OUTPUT=$(rocklake inspect --catalog s3://bucket/catalog/ --format json)
 TABLES=$(echo "$OUTPUT" | jq '.counts.tables')
 FILES=$(echo "$OUTPUT" | jq '.counts.data_files')
 VERSIONS=$(echo "$OUTPUT" | jq '.history.total_versioned_rows')

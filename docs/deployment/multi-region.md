@@ -1,8 +1,8 @@
 # Multi-Region Deployment
 
-Multi-region deployment allows SlateDuck to serve catalog queries from multiple geographic regions with low latency. A data team in Frankfurt should not wait 150ms for a round-trip to Virginia every time DuckDB resolves a table name — they should hit a local SlateDuck instance that responds in 5ms. Because SlateDuck uses object storage as its durable layer, multi-region deployment leverages your cloud provider's built-in cross-region replication rather than implementing its own replication protocol.
+Multi-region deployment allows Rocklake to serve catalog queries from multiple geographic regions with low latency. A data team in Frankfurt should not wait 150ms for a round-trip to Virginia every time DuckDB resolves a table name — they should hit a local Rocklake instance that responds in 5ms. Because Rocklake uses object storage as its durable layer, multi-region deployment leverages your cloud provider's built-in cross-region replication rather than implementing its own replication protocol.
 
-This page covers the architecture of multi-region SlateDuck deployments, configuration for each cloud provider, replication lag characteristics, failover procedures, and the cost trade-offs of geographic distribution.
+This page covers the architecture of multi-region Rocklake deployments, configuration for each cloud provider, replication lag characteristics, failover procedures, and the cost trade-offs of geographic distribution.
 
 ## Architecture
 
@@ -11,19 +11,19 @@ The multi-region pattern is simple: one writer in the primary region, read-only 
 ```mermaid
 flowchart LR
     subgraph "Region A (us-east-1)"
-        W[SlateDuck Writer]
+        W[Rocklake Writer]
         S3A[(S3 Bucket A)]
         W --> S3A
     end
     
     subgraph "Region B (eu-west-1)"
-        R1[SlateDuck Reader]
+        R1[Rocklake Reader]
         S3B[(S3 Bucket B)]
         R1 --> S3B
     end
     
     subgraph "Region C (ap-southeast-1)"
-        R2[SlateDuck Reader]
+        R2[Rocklake Reader]
         S3C[(S3 Bucket C)]
         R2 --> S3C
     end
@@ -36,7 +36,7 @@ The flow is unidirectional: writes go to the primary, replication propagates to 
 
 ### Why This Works
 
-Traditional databases struggle with multi-region because replicating transaction logs across continents introduces latency into the write path. SlateDuck does not have this problem because:
+Traditional databases struggle with multi-region because replicating transaction logs across continents introduces latency into the write path. Rocklake does not have this problem because:
 
 1. **Writes are local.** The writer commits to its local-region S3 bucket. The write path has zero cross-region latency.
 2. **Replication is asynchronous.** Cross-region copy happens in the background, managed by the cloud provider.
@@ -124,7 +124,7 @@ aws s3api put-bucket-replication \
 
 ```bash
 # In eu-west-1
-AWS_REGION=eu-west-1 slateduck \
+AWS_REGION=eu-west-1 rocklake \
     --catalog s3://my-lakehouse-eu-west-1/catalog/ \
     --bind 0.0.0.0:5432 \
     --read-only
@@ -158,7 +158,7 @@ gsutil mb -l US-EAST1+US-WEST1 gs://my-lakehouse/
 
 ```bash
 # Reader in any region (GCS handles routing automatically)
-slateduck serve --catalog gs://my-lakehouse/catalog/ --bind 0.0.0.0:5432 --read-only
+rocklake serve --catalog gs://my-lakehouse/catalog/ --bind 0.0.0.0:5432 --read-only
 ```
 
 ## Setup: Azure Blob Storage
@@ -179,10 +179,10 @@ With RA-GRS, the secondary endpoint is readable:
 
 ```bash
 # Primary (read/write)
-slateduck serve --catalog az://catalog@mylakehouse/ --bind 0.0.0.0:5432
+rocklake serve --catalog az://catalog@mylakehouse/ --bind 0.0.0.0:5432
 
 # Secondary (read-only, use secondary endpoint)
-slateduck serve --catalog az://catalog@mylakehouse-secondary/ --bind 0.0.0.0:5432 --read-only
+rocklake serve --catalog az://catalog@mylakehouse-secondary/ --bind 0.0.0.0:5432 --read-only
 ```
 
 ## Replication Lag
@@ -198,7 +198,7 @@ Cross-region replication is asynchronous. The lag determines how stale your read
 | Azure RA-GRS | Asynchronous | < 15 min typical | No firm SLA |
 | Azure GZRS | Asynchronous | < 15 min typical | No firm SLA |
 
-### What "Lag" Means for SlateDuck
+### What "Lag" Means for Rocklake
 
 During the replication lag window, readers in secondary regions serve a slightly older catalog snapshot. Concretely:
 
@@ -228,7 +228,7 @@ aws cloudwatch get-metric-statistics \
 
 ## Client Routing
 
-Route clients to their nearest SlateDuck instance for lowest latency.
+Route clients to their nearest Rocklake instance for lowest latency.
 
 ### DNS-Based Routing (AWS Route 53)
 
@@ -272,9 +272,9 @@ import os
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 CATALOG_HOSTS = {
-    "us-east-1": "slateduck-us.internal:5432",
-    "eu-west-1": "slateduck-eu.internal:5432",
-    "ap-southeast-1": "slateduck-ap.internal:5432",
+    "us-east-1": "rocklake-us.internal:5432",
+    "eu-west-1": "rocklake-eu.internal:5432",
+    "ap-southeast-1": "rocklake-ap.internal:5432",
 }
 
 catalog_host = CATALOG_HOSTS.get(REGION, CATALOG_HOSTS["us-east-1"])
@@ -300,7 +300,7 @@ If the primary region becomes unavailable (regional outage):
    ```bash
    # Stop the read-only instance
    # Restart without --read-only
-   slateduck serve --catalog s3://my-lakehouse-eu-west-1/catalog/ --bind 0.0.0.0:5432
+   rocklake serve --catalog s3://my-lakehouse-eu-west-1/catalog/ --bind 0.0.0.0:5432
    ```
 
 3. **Update DNS:** Point the writer endpoint to the new primary.
@@ -317,7 +317,7 @@ With asynchronous replication, any writes that had not yet replicated are lost. 
 | GCS Multi-Region | ~0 (synchronous) |
 | Azure RA-GRS | Up to 15 minutes |
 
-For SlateDuck catalogs, "lost data" means catalog metadata (table definitions, partition registrations) — not the actual data files in the lake. Data files in the lake are independently replicated and are not affected by SlateDuck's catalog state.
+For Rocklake catalogs, "lost data" means catalog metadata (table definitions, partition registrations) — not the actual data files in the lake. Data files in the lake are independently replicated and are not affected by Rocklake's catalog state.
 
 ### Failback Procedure
 
@@ -335,10 +335,10 @@ Multi-region deployment adds costs:
 |---------------|-------------------------|
 | S3 CRR data transfer (per GB replicated) | $0.02/GB |
 | Secondary bucket storage | Same as primary |
-| Secondary SlateDuck instance | Same as primary (small) |
+| Secondary Rocklake instance | Same as primary (small) |
 | DNS routing (Route 53) | $0.50/hosted zone + $0.60/million queries |
 
-For a typical SlateDuck catalog (10–100 MB of metadata), cross-region replication costs are negligible — less than $1/month. The dominant cost is the secondary SlateDuck instance, which can be as small as a `t3.micro` ($7/month).
+For a typical Rocklake catalog (10–100 MB of metadata), cross-region replication costs are negligible — less than $1/month. The dominant cost is the secondary Rocklake instance, which can be as small as a `t3.micro` ($7/month).
 
 ## Example: Three-Region Analytics Platform
 
@@ -350,19 +350,19 @@ For a typical SlateDuck catalog (10–100 MB of metadata), cross-region replicat
 regions:
   us-east-1:
     role: primary
-    instance: slateduck serve --catalog s3://lakehouse-us/catalog/ --bind 0.0.0.0:5432
+    instance: rocklake serve --catalog s3://lakehouse-us/catalog/ --bind 0.0.0.0:5432
     bucket: lakehouse-us
     replicates_to: [lakehouse-eu, lakehouse-ap]
 
   eu-west-1:
     role: reader
-    instance: slateduck serve --catalog s3://lakehouse-eu/catalog/ --bind 0.0.0.0:5432 --read-only
+    instance: rocklake serve --catalog s3://lakehouse-eu/catalog/ --bind 0.0.0.0:5432 --read-only
     bucket: lakehouse-eu
     receives_from: lakehouse-us
 
   ap-southeast-1:
     role: reader
-    instance: slateduck serve --catalog s3://lakehouse-ap/catalog/ --bind 0.0.0.0:5432 --read-only
+    instance: rocklake serve --catalog s3://lakehouse-ap/catalog/ --bind 0.0.0.0:5432 --read-only
     bucket: lakehouse-ap
     receives_from: lakehouse-us
 ```

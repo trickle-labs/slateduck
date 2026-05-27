@@ -2,9 +2,9 @@
 
 Performance in a metadata catalog is a different beast than performance in a query engine or application database. You are not optimizing for millions of rows per second or sub-microsecond response times. You are optimizing for consistent, predictable latency on operations that happen a few hundred times per minute — schema lookups, file registrations, snapshot creation. The numbers need to be good enough that catalog operations never become the bottleneck in your analytics pipeline. Beyond that threshold, additional performance gains yield diminishing returns.
 
-SlateDuck's performance profile is shaped by a fundamental architectural reality: the catalog state lives in object storage, and object storage has latency characteristics that are different from local disk or networked databases. A GET from S3 Standard takes 20–100ms. A PUT takes 50–150ms. These numbers define the floor for cold operations. Everything SlateDuck does to achieve better performance — caching, batching, hot key optimization — is about avoiding those round-trips or amortizing their cost.
+Rocklake's performance profile is shaped by a fundamental architectural reality: the catalog state lives in object storage, and object storage has latency characteristics that are different from local disk or networked databases. A GET from S3 Standard takes 20–100ms. A PUT takes 50–150ms. These numbers define the floor for cold operations. Everything Rocklake does to achieve better performance — caching, batching, hot key optimization — is about avoiding those round-trips or amortizing their cost.
 
-This section provides honest, reproducible performance data for SlateDuck's catalog operations. The emphasis is on honesty over marketing. Where SlateDuck is slower than alternatives, this documentation says so clearly. Where SlateDuck provides advantages that offset raw latency, those advantages are quantified. The goal is to give you the information needed to make a correct decision for your specific workload.
+This section provides honest, reproducible performance data for Rocklake's catalog operations. The emphasis is on honesty over marketing. Where Rocklake is slower than alternatives, this documentation says so clearly. Where Rocklake provides advantages that offset raw latency, those advantages are quantified. The goal is to give you the information needed to make a correct decision for your specific workload.
 
 ## Understanding the Numbers
 
@@ -14,7 +14,7 @@ Before diving into specific pages, some context about what "performance" means f
 
 **Reads vastly outnumber writes.** A typical catalog sees 100–1000 reads per write. Most reads hit the cache after initial warm-up. Write latency is dominated by the storage backend PUT, which is a fixed cost independent of transaction size (within reason).
 
-**Latency variance matters more than median latency.** A p50 of 2ms with a p99 of 200ms is worse than a p50 of 10ms with a p99 of 15ms, because the variance causes unpredictable behavior. SlateDuck's architecture (deterministic key layout, bounded scan amplification, explicit caching) is designed to minimize variance.
+**Latency variance matters more than median latency.** A p50 of 2ms with a p99 of 200ms is worse than a p50 of 10ms with a p99 of 15ms, because the variance causes unpredictable behavior. Rocklake's architecture (deterministic key layout, bounded scan amplification, explicit caching) is designed to minimize variance.
 
 ## Pages in This Section
 
@@ -24,7 +24,7 @@ Before diving into specific pages, some context about what "performance" means f
 
     ---
 
-    Where time is spent in catalog operations — the full request path from DuckDB through SlateDuck to object storage and back. Understand the layers, identify dominant factors, and learn which layers can be optimized.
+    Where time is spent in catalog operations — the full request path from DuckDB through Rocklake to object storage and back. Understand the layers, identify dominant factors, and learn which layers can be optimized.
 
 -   **[Benchmarks](benchmarks.md)**
 
@@ -44,11 +44,11 @@ Before diving into specific pages, some context about what "performance" means f
 
     Honest comparison against PostgreSQL, SQLite, and MySQL as DuckLake catalog backends. Raw latency numbers, operational cost analysis, and a decision framework for choosing the right backend.
 
--   **[When to Use SlateDuck](when-to-use.md)**
+-   **[When to Use Rocklake](when-to-use.md)**
 
     ---
 
-    Workload characteristics that favor SlateDuck and scenarios where alternatives are better. Includes specific thresholds and decision criteria rather than vague guidance.
+    Workload characteristics that favor Rocklake and scenarios where alternatives are better. Includes specific thresholds and decision criteria rather than vague guidance.
 
 </div>
 
@@ -66,10 +66,10 @@ After initial warm-up (the first few operations after startup), most reads hit t
 
 ## Performance Philosophy
 
-SlateDuck's performance engineering follows three principles:
+Rocklake's performance engineering follows three principles:
 
-**Optimize the common path, accept the rare path.** The first read of a key from a cold cache is slow (full object storage round-trip). Subsequent reads of the same key are fast (memory lookup). Rather than trying to make the cold path fast (which would require prefetching logic, speculative reads, and complexity), SlateDuck focuses on ensuring the hot path stays hot.
+**Optimize the common path, accept the rare path.** The first read of a key from a cold cache is slow (full object storage round-trip). Subsequent reads of the same key are fast (memory lookup). Rather than trying to make the cold path fast (which would require prefetching logic, speculative reads, and complexity), Rocklake focuses on ensuring the hot path stays hot.
 
 **Batch aggressively at the write boundary.** A transaction that registers 1 file and a transaction that registers 1,000 files cost approximately the same — one WAL PUT. This makes write throughput effectively free once you are inside a transaction. The optimization guidance is always "do more work per transaction" rather than "write faster."
 
-**Predictability over peak throughput.** A system that delivers 10,000 ops/sec with occasional 500ms stalls is less useful than one that delivers 1,000 ops/sec with a guaranteed p99 under 50ms. SlateDuck's fixed key layout, bounded scan ranges, and deterministic cache behavior aim for predictable latency rather than impressive peak numbers.
+**Predictability over peak throughput.** A system that delivers 10,000 ops/sec with occasional 500ms stalls is less useful than one that delivers 1,000 ops/sec with a guaranteed p99 under 50ms. Rocklake's fixed key layout, bounded scan ranges, and deterministic cache behavior aim for predictable latency rather than impressive peak numbers.

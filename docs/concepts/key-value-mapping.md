@@ -1,16 +1,16 @@
 # Key-Value Mapping
 
-SlateDuck stores relational catalog concepts — schemas, tables, columns, data files, snapshots — in a key-value store where keys are opaque byte sequences with careful internal structure. Understanding this mapping helps you reason about scan performance, predict which operations are fast, understand the output of debugging tools, and grasp why certain query patterns are possible (or impossible) with SlateDuck's architecture. If you have ever wondered why SlateDuck can serve a "list all files for this table" query in single-digit milliseconds but cannot efficiently answer "find all tables with a column named 'email'"  — the key structure explains exactly why.
+Rocklake stores relational catalog concepts — schemas, tables, columns, data files, snapshots — in a key-value store where keys are opaque byte sequences with careful internal structure. Understanding this mapping helps you reason about scan performance, predict which operations are fast, understand the output of debugging tools, and grasp why certain query patterns are possible (or impossible) with Rocklake's architecture. If you have ever wondered why Rocklake can serve a "list all files for this table" query in single-digit milliseconds but cannot efficiently answer "find all tables with a column named 'email'"  — the key structure explains exactly why.
 
 ## The Design Challenge
 
-A relational catalog has natural hierarchies and relationships: schemas contain tables, tables contain columns, tables reference data files, data files have column statistics. To store this hierarchy in a flat key-value namespace without sacrificing performance, SlateDuck encodes relationships directly into the key bytes using a tag-prefixed, big-endian encoding scheme that preserves lexicographic ordering. The result is a key layout where the most common access patterns in the DuckLake protocol — "give me all columns for table X" or "give me all files for table Y" — translate to single prefix scans that touch only the relevant keys, never the entire key space.
+A relational catalog has natural hierarchies and relationships: schemas contain tables, tables contain columns, tables reference data files, data files have column statistics. To store this hierarchy in a flat key-value namespace without sacrificing performance, Rocklake encodes relationships directly into the key bytes using a tag-prefixed, big-endian encoding scheme that preserves lexicographic ordering. The result is a key layout where the most common access patterns in the DuckLake protocol — "give me all columns for table X" or "give me all files for table Y" — translate to single prefix scans that touch only the relevant keys, never the entire key space.
 
 Every design decision in the key layout flows from one constraint: the most common query pattern for each entity type must be servable with a single prefix scan, not a full table scan. This constraint is what makes the catalog fast, and it is why certain keys look the way they do.
 
 ## Key Structure
 
-Every key in SlateDuck's catalog follows a simple pattern:
+Every key in Rocklake's catalog follows a simple pattern:
 
 ```
 [tag: 1 byte] [composite key fields: variable length]
@@ -24,7 +24,7 @@ This matters because prefix scans in SlateDB use lexicographic ordering. "Give m
 
 ## The Tag Registry
 
-SlateDuck allocates tags from a fixed, pre-planned registry. The full 28-entry DuckLake catalog table space is allocated even for tables not yet implemented, which prevents tag collision if new tables are added in the future:
+Rocklake allocates tags from a fixed, pre-planned registry. The full 28-entry DuckLake catalog table space is allocated even for tables not yet implemented, which prevents tag collision if new tables are added in the future:
 
 | Tag Range | Purpose |
 |-----------|---------|
@@ -130,7 +130,7 @@ Note that data file keys do not include `begin_snapshot` as a suffix. This is a 
 [0xFE] [counter_name: variable bytes]
 ```
 
-SlateDuck maintains three global counters: `next_snapshot_id`, `next_catalog_id`, and `next_file_id`. Plus one per-table counter: `column_id_{table_id}`. Each is stored as a key in the `0xFE` namespace with a string name suffix.
+Rocklake maintains three global counters: `next_snapshot_id`, `next_catalog_id`, and `next_file_id`. Plus one per-table counter: `column_id_{table_id}`. Each is stored as a key in the `0xFE` namespace with a string name suffix.
 
 **Example:** The `next_snapshot_id` counter:
 ```
@@ -193,9 +193,9 @@ Values are wrapped in a lightweight envelope format that provides corruption det
 
 The `SDKV` magic serves as a corruption detector: if a read returns bytes where the first four bytes after the version byte do not match `SDKV`, the decoder refuses to proceed and returns an error. This catches cases where a key lookup returns the wrong entry (a logic bug) or where storage has been partially corrupted.
 
-The `encoding_version` byte enables forward compatibility: if a future version of SlateDuck introduces a different encoding for some entry type, it can use a different version byte. Old readers encountering an unknown version byte return an error rather than silently misinterpreting the data. New readers can handle both old and new versions by checking the version byte first.
+The `encoding_version` byte enables forward compatibility: if a future version of Rocklake introduces a different encoding for some entry type, it can use a different version byte. Old readers encountering an unknown version byte return an error rather than silently misinterpreting the data. New readers can handle both old and new versions by checking the version byte first.
 
-The payload is a Protobuf-encoded message whose schema is determined by the tag. Tag `0x05` values decode as `TableRow`, tag `0x06` as `ColumnRow`, tag `0x0B` as `DataFileRow`, and so on. Each row type is defined in the `slateduck-core/src/rows.rs` Protobuf definitions.
+The payload is a Protobuf-encoded message whose schema is determined by the tag. Tag `0x05` values decode as `TableRow`, tag `0x06` as `ColumnRow`, tag `0x0B` as `DataFileRow`, and so on. Each row type is defined in the `rocklake-core/src/rows.rs` Protobuf definitions.
 
 ## Performance Implications
 
@@ -207,11 +207,11 @@ The key structure directly determines which operations are fast and which are sl
 
 **Moderate — two-pass lookup:** Describing a table requires two prefix scans — one for the `TableRow` and one for all `ColumnRow` entries. This is O(columns), which is typically small.
 
-**Slow — cross-tag aggregation:** Finding all tables across all schemas that have a column named `email` would require scanning the entire `0x06` namespace and filtering in memory. SlateDuck does not expose this as a query (it is not in the bounded SQL set), but understanding why helps explain what the bounded set excludes.
+**Slow — cross-tag aggregation:** Finding all tables across all schemas that have a column named `email` would require scanning the entire `0x06` namespace and filtering in memory. Rocklake does not expose this as a query (it is not in the bounded SQL set), but understanding why helps explain what the bounded set excludes.
 
 **Slow — unkeyed filter:** Finding all data files with more than 1 million rows would require scanning all data file entries and filtering on the row count value. Again, not supported in the bounded SQL set, and the key structure explains why.
 
-The key design is optimized specifically for the DuckLake protocol's access patterns. For that protocol, it is excellent. For general SQL access patterns, it would be limiting — but general SQL access patterns are not what SlateDuck is designed to serve.
+The key design is optimized specifically for the DuckLake protocol's access patterns. For that protocol, it is excellent. For general SQL access patterns, it would be limiting — but general SQL access patterns are not what Rocklake is designed to serve.
 
 ## Further Reading
 
@@ -222,11 +222,11 @@ The key design is optimized specifically for the DuckLake protocol's access patt
 
 ## The Design Challenge
 
-A relational catalog has natural hierarchies: schemas contain tables, tables contain columns, tables reference data files. To store this hierarchy in a flat key-value namespace, SlateDuck encodes the relationships directly into the key bytes using a tag-prefixed, big-endian encoding scheme that preserves lexicographic ordering.
+A relational catalog has natural hierarchies: schemas contain tables, tables contain columns, tables reference data files. To store this hierarchy in a flat key-value namespace, Rocklake encodes the relationships directly into the key bytes using a tag-prefixed, big-endian encoding scheme that preserves lexicographic ordering.
 
 ## Key Structure
 
-Every key in SlateDuck's catalog follows this pattern:
+Every key in Rocklake's catalog follows this pattern:
 
 ```
 [tag: 1 byte] [composite key fields: variable length]
@@ -273,7 +273,7 @@ The encoding is designed to make the most common access patterns efficient:
 
 ## The Tag Registry
 
-SlateDuck allocates tags from a fixed registry of 28 DuckLake catalog tables plus internal system tables:
+Rocklake allocates tags from a fixed registry of 28 DuckLake catalog tables plus internal system tables:
 
 | Tag Range | Purpose |
 |-----------|---------|
@@ -312,4 +312,4 @@ The key-value mapping directly determines performance characteristics:
 
 - **Operations that follow natural key prefixes are fast:** listing tables in a schema, columns in a table, files for a table. These are all prefix scans that touch only relevant keys.
 - **Operations that span multiple tags are multiple scans:** describing a table (need TableRow from `0x05` and ColumnRows from `0x06`) requires two prefix scans.
-- **Cross-cutting queries are expensive:** finding all tables across all schemas that have a column named "email" would require scanning all columns (`0x06` prefix) and filtering in memory. SlateDuck does not need this operation, but it illustrates the trade-off.
+- **Cross-cutting queries are expensive:** finding all tables across all schemas that have a column named "email" would require scanning all columns (`0x06` prefix) and filtering in memory. Rocklake does not need this operation, but it illustrates the trade-off.

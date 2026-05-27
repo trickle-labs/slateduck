@@ -1,6 +1,6 @@
 # Key Design Rationale
 
-This page explains the reasoning behind specific choices in SlateDuck's binary key encoding. The key layout is documented in [Architecture: Key Layout](../architecture/key-layout.md) — that page describes _what_ the encoding is. This page explains _why_ each detail was chosen over alternatives. Key encoding is one of those areas where small decisions have outsized consequences: a wrong choice in the first byte affects every scan, every write, and every debugging session for the lifetime of the system.
+This page explains the reasoning behind specific choices in Rocklake's binary key encoding. The key layout is documented in [Architecture: Key Layout](../architecture/key-layout.md) — that page describes _what_ the encoding is. This page explains _why_ each detail was chosen over alternatives. Key encoding is one of those areas where small decisions have outsized consequences: a wrong choice in the first byte affects every scan, every write, and every debugging session for the lifetime of the system.
 
 ## Design Principles
 

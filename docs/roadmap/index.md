@@ -1,12 +1,12 @@
 # Roadmap
 
-This section outlines SlateDuck's development trajectory — where the project is headed, what has been accomplished, and what is planned for future releases. The roadmap represents current intentions, not commitments. Priorities shift based on real-world feedback, ecosystem changes (DuckDB releases, SlateDB improvements, cloud provider features), and the contributions of the community.
+This section outlines Rocklake's development trajectory — where the project is headed, what has been accomplished, and what is planned for future releases. The roadmap represents current intentions, not commitments. Priorities shift based on real-world feedback, ecosystem changes (DuckDB releases, SlateDB improvements, cloud provider features), and the contributions of the community.
 
-SlateDuck is developed in the open. The roadmap is public. Design decisions are documented. If you disagree with a priority or have a use case that the roadmap does not address, open a GitHub Discussion — concrete scenarios from real users are the strongest input to planning.
+Rocklake is developed in the open. The roadmap is public. Design decisions are documented. If you disagree with a priority or have a use case that the roadmap does not address, open a GitHub Discussion — concrete scenarios from real users are the strongest input to planning.
 
 ## Current Status
 
-SlateDuck is in active development at version 0.8.x. The project has reached a point of architectural stability — the core design decisions (key encoding, MVCC model, bounded SQL, object storage persistence via SlateDB) are settled and unlikely to change. What remains is refinement: performance optimization, operational tooling, ecosystem integration, and the documentation and stability work required to reach 1.0.
+Rocklake is in active development at version 0.8.x. The project has reached a point of architectural stability — the core design decisions (key encoding, MVCC model, bounded SQL, object storage persistence via SlateDB) are settled and unlikely to change. What remains is refinement: performance optimization, operational tooling, ecosystem integration, and the documentation and stability work required to reach 1.0.
 
 **What works today:**
 
@@ -78,7 +78,7 @@ Near-term priorities for the next 2–4 months:
 
 **Automated background GC:**
 
-Currently, garbage collection requires explicit invocation (`slateduck gc`). The planned improvement is a background task within the writer process that automatically advances retention and performs excision on a configurable schedule. Operators would configure:
+Currently, garbage collection requires explicit invocation (`rocklake gc`). The planned improvement is a background task within the writer process that automatically advances retention and performs excision on a configurable schedule. Operators would configure:
 
 ```yaml
 gc:
@@ -96,7 +96,7 @@ Structured tracing with distributed context propagation. Each catalog operation 
 
 **Connection multiplexing:**
 
-A built-in connection pool that allows many concurrent DuckDB clients to share a smaller number of backend connections to SlateDuck. Useful for serverless deployments where many Lambda functions may connect simultaneously. The multiplexer would handle connection lifecycle (authentication, session state initialization) transparently, presenting a pool of pre-warmed sessions to incoming clients. This reduces connection establishment latency from ~50ms (TCP + TLS + PG auth) to near-zero.
+A built-in connection pool that allows many concurrent DuckDB clients to share a smaller number of backend connections to Rocklake. Useful for serverless deployments where many Lambda functions may connect simultaneously. The multiplexer would handle connection lifecycle (authentication, session state initialization) transparently, presenting a pool of pre-warmed sessions to incoming clients. This reduces connection establishment latency from ~50ms (TCP + TLS + PG auth) to near-zero.
 
 **Catalog snapshots API:**
 
@@ -112,7 +112,7 @@ The path to a stable release:
 
 **Catalog format freeze:**
 
-Commit to format version 1 stability. After this, any catalog created with format version 1 will be readable by all future SlateDuck versions. Migration tools will be provided for format upgrades.
+Commit to format version 1 stability. After this, any catalog created with format version 1 will be readable by all future Rocklake versions. Migration tools will be provided for format upgrades.
 
 **API stability:**
 
@@ -124,11 +124,11 @@ Commit to format version 1 stability. After this, any catalog created with forma
 
 - Apache Iceberg metadata bridge: read Iceberg table metadata and present it through the DuckLake protocol
 - Delta Lake compatibility layer: understand Delta Lake transaction logs
-- Catalog federation: query across multiple SlateDuck instances
+- Catalog federation: query across multiple Rocklake instances
 
 **Multi-catalog management:**
 
-A catalog-of-catalogs pattern where a single SlateDuck deployment manages multiple independent catalogs, each with its own storage location and configuration, but shared operational infrastructure (monitoring, GC, networking).
+A catalog-of-catalogs pattern where a single Rocklake deployment manages multiple independent catalogs, each with its own storage location and configuration, but shared operational infrastructure (monitoring, GC, networking).
 
 **Partitioned writers:**
 
@@ -157,11 +157,11 @@ Features that reduce operational burden are strongly prioritized. Automated GC r
 
 **2. Does it maintain the single-binary promise?**
 
-SlateDuck ships as one binary. Features that require deploying additional infrastructure (separate GC service, external cache, sidecar proxy) are strongly deprioritized. Everything should work out of the box.
+Rocklake ships as one binary. Features that require deploying additional infrastructure (separate GC service, external cache, sidecar proxy) are strongly deprioritized. Everything should work out of the box.
 
 **3. Does it serve the DuckLake use case?**
 
-Features that generalize SlateDuck beyond its core purpose (lakehouse catalog) are carefully evaluated. Adding general SQL support, general key-value access, or non-DuckLake client support would dilute focus.
+Features that generalize Rocklake beyond its core purpose (lakehouse catalog) are carefully evaluated. Adding general SQL support, general key-value access, or non-DuckLake client support would dilute focus.
 
 **4. Is it reversible?**
 
@@ -171,11 +171,11 @@ Decisions that can be undone (configuration options, optional features, additive
 
 Features motivated by concrete use cases from real users are prioritized over speculative "nice to have" features. This is why GitHub Discussions are the input mechanism — we need to understand the actual problem being solved.
 
-## What SlateDuck Will NOT Do
+## What Rocklake Will NOT Do
 
 Some features are intentionally out of scope, permanently:
 
-- **General SQL query execution:** SlateDuck will never execute SELECT queries against user data. It is a catalog, not a query engine.
+- **General SQL query execution:** Rocklake will never execute SELECT queries against user data. It is a catalog, not a query engine.
 - **Multi-master writes:** The single-writer model is fundamental. Distributed consensus (Raft, Paxos) will not be added.
 - **Local disk storage for production:** Object storage is the durability layer. Local disk is for development only.
 - **Non-DuckLake protocols:** Supporting Hive Metastore protocol, Iceberg REST protocol, or Unity Catalog API is not planned (though bridges that translate to/from DuckLake are possible).

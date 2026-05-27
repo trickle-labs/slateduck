@@ -1,8 +1,8 @@
 # Garbage Collection
 
-SlateDuck's immutable, append-only data model means every catalog change creates new key-value pairs without deleting old ones. A schema alteration does not modify existing rows — it writes new versioned rows that supersede the old ones. Over time, these superseded versions accumulate. Garbage collection (GC) is the process of reclaiming storage by removing data that is no longer accessible to any reader.
+Rocklake's immutable, append-only data model means every catalog change creates new key-value pairs without deleting old ones. A schema alteration does not modify existing rows — it writes new versioned rows that supersede the old ones. Over time, these superseded versions accumulate. Garbage collection (GC) is the process of reclaiming storage by removing data that is no longer accessible to any reader.
 
-GC in SlateDuck is a two-phase process with an explicit separation between "making data logically inaccessible" and "physically deleting bytes." This separation is intentional — it gives operators a safety window to change their mind and prevents accidental irrecoverable data loss. Phase 1 (advancing the retention horizon) is reversible. Phase 2 (excision) is permanent.
+GC in Rocklake is a two-phase process with an explicit separation between "making data logically inaccessible" and "physically deleting bytes." This separation is intentional — it gives operators a safety window to change their mind and prevents accidental irrecoverable data loss. Phase 1 (advancing the retention horizon) is reversible. Phase 2 (excision) is permanent.
 
 This page explains when and why GC is needed, how each phase works internally, scheduling strategies, interaction with pinned snapshots, and storage impact analysis.
 
@@ -76,7 +76,7 @@ Excision is **irreversible**. Once the bytes are deleted from object storage, th
 ### Phase 1: Advance Horizon
 
 ```bash
-slateduck gc --catalog s3://bucket/catalog/ --retain-days 30
+rocklake gc --catalog s3://bucket/catalog/ --retain-days 30
 ```
 
 This command:
@@ -103,7 +103,7 @@ Garbage Collection Summary:
 Always preview before running GC in production:
 
 ```bash
-slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 --dry-run
+rocklake gc --catalog s3://bucket/catalog/ --retain-days 30 --dry-run
 ```
 
 Dry run performs all calculations but does not write anything. It shows exactly what would happen.
@@ -113,7 +113,7 @@ Dry run performs all calculations but does not write anything. It shows exactly 
 After advancing the horizon, optionally run excision to reclaim physical storage:
 
 ```bash
-slateduck excise --catalog s3://bucket/catalog/
+rocklake excise --catalog s3://bucket/catalog/
 ```
 
 This scans all keys, identifies pairs that are invisible to all valid readers, and deletes them. See the [Excision](excision.md) page for full details.
@@ -148,8 +148,8 @@ For long retention periods, monitor scan performance and consider whether read-p
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: slateduck-gc
-  namespace: slateduck
+  name: rocklake-gc
+  namespace: rocklake
 spec:
   schedule: "0 3 * * *"  # Daily at 3 AM UTC
   concurrencyPolicy: Forbid
@@ -161,12 +161,12 @@ spec:
       activeDeadlineSeconds: 1800
       template:
         spec:
-          serviceAccountName: slateduck
+          serviceAccountName: rocklake
           containers:
             - name: gc
-              image: ghcr.io/slateduck/slateduck:0.8.0
+              image: ghcr.io/rocklake/rocklake:0.8.0
               command:
-                - "slateduck"
+                - "rocklake"
                 - "gc"
                 - "--storage"
                 - "s3://my-bucket/catalog/"
@@ -182,9 +182,9 @@ spec:
 ### systemd Timer (Bare Metal)
 
 ```ini
-# /etc/systemd/system/slateduck-gc.timer
+# /etc/systemd/system/rocklake-gc.timer
 [Unit]
-Description=SlateDuck Daily Garbage Collection
+Description=Rocklake Daily Garbage Collection
 
 [Timer]
 OnCalendar=*-*-* 03:00:00
@@ -195,13 +195,13 @@ WantedBy=timers.target
 ```
 
 ```ini
-# /etc/systemd/system/slateduck-gc.service
+# /etc/systemd/system/rocklake-gc.service
 [Unit]
-Description=SlateDuck GC Run
+Description=Rocklake GC Run
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/slateduck gc --catalog s3://bucket/catalog/ --retain-days 30
+ExecStart=/usr/local/bin/rocklake gc --catalog s3://bucket/catalog/ --retain-days 30
 Environment=AWS_REGION=us-east-1
 ```
 
@@ -209,7 +209,7 @@ Environment=AWS_REGION=us-east-1
 
 ```bash
 # Daily GC at 3 AM
-0 3 * * * /usr/local/bin/slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 >> /var/log/slateduck-gc.log 2>&1
+0 3 * * * /usr/local/bin/rocklake gc --catalog s3://bucket/catalog/ --retain-days 30 >> /var/log/rocklake-gc.log 2>&1
 ```
 
 ## Pinned Snapshots
@@ -226,13 +226,13 @@ Pinned snapshots prevent GC from advancing the retention horizon past them. This
 
 ```bash
 # Pin a snapshot (prevents GC from advancing past it)
-slateduck pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
+rocklake pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
 
 # List all pinned snapshots
-slateduck list-pins --catalog s3://bucket/catalog/
+rocklake list-pins --catalog s3://bucket/catalog/
 
 # Unpin when no longer needed
-slateduck unpin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
+rocklake unpin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
 ```
 
 ### GC Behavior with Pins
@@ -240,7 +240,7 @@ slateduck unpin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500
 If GC encounters a pinned snapshot within the target retention window:
 
 ```bash
-slateduck gc --catalog s3://bucket/catalog/ --retain-days 7
+rocklake gc --catalog s3://bucket/catalog/ --retain-days 7
 # WARNING: Cannot advance past snapshot 450 (pinned since 2024-12-10)
 # Advancing retain_from to 449 instead of requested 650
 ```
@@ -252,7 +252,7 @@ GC advances as far as it can without violating any pin. It does not fail — it 
 For safety, pins can have an expiry:
 
 ```bash
-slateduck pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500 --expires 72h
+rocklake pin-snapshot --catalog s3://bucket/catalog/ --snapshot-id 500 --expires 72h
 ```
 
 After 72 hours, the pin is automatically removed and GC can proceed past it.
@@ -262,7 +262,7 @@ After 72 hours, the pin is automatically removed and GC can proceed past it.
 ### Estimating Reclaimable Space
 
 ```bash
-slateduck gc --catalog s3://bucket/catalog/ --retain-days 30 --analyze
+rocklake gc --catalog s3://bucket/catalog/ --retain-days 30 --analyze
 ```
 
 Output:
@@ -314,21 +314,21 @@ The improvement comes from reading fewer SST blocks during scans.
 
 | Metric | Alert Condition | Action |
 |--------|-----------------|--------|
-| `slateduck_gc_last_run_timestamp` | > 48 hours ago | Check CronJob health |
-| `slateduck_gc_retained_snapshots` | Growing unbounded | Retention may be misconfigured |
-| `slateduck_gc_pinned_count` | Unexpectedly high | Stale pins blocking GC |
-| `slateduck_gc_duration_seconds` | > 600 | Catalog may need compaction |
-| `slateduck_catalog_size_bytes` | Growing despite GC | Excision not running or pins blocking |
+| `rocklake_gc_last_run_timestamp` | > 48 hours ago | Check CronJob health |
+| `rocklake_gc_retained_snapshots` | Growing unbounded | Retention may be misconfigured |
+| `rocklake_gc_pinned_count` | Unexpectedly high | Stale pins blocking GC |
+| `rocklake_gc_duration_seconds` | > 600 | Catalog may need compaction |
+| `rocklake_catalog_size_bytes` | Growing despite GC | Excision not running or pins blocking |
 
 ### Alerting Example
 
 ```yaml
-- alert: SlateDuckGCStale
-  expr: time() - slateduck_gc_last_run_timestamp > 172800
+- alert: RocklakeGCStale
+  expr: time() - rocklake_gc_last_run_timestamp > 172800
   labels:
     severity: warning
   annotations:
-    summary: "SlateDuck GC has not run in 48 hours"
+    summary: "Rocklake GC has not run in 48 hours"
 ```
 
 ## Troubleshooting GC
@@ -338,7 +338,7 @@ The improvement comes from reading fewer SST blocks during scans.
 A pinned snapshot is preventing GC. List pins and determine if they are still needed:
 
 ```bash
-slateduck list-pins --catalog s3://bucket/catalog/
+rocklake list-pins --catalog s3://bucket/catalog/
 ```
 
 ### "GC completed but catalog size unchanged"
@@ -346,7 +346,7 @@ slateduck list-pins --catalog s3://bucket/catalog/
 GC only advances the horizon. You need to run excision to actually delete bytes:
 
 ```bash
-slateduck excise --catalog s3://bucket/catalog/
+rocklake excise --catalog s3://bucket/catalog/
 ```
 
 ### "Excision running slowly"

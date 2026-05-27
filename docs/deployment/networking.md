@@ -1,12 +1,12 @@
 # Networking
 
-SlateDuck has minimal networking requirements compared to traditional databases. It needs exactly two network paths: inbound connections from DuckDB clients, and outbound HTTPS to object storage. There is no replication traffic between nodes, no gossip protocol, no membership discovery, no inter-node communication of any kind. This simplicity makes firewall rules straightforward and security posture easy to reason about.
+Rocklake has minimal networking requirements compared to traditional databases. It needs exactly two network paths: inbound connections from DuckDB clients, and outbound HTTPS to object storage. There is no replication traffic between nodes, no gossip protocol, no membership discovery, no inter-node communication of any kind. This simplicity makes firewall rules straightforward and security posture easy to reason about.
 
 This page covers network topology options, firewall configuration, VPC endpoints for cost and latency optimization, service discovery patterns, load balancing, and connection management.
 
 ## Network Requirements
 
-SlateDuck requires precisely two network paths:
+Rocklake requires precisely two network paths:
 
 ```mermaid
 flowchart LR
@@ -14,8 +14,8 @@ flowchart LR
         D[DuckDB Clients]
     end
     
-    subgraph "SlateDuck"
-        S[SlateDuck Process<br/>Port 5432]
+    subgraph "Rocklake"
+        S[Rocklake Process<br/>Port 5432]
     end
     
     subgraph "Storage Network"
@@ -31,10 +31,10 @@ flowchart LR
 | **Inbound** | TCP | 5432 (default) | DuckDB client connections (PG wire protocol) |
 | **Outbound** | HTTPS | 443 | Object storage API (S3, GCS, Azure Blob) |
 
-No other network access is required. SlateDuck does not:
+No other network access is required. Rocklake does not:
 
 - Phone home or send telemetry
-- Communicate with other SlateDuck instances
+- Communicate with other Rocklake instances
 - Require DNS resolution beyond object storage endpoints
 - Open listening ports beyond the configured bind address
 - Use UDP for anything
@@ -43,15 +43,15 @@ No other network access is required. SlateDuck does not:
 
 ### Topology 1: Same-Host (Development)
 
-The simplest setup — DuckDB and SlateDuck on the same machine:
+The simplest setup — DuckDB and Rocklake on the same machine:
 
 ```
-DuckDB → localhost:5432 → SlateDuck → (internet) → S3
+DuckDB → localhost:5432 → Rocklake → (internet) → S3
 ```
 
 **Configuration:**
 ```bash
-slateduck serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
+rocklake serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
 ```
 
 **Security:** No network exposure. Only processes on the same machine can connect. Ideal for development and testing.
@@ -60,15 +60,15 @@ slateduck serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
 
 ### Topology 2: Same-VPC (Recommended for Production)
 
-DuckDB and SlateDuck in the same VPC with private networking:
+DuckDB and Rocklake in the same VPC with private networking:
 
 ```
-DuckDB (10.0.1.x) → slateduck.internal:5432 → SlateDuck (10.0.2.x) → VPC Endpoint → S3
+DuckDB (10.0.1.x) → rocklake.internal:5432 → Rocklake (10.0.2.x) → VPC Endpoint → S3
 ```
 
 **Configuration:**
 ```bash
-slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 ```
 
 **Security:** Security group rules restrict inbound to port 5432 from the DuckDB client subnet. Outbound restricted to the VPC endpoint for S3.
@@ -77,11 +77,11 @@ slateduck serve --catalog s3://bucket/catalog/ --bind 0.0.0.0:5432
 
 ### Topology 3: Cross-VPC (Hub-and-Spoke)
 
-SlateDuck in a shared-services VPC, DuckDB clients in application VPCs:
+Rocklake in a shared-services VPC, DuckDB clients in application VPCs:
 
 ```
 App VPC A ──┐
-            ├──→ Transit Gateway → Shared VPC → SlateDuck → VPC Endpoint → S3
+            ├──→ Transit Gateway → Shared VPC → Rocklake → VPC Endpoint → S3
 App VPC B ──┘
 ```
 
@@ -91,10 +91,10 @@ App VPC B ──┘
 
 ### Topology 4: Public Internet
 
-SlateDuck accessible over the internet (for remote teams, multi-cloud, or hybrid setups):
+Rocklake accessible over the internet (for remote teams, multi-cloud, or hybrid setups):
 
 ```
-DuckDB (anywhere) → (internet) → [LB] → SlateDuck → S3
+DuckDB (anywhere) → (internet) → [LB] → Rocklake → S3
 ```
 
 **Requirements:**
@@ -105,17 +105,17 @@ DuckDB (anywhere) → (internet) → [LB] → SlateDuck → S3
 
 **Configuration:**
 ```bash
-slateduck \
+rocklake \
     --catalog s3://bucket/catalog/ \
     --bind 0.0.0.0:5432 \
-    --tls-cert /etc/slateduck/cert.pem \
-    --tls-key /etc/slateduck/key.pem \
+    --tls-cert /etc/rocklake/cert.pem \
+    --tls-key /etc/rocklake/key.pem \
     --auth-user ducklake
 ```
 
 ## Firewall Rules
 
-### Inbound Rules (to SlateDuck)
+### Inbound Rules (to Rocklake)
 
 | Source | Port | Protocol | Action | Purpose |
 |--------|------|----------|--------|---------|
@@ -123,7 +123,7 @@ slateduck \
 | Monitoring system | 9090/tcp | TCP | Allow | Prometheus metrics (if enabled) |
 | All other | * | * | Deny | Default deny |
 
-### Outbound Rules (from SlateDuck)
+### Outbound Rules (from Rocklake)
 
 | Destination | Port | Protocol | Action | Purpose |
 |-------------|------|----------|--------|---------|
@@ -134,15 +134,15 @@ slateduck \
 ### AWS Security Group Example
 
 ```bash
-# Create SlateDuck security group
+# Create Rocklake security group
 aws ec2 create-security-group \
-    --group-name slateduck-sg \
-    --description "SlateDuck catalog server" \
+    --group-name rocklake-sg \
+    --description "Rocklake catalog server" \
     --vpc-id vpc-12345
 
 # Allow inbound from DuckDB clients
 aws ec2 authorize-security-group-ingress \
-    --group-id sg-slateduck \
+    --group-id sg-rocklake \
     --protocol tcp \
     --port 5432 \
     --source-group sg-duckdb-clients
@@ -152,7 +152,7 @@ aws ec2 authorize-security-group-ingress \
 
 ## VPC Endpoints (Private Storage Access)
 
-VPC endpoints let SlateDuck reach object storage without traversing the public internet. This provides three benefits:
+VPC endpoints let Rocklake reach object storage without traversing the public internet. This provides three benefits:
 
 1. **Lower latency** — no NAT gateway hop, traffic stays on AWS backbone
 2. **No data transfer cost** — Gateway endpoints are free, Interface endpoints cost less than NAT
@@ -192,7 +192,7 @@ aws ec2 create-vpc-endpoint \
 
 ### GCP: Private Google Access
 
-Enable Private Google Access on the subnet where SlateDuck runs:
+Enable Private Google Access on the subnet where Rocklake runs:
 
 ```bash
 gcloud compute networks subnets update my-subnet \
@@ -204,27 +204,27 @@ gcloud compute networks subnets update my-subnet \
 
 ```bash
 az network private-endpoint create \
-    --name slateduck-storage-pe \
+    --name rocklake-storage-pe \
     --resource-group rg-analytics \
     --vnet-name vnet-analytics \
-    --subnet subnet-slateduck \
+    --subnet subnet-rocklake \
     --private-connection-resource-id /subscriptions/.../storageAccounts/mylakehouse \
     --group-id blob \
-    --connection-name slateduck-storage
+    --connection-name rocklake-storage
 ```
 
 ## Load Balancing
 
 ### TCP Load Balancer (Recommended)
 
-SlateDuck uses the PostgreSQL wire protocol (TCP-based, not HTTP). Use a TCP/Layer 4 load balancer:
+Rocklake uses the PostgreSQL wire protocol (TCP-based, not HTTP). Use a TCP/Layer 4 load balancer:
 
 **AWS NLB:**
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: slateduck
+  name: rocklake
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: nlb
     service.beta.kubernetes.io/aws-load-balancer-internal: "true"
@@ -238,16 +238,16 @@ spec:
 
 **GCP Internal TCP/UDP Load Balancer:**
 ```bash
-gcloud compute forwarding-rules create slateduck-lb \
+gcloud compute forwarding-rules create rocklake-lb \
     --region=us-east1 \
     --load-balancing-scheme=INTERNAL \
     --ports=5432 \
-    --backend-service=slateduck-backend
+    --backend-service=rocklake-backend
 ```
 
 ### Health Checks for Load Balancers
 
-Configure the load balancer health check to probe the SlateDuck port:
+Configure the load balancer health check to probe the Rocklake port:
 
 | Provider | Health Check Type | Configuration |
 |----------|------------------|---------------|
@@ -269,29 +269,29 @@ DuckDB clients
       │
  ┌────┼────┐
  ▼    ▼    ▼
-R1   R2   R3   (read-only SlateDuck instances)
+R1   R2   R3   (read-only Rocklake instances)
 ```
 
 ### Do NOT Use HTTP Load Balancers
 
-Application load balancers (ALB in AWS, Application Gateway in Azure) operate at Layer 7 (HTTP). SlateDuck speaks the PostgreSQL wire protocol, not HTTP. Using an HTTP load balancer will fail silently.
+Application load balancers (ALB in AWS, Application Gateway in Azure) operate at Layer 7 (HTTP). Rocklake speaks the PostgreSQL wire protocol, not HTTP. Using an HTTP load balancer will fail silently.
 
 ## Service Discovery
 
 ### Kubernetes DNS
 
-In Kubernetes, SlateDuck is automatically discoverable via cluster DNS:
+In Kubernetes, Rocklake is automatically discoverable via cluster DNS:
 
 ```
-slateduck-writer.slateduck.svc.cluster.local:5432
-slateduck-reader.slateduck.svc.cluster.local:5432
+rocklake-writer.rocklake.svc.cluster.local:5432
+rocklake-reader.rocklake.svc.cluster.local:5432
 ```
 
 ### AWS Cloud Map
 
 ```bash
 aws servicediscovery create-service \
-    --name slateduck \
+    --name rocklake \
     --namespace-id ns-12345 \
     --dns-config "RoutingPolicy=MULTIVALUE,DnsRecords=[{Type=A,TTL=10}]"
 ```
@@ -301,7 +301,7 @@ aws servicediscovery create-service \
 ```json
 {
   "service": {
-    "name": "slateduck",
+    "name": "rocklake",
     "port": 5432,
     "check": {
       "tcp": "localhost:5432",
@@ -313,7 +313,7 @@ aws servicediscovery create-service \
 
 ## Connection Pooling
 
-SlateDuck supports up to `--max-sessions` concurrent connections (default 64). If you have more DuckDB instances than the session limit, you need connection management.
+Rocklake supports up to `--max-sessions` concurrent connections (default 64). If you have more DuckDB instances than the session limit, you need connection management.
 
 ### Important: Session State Matters
 
@@ -327,7 +327,7 @@ DuckDB's `ducklake` extension maintains per-session state (attached databases, t
 
 ```ini
 [databases]
-* = host=slateduck port=5432
+* = host=rocklake port=5432
 
 [pgbouncer]
 pool_mode = session
@@ -348,7 +348,7 @@ Each session uses approximately 1 MB of memory. 200 sessions = 200 MB additional
 
 ## Latency Optimization
 
-### Client-to-SlateDuck Latency
+### Client-to-Rocklake Latency
 
 | Topology | Expected Latency | Impact on DuckDB |
 |----------|-----------------|------------------|
@@ -358,7 +358,7 @@ Each session uses approximately 1 MB of memory. 200 sessions = 200 MB additional
 | Cross-region | 50–150ms | Significant (avoid for interactive queries) |
 | Public internet | 10–200ms | Use only when necessary |
 
-### SlateDuck-to-Storage Latency
+### Rocklake-to-Storage Latency
 
 | Configuration | Expected Latency | Notes |
 |---------------|-----------------|-------|
@@ -369,7 +369,7 @@ Each session uses approximately 1 MB of memory. 200 sessions = 200 MB additional
 
 ### Optimizing for Low Latency
 
-1. **Deploy SlateDuck in the same region as your object storage bucket** — this is the single most important optimization.
+1. **Deploy Rocklake in the same region as your object storage bucket** — this is the single most important optimization.
 2. **Use VPC endpoints** — eliminates the NAT gateway hop.
 3. **Deploy in the same AZ** — reduces cross-AZ latency from 1-3ms to <0.5ms.
 4. **Enable hot key cache** — `--hot-key-cache true` (default) reduces repeated storage reads.
@@ -379,14 +379,14 @@ Each session uses approximately 1 MB of memory. 200 sessions = 200 MB additional
 For high-throughput deployments (large catalog scans), ensure jumbo frames are enabled:
 
 ```bash
-# Check MTU on the SlateDuck host
+# Check MTU on the Rocklake host
 ip link show eth0 | grep mtu
 
 # AWS: VPC supports 9001 MTU by default for instances in the same AZ
 # GCP: Supports 8896 MTU with jumbo frames enabled on the VPC
 ```
 
-SlateDuck does not require special TCP tuning. The default Linux/macOS TCP settings work well for the typical catalog operation size (small request/response pairs).
+Rocklake does not require special TCP tuning. The default Linux/macOS TCP settings work well for the typical catalog operation size (small request/response pairs).
 
 ## Further Reading
 

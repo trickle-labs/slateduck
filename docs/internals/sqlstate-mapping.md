@@ -1,6 +1,6 @@
 # SQLSTATE Mapping
 
-When SlateDuck encounters an error — a table that does not exist, a write attempt on a read-only connection, a storage backend failure — it must communicate that error to the client (DuckDB) over the PostgreSQL wire protocol. The PostgreSQL protocol uses SQLSTATE codes: standardized 5-character strings that classify errors into categories. This page documents how SlateDuck maps its internal Rust error types to SQLSTATE codes, the principles behind these mappings, and how clients should handle errors programmatically.
+When Rocklake encounters an error — a table that does not exist, a write attempt on a read-only connection, a storage backend failure — it must communicate that error to the client (DuckDB) over the PostgreSQL wire protocol. The PostgreSQL protocol uses SQLSTATE codes: standardized 5-character strings that classify errors into categories. This page documents how Rocklake maps its internal Rust error types to SQLSTATE codes, the principles behind these mappings, and how clients should handle errors programmatically.
 
 SQLSTATE codes are one of those features that most developers never think about until something goes wrong. But they are the backbone of programmatic error handling in the PostgreSQL ecosystem. DuckDB, psql, JDBC drivers, and every other PostgreSQL client uses these codes to decide how to react to errors — whether to retry, whether the connection is still usable, whether the transaction can continue. Getting these codes right is essential for clients that need to handle errors gracefully.
 
@@ -46,13 +46,13 @@ The class determines the severity of the error (system error vs. client error vs
 
 ### Use Standard Codes Where Possible
 
-PostgreSQL defines hundreds of SQLSTATE codes (documented in Appendix A of the PostgreSQL manual). SlateDuck reuses existing codes rather than inventing custom ones. This ensures that standard PostgreSQL client libraries (psycopg2, node-postgres, JDBC) can handle errors using their built-in error class hierarchies.
+PostgreSQL defines hundreds of SQLSTATE codes (documented in Appendix A of the PostgreSQL manual). Rocklake reuses existing codes rather than inventing custom ones. This ensures that standard PostgreSQL client libraries (psycopg2, node-postgres, JDBC) can handle errors using their built-in error class hierarchies.
 
-For example, `DuplicateTable` maps to `42P07` — the same code PostgreSQL uses. A Python application that catches `psycopg2.errors.DuplicateTable` will work identically against SlateDuck and PostgreSQL.
+For example, `DuplicateTable` maps to `42P07` — the same code PostgreSQL uses. A Python application that catches `psycopg2.errors.DuplicateTable` will work identically against Rocklake and PostgreSQL.
 
 ### Class Accuracy Over Specificity
 
-If no exact code exists for a SlateDuck-specific condition, the mapping prioritizes correct error class over a specific but misleading code. The error class (first 2 characters) determines:
+If no exact code exists for a Rocklake-specific condition, the mapping prioritizes correct error class over a specific but misleading code. The error class (first 2 characters) determines:
 
 - Whether the client should retry (class 57, 58) or not (class 42)
 - Whether the connection is still usable (class 08 = connection broken, others = connection OK)
@@ -62,17 +62,17 @@ Getting the class wrong causes incorrect client behavior. Getting the specific c
 
 ### Vendor-Specific Conditions
 
-For error conditions unique to SlateDuck (like `WriterFenced`), the nearest semantically appropriate PostgreSQL code is used:
+For error conditions unique to Rocklake (like `WriterFenced`), the nearest semantically appropriate PostgreSQL code is used:
 
 - `WriterFenced` → `57P04` (originally "database_dropped" in PostgreSQL). The semantics are similar: "your session is no longer valid because of an administrative action." The `P` in position 3 indicates a PostgreSQL vendor extension. DuckDB treats any class-57 error as an operator intervention, prompting retry behavior.
 
 ### Never Invent Non-Standard Codes
 
-SlateDuck does not use codes outside the PostgreSQL-defined space. Custom codes (like `SD001`) would confuse client libraries that validate code format and could break error handling in tools that assume all codes follow PostgreSQL's allocation scheme.
+Rocklake does not use codes outside the PostgreSQL-defined space. Custom codes (like `SD001`) would confuse client libraries that validate code format and could break error handling in tools that assume all codes follow PostgreSQL's allocation scheme.
 
 ## Error Severity
 
-PostgreSQL's error protocol includes a severity field. SlateDuck uses:
+PostgreSQL's error protocol includes a severity field. Rocklake uses:
 
 | Severity | When Used | Connection Impact |
 |----------|-----------|-------------------|
@@ -84,7 +84,7 @@ All errors except authentication failures are reported as ERROR severity. This m
 
 ### Why Not FATAL for Storage Errors?
 
-Storage errors (S3 timeout, permission denied) are reported as ERROR, not FATAL. This is because storage errors are often transient — the next request may succeed. If SlateDuck terminated the connection on every S3 timeout, DuckDB would need to re-establish connections frequently during temporary network issues.
+Storage errors (S3 timeout, permission denied) are reported as ERROR, not FATAL. This is because storage errors are often transient — the next request may succeed. If Rocklake terminated the connection on every S3 timeout, DuckDB would need to re-establish connections frequently during temporary network issues.
 
 DuckDB handles ERROR responses by retrying the query (if applicable) or reporting the error to the user. It handles FATAL responses by tearing down the entire catalog connection and requiring re-initialization.
 
@@ -105,7 +105,7 @@ ErrorResponse:
   R (Routine):   handle_select
 ```
 
-SlateDuck populates:
+Rocklake populates:
 
 - **Severity:** Always ERROR (or FATAL for auth)
 - **Code:** The mapped SQLSTATE
@@ -175,7 +175,7 @@ if err != nil {
 
 ## Transaction Behavior After Errors
 
-In PostgreSQL, some errors abort the current transaction (requiring ROLLBACK before new queries). SlateDuck's behavior:
+In PostgreSQL, some errors abort the current transaction (requiring ROLLBACK before new queries). Rocklake's behavior:
 
 | Error Class | Transaction State After Error |
 |-------------|------------------------------|
@@ -186,7 +186,7 @@ In PostgreSQL, some errors abort the current transaction (requiring ROLLBACK bef
 | 57, 58 (System) | Transaction rolled back |
 | XX (Internal) | Transaction rolled back |
 
-This matches PostgreSQL's behavior for most error classes. The key difference: SlateDuck does not implement `SAVEPOINT`, so there is no way to partially roll back within a transaction.
+This matches PostgreSQL's behavior for most error classes. The key difference: Rocklake does not implement `SAVEPOINT`, so there is no way to partially roll back within a transaction.
 
 ## Testing SQLSTATE Codes
 
@@ -198,11 +198,11 @@ The test suite verifies SQLSTATE mappings through:
 
 ## Adding New Error Codes
 
-When adding a new error variant to SlateDuck:
+When adding a new error variant to Rocklake:
 
 1. Choose the appropriate SQLSTATE from the [PostgreSQL error code list](https://www.postgresql.org/docs/current/errcodes-appendix.html)
 2. Verify the error class matches the nature of the error (client mistake vs. system failure vs. transient condition)
-3. Add the mapping to `crates/slateduck-pgwire/src/error.rs`
+3. Add the mapping to `crates/rocklake-pgwire/src/error.rs`
 4. Add a test verifying the mapping
 5. Document the mapping in this page
 

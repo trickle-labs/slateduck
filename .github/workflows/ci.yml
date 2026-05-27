@@ -42,12 +42,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build slateduck binary
-        run: cargo build -p slateduck-pgwire --bin slateduck
+      - name: Build rocklake binary
+        run: cargo build -p rocklake-pgwire --bin rocklake
 
       - name: Verify documented CLI flags are present
         run: |
-          HELP=$(./target/debug/slateduck serve --help 2>&1 || true)
+          HELP=$(./target/debug/rocklake serve --help 2>&1 || true)
           for flag in \
             "--tls-cert" \
             "--tls-key" \
@@ -114,12 +114,12 @@ jobs:
       - name: Run coverage (all production crates)
         run: |
           cargo llvm-cov \
-            -p slateduck-catalog \
-            -p slateduck-core \
-            -p slateduck-sql \
-            -p slateduck-pgwire \
-            -p slateduck-ffi \
-            -p slateduck-datafusion \
+            -p rocklake-catalog \
+            -p rocklake-core \
+            -p rocklake-sql \
+            -p rocklake-pgwire \
+            -p rocklake-ffi \
+            -p rocklake-datafusion \
             --summary-only 2>&1 | tee coverage-summary.txt
           COVERAGE=$(grep 'TOTAL' coverage-summary.txt | awk '{print $10}' | tr -d '%' || echo "0")
           echo "Coverage: ${COVERAGE}%"
@@ -142,7 +142,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Catalog fault injection tests
-        run: cargo test -p slateduck-catalog --test fault_injection_tests
+        run: cargo test -p rocklake-catalog --test fault_injection_tests
 
   # Tier 10: Security tests (PG-Wire protocol layer).
   security-tests:
@@ -154,10 +154,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: PG-Wire security tests
-        run: cargo test -p slateduck-pgwire --test security_tests
+        run: cargo test -p rocklake-pgwire --test security_tests
 
   # N-11: Network-level PG-Wire integration test.
-  # Spawns the real slateduck binary and verifies a tokio-postgres client can
+  # Spawns the real rocklake binary and verifies a tokio-postgres client can
   # complete a full DDL/DML/query cycle over a real TCP socket.
   network-integration:
     name: Network Integration Tests
@@ -169,7 +169,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Network-level PG-Wire tests
-        run: cargo test -p slateduck-pgwire --test pgwire_network_test -- --test-threads=1
+        run: cargo test -p rocklake-pgwire --test pgwire_network_test -- --test-threads=1
 
   # Benchmark regression check.
   benchmarks:

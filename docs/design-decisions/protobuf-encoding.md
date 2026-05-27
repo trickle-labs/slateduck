@@ -1,14 +1,14 @@
 # Protobuf Encoding
 
-SlateDuck uses Protocol Buffers (protobuf) for serializing catalog row data within SlateDB's values. Every catalog entry — schemas, tables, columns, data files, statistics — is encoded as a protobuf message before being stored as the value portion of a key-value pair. This page documents why protobuf was chosen over a crowded field of serialization alternatives, what consequences follow, and how the choice has played out in practice.
+Rocklake uses Protocol Buffers (protobuf) for serializing catalog row data within SlateDB's values. Every catalog entry — schemas, tables, columns, data files, statistics — is encoded as a protobuf message before being stored as the value portion of a key-value pair. This page documents why protobuf was chosen over a crowded field of serialization alternatives, what consequences follow, and how the choice has played out in practice.
 
 ## The Requirements
 
-The serialization format for SlateDuck's values needed five properties:
+The serialization format for Rocklake's values needed five properties:
 
 1. **Compact.** Catalogs can have millions of rows (a catalog with 10,000 tables and 100 columns each has 1,000,000 column rows plus file and stats rows). Each byte of overhead per row multiplies across millions of entries. The format should minimize wire size without requiring explicit compression.
 
-2. **Schema evolution.** SlateDuck will be maintained for years. New fields will be added to catalog rows (new DuckLake features, optimization hints, metadata extensions). Adding fields must not break existing data. Removing or renaming fields must not corrupt stored values. Old data must remain readable by new code.
+2. **Schema evolution.** Rocklake will be maintained for years. New fields will be added to catalog rows (new DuckLake features, optimization hints, metadata extensions). Adding fields must not break existing data. Removing or renaming fields must not corrupt stored values. Old data must remain readable by new code.
 
 3. **Fast encode/decode.** Every catalog read decodes at least one protobuf message. Every catalog write encodes at least one. For operations that scan hundreds of rows (listing all columns in a table), decode speed directly impacts latency. The format must decode in microseconds, not milliseconds.
 
@@ -54,10 +54,10 @@ Google's zero-copy serialization library. Designed for maximum read performance 
 
 - **Complex API.** FlatBuffer access requires navigating vtables, handling optional fields through conditional offsets, and managing buffer lifetime. The Rust API (`flatbuffers-rs`) is verbose and non-idiomatic.
 - **Alignment requirements.** FlatBuffers require specific byte alignment, which complicates storage in a key-value store where values are arbitrary byte sequences.
-- **Larger encoded size.** The vtable and alignment overhead means FlatBuffers are often larger than protobuf for small messages (50–200 bytes, which is SlateDuck's typical range).
-- **Zero-copy benefit is minimal.** SlateDuck's values are small (50–200 bytes). Decoding them into a Rust struct takes nanoseconds regardless of format. The zero-copy advantage only matters for large messages (kilobytes+) where avoiding allocation is significant.
+- **Larger encoded size.** The vtable and alignment overhead means FlatBuffers are often larger than protobuf for small messages (50–200 bytes, which is Rocklake's typical range).
+- **Zero-copy benefit is minimal.** Rocklake's values are small (50–200 bytes). Decoding them into a Rust struct takes nanoseconds regardless of format. The zero-copy advantage only matters for large messages (kilobytes+) where avoiding allocation is significant.
 
-**Verdict:** Optimized for a different use case (large messages, many fields, read-heavy with selective field access). SlateDuck's small, fully-read messages don't benefit from zero-copy.
+**Verdict:** Optimized for a different use case (large messages, many fields, read-heavy with selective field access). Rocklake's small, fully-read messages don't benefit from zero-copy.
 
 ### Cap'n Proto
 
@@ -78,7 +78,7 @@ Rust-native binary serialization that directly encodes struct layouts. Extremely
 **Why not:**
 
 - **No schema evolution.** Adding, removing, or reordering fields breaks all existing data. This is fatal for a long-lived catalog. Imagine adding a `table_comment` field to the table row type — all existing table rows become unreadable.
-- **Rust-only.** If SlateDuck ever needs to support reading catalog data from another language (debugging tools, analysis scripts), bincode cannot be decoded without Rust.
+- **Rust-only.** If Rocklake ever needs to support reading catalog data from another language (debugging tools, analysis scripts), bincode cannot be decoded without Rust.
 - **Fragile to refactoring.** Even renaming a field or changing its type requires a migration of all stored data.
 
 **Verdict:** Unacceptable for persistent storage that must evolve over years. Appropriate for ephemeral network messages or caches, not for durable data.
@@ -91,8 +91,8 @@ Schema-registry-based format popular in the Kafka ecosystem. Good schema evoluti
 
 - **Heavier runtime.** Avro requires schema resolution at runtime (comparing writer schema to reader schema). This adds per-decode overhead that protobuf avoids through code generation.
 - **Less mature Rust support.** The `apache-avro` Rust crate is functional but less polished than `prost`. API ergonomics are inferior.
-- **Self-describing overhead.** Avro optionally embeds the schema in the data (or references a schema registry). For SlateDuck's use case, the schema is known at compile time — embedding it wastes bytes.
-- **Ecosystem mismatch.** Avro is designed for the Kafka/Hadoop ecosystem. SlateDuck's ecosystem is Rust + object storage + DuckDB.
+- **Self-describing overhead.** Avro optionally embeds the schema in the data (or references a schema registry). For Rocklake's use case, the schema is known at compile time — embedding it wastes bytes.
+- **Ecosystem mismatch.** Avro is designed for the Kafka/Hadoop ecosystem. Rocklake's ecosystem is Rust + object storage + DuckDB.
 
 **Verdict:** Good format for different contexts (Kafka message streaming, Hadoop data files), but not the best fit for a Rust-native embedded catalog.
 
@@ -110,7 +110,7 @@ Protobuf hits the sweet spot across all five requirements:
 
 ### Encoding Efficiency in Practice
 
-For a typical SlateDuck catalog row (table definition):
+For a typical Rocklake catalog row (table definition):
 
 | Format | Encoded Size | Encode Time | Decode Time |
 |--------|-------------|-------------|-------------|
@@ -166,16 +166,16 @@ Old data (without field 6) decodes successfully — `table_comment` is `None`. N
 
 ### Positive
 
-- **Future-proof storage:** Data written by SlateDuck v0.1 will be readable by v2.0 and beyond, assuming field numbers are never reused (which is a protobuf best practice enforced by convention).
+- **Future-proof storage:** Data written by Rocklake v0.1 will be readable by v2.0 and beyond, assuming field numbers are never reused (which is a protobuf best practice enforced by convention).
 - **Small catalog footprint:** A catalog with 1,000 tables, 10,000 columns, and 100,000 data files occupies approximately 15–30 MB in SlateDB. This fits entirely in SlateDB's block cache for most deployments.
 - **Fast scan performance:** Decoding 1,000 column rows takes <1ms (1,000 × 0.4μs). The decode overhead is negligible compared to the I/O cost of reading SST blocks from object storage.
 - **Type safety:** `prost` generates Rust structs with typed fields. A type mismatch (trying to read a string as an integer) is caught at compile time, not runtime.
 
 ### Negative
 
-- **Not human-readable.** Protobuf values are binary. Debugging requires decoding tools. The `slateduck inspect --key` command provides this, but raw hex dumps of SlateDB values are opaque.
+- **Not human-readable.** Protobuf values are binary. Debugging requires decoding tools. The `rocklake inspect --key` command provides this, but raw hex dumps of SlateDB values are opaque.
 - **Optional field ergonomics.** Protobuf's wire format cannot distinguish "field was never set" from "field was set to default value." In Rust, this means most fields are `Option<T>`, requiring explicit unwrapping even for fields that are logically always present.
-- **No `.proto` files.** SlateDuck uses `prost`'s derive-macro approach (defining messages as Rust structs with attributes) rather than separate `.proto` schema files. This is pragmatic for a single-language project but means there is no language-neutral schema definition.
+- **No `.proto` files.** Rocklake uses `prost`'s derive-macro approach (defining messages as Rust structs with attributes) rather than separate `.proto` schema files. This is pragmatic for a single-language project but means there is no language-neutral schema definition.
 
 ## The Value Envelope
 

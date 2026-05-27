@@ -1,6 +1,6 @@
-# Contributing to SlateDuck
+# Contributing to Rocklake
 
-Thank you for your interest in contributing to SlateDuck!
+Thank you for your interest in contributing to Rocklake!
 
 ## Development Setup
 
@@ -18,15 +18,15 @@ Thank you for your interest in contributing to SlateDuck!
 ## Project Structure
 
 ```
-slateduck/
+rocklake/
 ├── Cargo.toml              # Workspace root
 ├── crates/
-│   ├── slateduck-core/     # Foundational types, SlateDB integration
-│   ├── slateduck-catalog/  # DuckLake catalog operations
-│   ├── slateduck-sql/      # Bounded SQL dispatcher
-│   ├── slateduck-sqlite-vfs/ # SQLite VFS layer (future)
-│   ├── slateduck-pgwire/   # PostgreSQL wire protocol sidecar
-│   └── slateduck-ffi/      # C/C++ FFI bindings (future)
+│   ├── rocklake-core/     # Foundational types, SlateDB integration
+│   ├── rocklake-catalog/  # DuckLake catalog operations
+│   ├── rocklake-sql/      # Bounded SQL dispatcher
+│   ├── rocklake-sqlite-vfs/ # SQLite VFS layer (future)
+│   ├── rocklake-pgwire/   # PostgreSQL wire protocol sidecar
+│   └── rocklake-ffi/      # C/C++ FFI bindings (future)
 ├── docs/                   # Documentation and design artifacts
 ├── tests/                  # Integration test fixtures
 │   ├── fixtures/           # Wire corpus and handshake captures
@@ -50,7 +50,7 @@ the Apache License 2.0.
 
 ### Semantic Versioning
 
-SlateDuck follows [Semantic Versioning](https://semver.org/). During the 0.x series, minor versions may include breaking changes with advance notice.
+Rocklake follows [Semantic Versioning](https://semver.org/). During the 0.x series, minor versions may include breaking changes with advance notice.
 
 | Component | Breaking | Non-breaking |
 |-----------|----------|--------------|
@@ -81,15 +81,15 @@ Before tagging any release:
 5. `mkdocs build --strict` — documentation builds clean
 6. All CI jobs green on the release PR branch
 7. `CHANGELOG.md` has an entry for this release
-8. Every documented CLI flag is present in `slateduck serve --help` output
+8. Every documented CLI flag is present in `rocklake serve --help` output
 
 ### wasmtime Version Upgrade Policy
 
-SlateDuck embeds `wasmtime` for WASM UDF execution. The following policy applies:
+Rocklake embeds `wasmtime` for WASM UDF execution. The following policy applies:
 
 - **Pinned version:** wasmtime is pinned to a specific major version in the workspace
   `Cargo.toml` (currently `wasmtime = "29"`).
-- **Upgrade cadence:** wasmtime major version may be bumped **once per SlateDuck
+- **Upgrade cadence:** wasmtime major version may be bumped **once per Rocklake
   release cycle**. The bump must be a **dedicated maintenance PR** (not bundled with
   feature work).
 - **Upgrade PR requirements:**

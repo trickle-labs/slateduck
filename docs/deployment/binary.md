@@ -1,8 +1,8 @@
 # Binary Deployment
 
-The simplest way to run SlateDuck is as a standalone binary on a VM or bare-metal server. There is no container runtime to install, no orchestrator to configure, no sidecar to coordinate — just a single executable that reads its configuration from command-line flags and environment variables. This deployment model is appropriate for development, testing, small-scale production, and situations where container infrastructure is unavailable or adds unnecessary complexity.
+The simplest way to run Rocklake is as a standalone binary on a VM or bare-metal server. There is no container runtime to install, no orchestrator to configure, no sidecar to coordinate — just a single executable that reads its configuration from command-line flags and environment variables. This deployment model is appropriate for development, testing, small-scale production, and situations where container infrastructure is unavailable or adds unnecessary complexity.
 
-The SlateDuck binary is statically linked (on Linux) and has no runtime dependencies beyond libc. It does not require a Java runtime, Python interpreter, or any other language runtime. It does not write to local disk during normal operation (all state goes to object storage). You can literally `scp` the binary to a server and start it.
+The Rocklake binary is statically linked (on Linux) and has no runtime dependencies beyond libc. It does not require a Java runtime, Python interpreter, or any other language runtime. It does not write to local disk during normal operation (all state goes to object storage). You can literally `scp` the binary to a server and start it.
 
 ## Obtaining the Binary
 
@@ -13,40 +13,40 @@ Download the pre-built binary for your platform from the GitHub releases page:
 === "Linux (x86_64)"
 
     ```bash
-    curl -L https://github.com/slateduck/slateduck/releases/latest/download/slateduck-linux-x86_64 -o slateduck
-    chmod +x slateduck
-    sudo mv slateduck /usr/local/bin/
+    curl -L https://github.com/rocklake/rocklake/releases/latest/download/rocklake-linux-x86_64 -o rocklake
+    chmod +x rocklake
+    sudo mv rocklake /usr/local/bin/
     ```
 
 === "Linux (ARM64 / aarch64)"
 
     ```bash
-    curl -L https://github.com/slateduck/slateduck/releases/latest/download/slateduck-linux-aarch64 -o slateduck
-    chmod +x slateduck
-    sudo mv slateduck /usr/local/bin/
+    curl -L https://github.com/rocklake/rocklake/releases/latest/download/rocklake-linux-aarch64 -o rocklake
+    chmod +x rocklake
+    sudo mv rocklake /usr/local/bin/
     ```
 
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -L https://github.com/slateduck/slateduck/releases/latest/download/slateduck-darwin-aarch64 -o slateduck
-    chmod +x slateduck
-    sudo mv slateduck /usr/local/bin/
+    curl -L https://github.com/rocklake/rocklake/releases/latest/download/rocklake-darwin-aarch64 -o rocklake
+    chmod +x rocklake
+    sudo mv rocklake /usr/local/bin/
     ```
 
 === "macOS (Intel)"
 
     ```bash
-    curl -L https://github.com/slateduck/slateduck/releases/latest/download/slateduck-darwin-x86_64 -o slateduck
-    chmod +x slateduck
-    sudo mv slateduck /usr/local/bin/
+    curl -L https://github.com/rocklake/rocklake/releases/latest/download/rocklake-darwin-x86_64 -o rocklake
+    chmod +x rocklake
+    sudo mv rocklake /usr/local/bin/
     ```
 
 Verify the installation:
 
 ```bash
-slateduck --version
-# SlateDuck v0.8.0
+rocklake --version
+# Rocklake v0.8.0
 ```
 
 ### Building from Source
@@ -54,40 +54,40 @@ slateduck --version
 If you need a custom build (different feature flags, specific Rust version, or development patches):
 
 ```bash
-git clone https://github.com/slateduck/slateduck.git
-cd slateduck
+git clone https://github.com/rocklake/rocklake.git
+cd rocklake
 cargo build --release
-# Binary is at target/release/slateduck
-sudo cp target/release/slateduck /usr/local/bin/
+# Binary is at target/release/rocklake
+sudo cp target/release/rocklake /usr/local/bin/
 ```
 
 Building from source requires Rust 1.75+ and takes approximately 60–90 seconds on a modern machine.
 
-## Running SlateDuck
+## Running Rocklake
 
 ### Development Mode (Local Filesystem)
 
-For local development and testing, point SlateDuck at a filesystem path:
+For local development and testing, point Rocklake at a filesystem path:
 
 ```bash
-slateduck serve --catalog ./my-catalog --bind 127.0.0.1:5432
+rocklake serve --catalog ./my-catalog --bind 127.0.0.1:5432
 ```
 
 This creates the catalog in the `./my-catalog` directory. Data is stored as files on the local filesystem using SlateDB's filesystem object store backend. This is fast (no network latency) but not durable beyond the local machine.
 
 ### Production Mode (Cloud Storage)
 
-For production, point SlateDuck at a cloud storage location:
+For production, point Rocklake at a cloud storage location:
 
 ```bash
 # AWS S3
-AWS_REGION=us-east-1 slateduck serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+AWS_REGION=us-east-1 rocklake serve --catalog s3://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Google Cloud Storage
-slateduck serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog gs://my-lakehouse-bucket/catalog/ --bind 0.0.0.0:5432
 
 # Azure Blob Storage
-slateduck serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
+rocklake serve --catalog az://my-container/catalog/ --bind 0.0.0.0:5432
 ```
 
 The process runs in the foreground by default, logging to stderr. For background operation, use your operating system's process management (systemd, launchd, supervisord).
@@ -95,7 +95,7 @@ The process runs in the foreground by default, logging to stderr. For background
 ### Common Flags
 
 ```bash
-slateduck \
+rocklake \
     --catalog s3://bucket/catalog/ \   # Required: where to store catalog data
     --bind 0.0.0.0:5432 \             # Listen address and port (default: 127.0.0.1:5432)
     --tls-cert /path/to/cert.pem \    # Optional: TLS certificate
@@ -108,34 +108,34 @@ slateduck \
 
 ## systemd Service (Linux Production)
 
-For production Linux deployments, run SlateDuck as a systemd service. This ensures automatic restart on crash, proper logging integration with journald, and controlled startup/shutdown behavior.
+For production Linux deployments, run Rocklake as a systemd service. This ensures automatic restart on crash, proper logging integration with journald, and controlled startup/shutdown behavior.
 
 Create the service user (for privilege separation):
 
 ```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin slateduck
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin rocklake
 ```
 
-Create the service file at `/etc/systemd/system/slateduck.service`:
+Create the service file at `/etc/systemd/system/rocklake.service`:
 
 ```ini
 [Unit]
-Description=SlateDuck Catalog Server
-Documentation=https://slateduck.dev/deployment/binary/
+Description=Rocklake Catalog Server
+Documentation=https://rocklake.dev/deployment/binary/
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=slateduck
-Group=slateduck
-ExecStart=/usr/local/bin/slateduck \
+User=rocklake
+Group=rocklake
+ExecStart=/usr/local/bin/rocklake \
     --catalog s3://my-lakehouse-bucket/catalog/ \
     --bind 0.0.0.0:5432 \
-    --tls-cert /etc/slateduck/tls/cert.pem \
-    --tls-key /etc/slateduck/tls/key.pem \
+    --tls-cert /etc/rocklake/tls/cert.pem \
+    --tls-key /etc/rocklake/tls/key.pem \
     --auth-user ducklake \
-    --auth-password ${SLATEDUCK_PASSWORD}
+    --auth-password ${ROCKLAKE_PASSWORD}
 
 # Restart behavior
 Restart=always
@@ -145,8 +145,8 @@ StartLimitIntervalSec=60
 
 # Environment
 Environment=AWS_REGION=us-east-1
-Environment=RUST_LOG=slateduck=info
-EnvironmentFile=-/etc/slateduck/env
+Environment=RUST_LOG=rocklake=info
+EnvironmentFile=-/etc/rocklake/env
 
 # Resource limits
 LimitNOFILE=65536
@@ -158,7 +158,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadOnlyPaths=/etc/slateduck
+ReadOnlyPaths=/etc/rocklake
 
 [Install]
 WantedBy=multi-user.target
@@ -168,30 +168,30 @@ Enable and start the service:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable slateduck
-sudo systemctl start slateduck
+sudo systemctl enable rocklake
+sudo systemctl start rocklake
 
 # Check status
-sudo systemctl status slateduck
+sudo systemctl status rocklake
 
 # View logs
-sudo journalctl -u slateduck -f
+sudo journalctl -u rocklake -f
 ```
 
 ### Environment File
 
-Store sensitive configuration in `/etc/slateduck/env` with restricted permissions:
+Store sensitive configuration in `/etc/rocklake/env` with restricted permissions:
 
 ```bash
-# /etc/slateduck/env (chmod 600, owned by root)
-SLATEDUCK_PASSWORD=your-secure-password-here
+# /etc/rocklake/env (chmod 600, owned by root)
+ROCKLAKE_PASSWORD=your-secure-password-here
 AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ```
 
 ## launchd Service (macOS)
 
-For macOS production or development servers, create a launchd plist at `~/Library/LaunchAgents/dev.slateduck.plist`:
+For macOS production or development servers, create a launchd plist at `~/Library/LaunchAgents/dev.rocklake.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -199,10 +199,10 @@ For macOS production or development servers, create a launchd plist at `~/Librar
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.slateduck</string>
+    <string>dev.rocklake</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/slateduck</string>
+        <string>/usr/local/bin/rocklake</string>
         <string>--storage</string>
         <string>s3://my-bucket/catalog/</string>
         <string>--bind</string>
@@ -213,9 +213,9 @@ For macOS production or development servers, create a launchd plist at `~/Librar
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/slateduck.log</string>
+    <string>/tmp/rocklake.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/slateduck.err</string>
+    <string>/tmp/rocklake.err</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>AWS_REGION</key>
@@ -228,12 +228,12 @@ For macOS production or development servers, create a launchd plist at `~/Librar
 Load and start:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/dev.slateduck.plist
+launchctl load ~/Library/LaunchAgents/dev.rocklake.plist
 ```
 
 ## Resource Requirements
 
-SlateDuck is lightweight compared to traditional database servers:
+Rocklake is lightweight compared to traditional database servers:
 
 | Resource | Requirement | Notes |
 |----------|------------|-------|
@@ -242,7 +242,7 @@ SlateDuck is lightweight compared to traditional database servers:
 | **Disk** | None required | All state in object storage. No local WAL, no temp files, no swap. |
 | **Network** | Reliable, <100ms to storage | Latency to object storage directly affects catalog operation latency. |
 
-For cost-optimized deployments, SlateDuck runs comfortably on the smallest VM instances:
+For cost-optimized deployments, Rocklake runs comfortably on the smallest VM instances:
 
 - AWS: `t3.micro` (1 vCPU, 1 GB RAM) — sufficient for light workloads
 - AWS: `t3.small` (2 vCPU, 2 GB RAM) — recommended for production
@@ -251,7 +251,7 @@ For cost-optimized deployments, SlateDuck runs comfortably on the smallest VM in
 
 ## Cloud Credentials
 
-SlateDuck uses the standard cloud SDK credential discovery chain. It does not implement its own credential management — it relies on the same mechanisms used by the AWS CLI, gsutil, and az commands.
+Rocklake uses the standard cloud SDK credential discovery chain. It does not implement its own credential management — it relies on the same mechanisms used by the AWS CLI, gsutil, and az commands.
 
 ### AWS Credential Chain (in order of precedence)
 
@@ -278,7 +278,7 @@ SlateDuck uses the standard cloud SDK credential discovery chain. It does not im
 
 ## Health Checking
 
-SlateDuck exposes a health endpoint that can be used by load balancers and monitoring systems:
+Rocklake exposes a health endpoint that can be used by load balancers and monitoring systems:
 
 ```bash
 # TCP health check (connection accepted = healthy)
@@ -298,7 +298,7 @@ NotifyAccess=main
 
 ## Graceful Shutdown
 
-SlateDuck handles SIGTERM gracefully:
+Rocklake handles SIGTERM gracefully:
 
 1. Stops accepting new connections
 2. Waits for in-flight transactions to complete (up to 30 seconds)
@@ -309,23 +309,23 @@ This ensures no data loss during planned restarts or upgrades. systemd's `Timeou
 
 ## Upgrading
 
-To upgrade SlateDuck:
+To upgrade Rocklake:
 
 1. Download the new binary
-2. Replace the old binary (`/usr/local/bin/slateduck`)
-3. Restart the service (`sudo systemctl restart slateduck`)
+2. Replace the old binary (`/usr/local/bin/rocklake`)
+3. Restart the service (`sudo systemctl restart rocklake`)
 
-Because all state is in object storage, there is no local state to migrate. The new version reads the catalog from object storage and resumes operation. Format version compatibility is checked on startup — if the catalog was written by an incompatible future version, SlateDuck will refuse to start with a clear error message.
+Because all state is in object storage, there is no local state to migrate. The new version reads the catalog from object storage and resumes operation. Format version compatibility is checked on startup — if the catalog was written by an incompatible future version, Rocklake will refuse to start with a clear error message.
 
 ## Troubleshooting
 
 ### "Address already in use" on startup
 
-Another process is listening on port 5432 (possibly PostgreSQL, another SlateDuck instance, or a stale process). Use `--bind` with a different port or stop the conflicting process.
+Another process is listening on port 5432 (possibly PostgreSQL, another Rocklake instance, or a stale process). Use `--bind` with a different port or stop the conflicting process.
 
 ### "Permission denied" accessing credentials
 
-The slateduck user does not have access to the AWS/GCS/Azure credential files. Ensure the environment file or instance role is properly configured.
+The rocklake user does not have access to the AWS/GCS/Azure credential files. Ensure the environment file or instance role is properly configured.
 
 ### High memory usage
 
@@ -335,17 +335,17 @@ If memory usage exceeds expectations, check the number of concurrent sessions (`
 
 ### Network Isolation
 
-Bind SlateDuck to a private interface unless external access is required:
+Bind Rocklake to a private interface unless external access is required:
 
 ```bash
 # Only accessible from localhost (development)
-slateduck serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
+rocklake serve --catalog s3://bucket/catalog/ --bind 127.0.0.1:5432
 
 # Only accessible from private network (production)
-slateduck serve --catalog s3://bucket/catalog/ --bind 10.0.1.5:5432
+rocklake serve --catalog s3://bucket/catalog/ --bind 10.0.1.5:5432
 ```
 
-If external access is needed, place SlateDuck behind a reverse proxy or cloud load balancer with TLS termination and IP allowlisting.
+If external access is needed, place Rocklake behind a reverse proxy or cloud load balancer with TLS termination and IP allowlisting.
 
 ### Firewall Rules
 
@@ -365,19 +365,19 @@ For long-running deployments with static credentials, implement rotation:
 
 ```bash
 # Update credentials in the environment file
-echo 'AWS_ACCESS_KEY_ID=new-key' > /etc/slateduck/env
-echo 'AWS_SECRET_ACCESS_KEY=new-secret' >> /etc/slateduck/env
-chmod 600 /etc/slateduck/env
+echo 'AWS_ACCESS_KEY_ID=new-key' > /etc/rocklake/env
+echo 'AWS_SECRET_ACCESS_KEY=new-secret' >> /etc/rocklake/env
+chmod 600 /etc/rocklake/env
 
 # Restart to pick up new credentials
-sudo systemctl restart slateduck
+sudo systemctl restart rocklake
 ```
 
 For production, prefer instance roles (EC2 IAM roles, GCE service accounts) which rotate credentials automatically without restarts.
 
 ### Least-Privilege IAM Policy
 
-SlateDuck needs only specific S3 permissions for its catalog prefix:
+Rocklake needs only specific S3 permissions for its catalog prefix:
 
 ```json
 {
@@ -405,7 +405,7 @@ SlateDuck needs only specific S3 permissions for its catalog prefix:
 }
 ```
 
-Do not grant `s3:*` or full bucket access. SlateDuck does not need access to data files (Parquet files in the data lake) — only to its own catalog prefix.
+Do not grant `s3:*` or full bucket access. Rocklake does not need access to data files (Parquet files in the data lake) — only to its own catalog prefix.
 
 ## Further Reading
 

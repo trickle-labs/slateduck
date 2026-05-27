@@ -1,6 +1,6 @@
 # Backup & Restore
 
-SlateDuck stores all catalog state in object storage, which provides 99.999999999% (11 nines) durability by default. Your data is already replicated across multiple availability zones by the cloud provider, surviving hardware failures, rack outages, and natural disasters. In many scenarios, you do not need a separate backup mechanism at all — object storage IS the backup.
+Rocklake stores all catalog state in object storage, which provides 99.999999999% (11 nines) durability by default. Your data is already replicated across multiple availability zones by the cloud provider, surviving hardware failures, rack outages, and natural disasters. In many scenarios, you do not need a separate backup mechanism at all — object storage IS the backup.
 
 However, durability protects against physical loss, not logical corruption. If a bug corrupts your catalog, if an operator accidentally runs excision with wrong parameters, or if you need to undo a schema migration that went wrong, you need recovery mechanisms that work at the logical level. This page covers all backup and restoration strategies: from zero-cost approaches (leveraging storage durability) to full NDJSON exports and named checkpoints.
 
@@ -21,7 +21,7 @@ However, durability protects against physical loss, not logical corruption. If a
 
 The simplest backup strategy costs nothing and requires no configuration: rely on object storage's built-in durability.
 
-When SlateDuck writes data to S3/GCS/Azure:
+When Rocklake writes data to S3/GCS/Azure:
 
 - S3 Standard: 99.999999999% durability (data replicated across 3+ AZs)
 - GCS Standard: Same durability class
@@ -38,14 +38,14 @@ You need additional backup when:
 2. **Retention window expires** — GC advances past the state you need
 3. **Human error** — someone accidentally runs excision or deletes the bucket
 4. **Compliance requires** — auditors want archived copies outside the live system
-5. **Cross-system migration** — moving catalog state to a different SlateDuck instance
+5. **Cross-system migration** — moving catalog state to a different Rocklake instance
 
 ## NDJSON Export (Full Logical Backup)
 
 NDJSON (Newline-Delimited JSON) export creates a complete, portable snapshot of the catalog in a human-readable format:
 
 ```bash
-slateduck export --catalog s3://bucket/catalog/ --output catalog-backup.ndjson
+rocklake export --catalog s3://bucket/catalog/ --output catalog-backup.ndjson
 ```
 
 ### What Gets Exported
@@ -77,10 +77,10 @@ Export the catalog as it appeared at a past point in time:
 
 ```bash
 # Export at snapshot 500
-slateduck export --catalog s3://bucket/catalog/ --output backup-snap500.ndjson --at-snapshot 500
+rocklake export --catalog s3://bucket/catalog/ --output backup-snap500.ndjson --at-snapshot 500
 
 # Export at a timestamp
-slateduck export --catalog s3://bucket/catalog/ --output backup-yesterday.ndjson --at-time "2024-12-15T00:00:00Z"
+rocklake export --catalog s3://bucket/catalog/ --output backup-yesterday.ndjson --at-time "2024-12-15T00:00:00Z"
 ```
 
 ### Export Size and Performance
@@ -98,8 +98,8 @@ Typical export sizes:
 
 ```bash
 # Daily backup to a dated file
-BACKUP_PATH="s3://backup-bucket/slateduck/$(date +%Y-%m-%d).ndjson"
-slateduck export --catalog s3://bucket/catalog/ --output "$BACKUP_PATH"
+BACKUP_PATH="s3://backup-bucket/rocklake/$(date +%Y-%m-%d).ndjson"
+rocklake export --catalog s3://bucket/catalog/ --output "$BACKUP_PATH"
 ```
 
 Kubernetes CronJob:
@@ -108,7 +108,7 @@ Kubernetes CronJob:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: slateduck-backup
+  name: rocklake-backup
 spec:
   schedule: "0 2 * * *"  # Daily at 2 AM
   jobTemplate:
@@ -117,11 +117,11 @@ spec:
         spec:
           containers:
             - name: backup
-              image: ghcr.io/slateduck/slateduck:0.8.0
+              image: ghcr.io/rocklake/rocklake:0.8.0
               command:
                 - "sh"
                 - "-c"
-                - "slateduck export --catalog s3://bucket/catalog/ --output s3://backup-bucket/slateduck/$(date +%Y-%m-%d).ndjson"
+                - "rocklake export --catalog s3://bucket/catalog/ --output s3://backup-bucket/rocklake/$(date +%Y-%m-%d).ndjson"
           restartPolicy: OnFailure
 ```
 
@@ -131,10 +131,10 @@ Import an NDJSON backup into a fresh (or existing) catalog:
 
 ```bash
 # Restore to a new catalog location
-slateduck import --catalog s3://bucket/new-catalog/ --input catalog-backup.ndjson
+rocklake import --catalog s3://bucket/new-catalog/ --input catalog-backup.ndjson
 
 # Restore to the same location (replaces current state)
-slateduck import --catalog s3://bucket/catalog/ --input catalog-backup.ndjson --overwrite
+rocklake import --catalog s3://bucket/catalog/ --input catalog-backup.ndjson --overwrite
 ```
 
 ### What Happens During Import
@@ -158,13 +158,13 @@ Checkpoints are lightweight named markers stored within the catalog itself. They
 
 ```bash
 # Before a risky migration
-slateduck checkpoint create --catalog s3://bucket/catalog/ --label "before-v2-migration"
+rocklake checkpoint create --catalog s3://bucket/catalog/ --label "before-v2-migration"
 
 # Before bulk data registration
-slateduck checkpoint create --catalog s3://bucket/catalog/ --label "pre-load-20241215"
+rocklake checkpoint create --catalog s3://bucket/catalog/ --label "pre-load-20241215"
 
 # Manual checkpoint with description
-slateduck checkpoint create --catalog s3://bucket/catalog/ \
+rocklake checkpoint create --catalog s3://bucket/catalog/ \
     --label "release-3.2" \
     --description "Catalog state at release 3.2 deployment"
 ```
@@ -172,7 +172,7 @@ slateduck checkpoint create --catalog s3://bucket/catalog/ \
 ### Listing Checkpoints
 
 ```bash
-slateduck checkpoint list --catalog s3://bucket/catalog/
+rocklake checkpoint list --catalog s3://bucket/catalog/
 
 # Output:
 # Label                  Snapshot  Created               Description
@@ -184,7 +184,7 @@ slateduck checkpoint list --catalog s3://bucket/catalog/
 ### Restoring from Checkpoint
 
 ```bash
-slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "before-v2-migration"
+rocklake checkpoint restore --catalog s3://bucket/catalog/ --label "before-v2-migration"
 ```
 
 Restoration works by setting the catalog's visible state back to the checkpoint's snapshot. Critically:
@@ -203,7 +203,7 @@ Checkpoints interact with GC:
 - To allow GC past a checkpoint, delete it first:
 
 ```bash
-slateduck checkpoint delete --catalog s3://bucket/catalog/ --label "before-v2-migration"
+rocklake checkpoint delete --catalog s3://bucket/catalog/ --label "before-v2-migration"
 ```
 
 ## Cross-Region Replication
@@ -232,7 +232,7 @@ gsutil mb -l US gs://my-catalog-bucket/
 az storage account create --name mycatalog --sku Standard_RAGRS
 ```
 
-SlateDuck does not need to know about cross-region replication — it happens transparently at the storage layer.
+Rocklake does not need to know about cross-region replication — it happens transparently at the storage layer.
 
 ## Bucket Versioning (Accidental Deletion Protection)
 
@@ -260,11 +260,11 @@ With versioning enabled, if a SlateDB compaction bug or manual error deletes an 
 1. Identify when corruption occurred (check logs, monitoring)
 2. Restore from checkpoint (if one exists before the corruption):
    ```bash
-   slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "last-good"
+   rocklake checkpoint restore --catalog s3://bucket/catalog/ --label "last-good"
    ```
 3. Or restore from NDJSON backup:
    ```bash
-   slateduck import --catalog s3://bucket/catalog/ --input last-backup.ndjson --overwrite
+   rocklake import --catalog s3://bucket/catalog/ --input last-backup.ndjson --overwrite
    ```
 
 ### Scenario: Bucket Accidentally Deleted
@@ -276,7 +276,7 @@ With versioning enabled, if a SlateDB compaction bug or manual error deletes an 
 ### Scenario: Region Outage
 
 1. Verify replication status of the secondary bucket
-2. Deploy SlateDuck in the secondary region pointing to the replica
+2. Deploy Rocklake in the secondary region pointing to the replica
 3. Remove `--read-only` to promote to writer (see [Multi-Region](../deployment/multi-region.md))
 
 ### Scenario: Need to Undo Schema Migration
@@ -288,7 +288,7 @@ With versioning enabled, if a SlateDB compaction bug or manual error deletes an 
    ```
 2. Restore from pre-migration checkpoint:
    ```bash
-   slateduck checkpoint restore --catalog s3://bucket/catalog/ --label "pre-migration"
+   rocklake checkpoint restore --catalog s3://bucket/catalog/ --label "pre-migration"
    ```
 
 ## Testing Your Backup Strategy
@@ -297,19 +297,19 @@ Backups that have never been tested are not backups. Periodically verify:
 
 ```bash
 # 1. Export current catalog
-slateduck export --catalog s3://bucket/catalog/ --output test-backup.ndjson
+rocklake export --catalog s3://bucket/catalog/ --output test-backup.ndjson
 
 # 2. Import into a test location
-slateduck import --catalog s3://bucket/test-restore/ --input test-backup.ndjson
+rocklake import --catalog s3://bucket/test-restore/ --input test-backup.ndjson
 
 # 3. Start a read-only instance against the restored catalog
-slateduck serve --catalog s3://bucket/test-restore/ --bind 127.0.0.1:5433 --read-only
+rocklake serve --catalog s3://bucket/test-restore/ --bind 127.0.0.1:5433 --read-only
 
 # 4. Verify data is accessible
 psql -h localhost -p 5433 -c "SELECT count(*) FROM ducklake_tables"
 
 # 5. Clean up test location
-slateduck destroy --catalog s3://bucket/test-restore/ --confirm
+rocklake destroy --catalog s3://bucket/test-restore/ --confirm
 ```
 
 ## Backup Scheduling Recommendations
@@ -325,8 +325,8 @@ slateduck destroy --catalog s3://bucket/test-restore/ --confirm
 ### Automating with Cron
 
 ```bash
-# /etc/cron.d/slateduck-backup
-0 2 * * * slateduck /usr/local/bin/slateduck export --catalog s3://prod/catalog/ --output s3://backups/slateduck/$(date +\%Y-\%m-\%d).ndjson 2>&1 | logger -t slateduck-backup
+# /etc/cron.d/rocklake-backup
+0 2 * * * rocklake /usr/local/bin/rocklake export --catalog s3://prod/catalog/ --output s3://backups/rocklake/$(date +\%Y-\%m-\%d).ndjson 2>&1 | logger -t rocklake-backup
 ```
 
 ### Backup Monitoring
@@ -334,12 +334,12 @@ slateduck destroy --catalog s3://bucket/test-restore/ --confirm
 Alert if backups are not being created:
 
 ```yaml
-- alert: SlateDuckBackupStale
-  expr: time() - slateduck_last_backup_timestamp_seconds > 172800  # 48 hours
+- alert: RocklakeBackupStale
+  expr: time() - rocklake_last_backup_timestamp_seconds > 172800  # 48 hours
   labels:
     severity: warning
   annotations:
-    summary: "No SlateDuck backup in 48 hours"
+    summary: "No Rocklake backup in 48 hours"
 ```
 
 ## Restoring in Place vs. to New Location
@@ -351,7 +351,7 @@ You have two restoration approaches:
 Replaces the current catalog with the backup content:
 
 ```bash
-slateduck import --catalog s3://bucket/catalog/ --input backup.ndjson --overwrite
+rocklake import --catalog s3://bucket/catalog/ --input backup.ndjson --overwrite
 ```
 
 **Danger:** This destroys any changes made after the backup was taken. All DuckDB clients must reconnect. Use only when the current catalog is known-corrupt.
@@ -361,7 +361,7 @@ slateduck import --catalog s3://bucket/catalog/ --input backup.ndjson --overwrit
 Creates a new catalog without affecting the current one:
 
 ```bash
-slateduck import --catalog s3://bucket/catalog-restored/ --input backup.ndjson
+rocklake import --catalog s3://bucket/catalog-restored/ --input backup.ndjson
 ```
 
 This allows you to:

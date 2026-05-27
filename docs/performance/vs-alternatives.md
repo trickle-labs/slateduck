@@ -1,8 +1,8 @@
-# SlateDuck vs. Alternatives
+# Rocklake vs. Alternatives
 
-Choosing a DuckLake catalog backend is not a question of "which is best" — it is a question of "which trade-offs match my priorities." This page provides an honest, detailed comparison between SlateDuck and the alternative backends that DuckLake supports: PostgreSQL, SQLite, and MySQL. Each comparison includes raw performance numbers, operational complexity analysis, cost modeling, and clear guidance on when each option is the better choice.
+Choosing a DuckLake catalog backend is not a question of "which is best" — it is a question of "which trade-offs match my priorities." This page provides an honest, detailed comparison between Rocklake and the alternative backends that DuckLake supports: PostgreSQL, SQLite, and MySQL. Each comparison includes raw performance numbers, operational complexity analysis, cost modeling, and clear guidance on when each option is the better choice.
 
-This page does not claim SlateDuck is universally superior. It is faster in some dimensions, slower in others, simpler in some aspects, less capable in others. The goal is to help you make an informed decision based on your specific circumstances — not to sell you on SlateDuck when PostgreSQL would serve you better.
+This page does not claim Rocklake is universally superior. It is faster in some dimensions, slower in others, simpler in some aspects, less capable in others. The goal is to help you make an informed decision based on your specific circumstances — not to sell you on Rocklake when PostgreSQL would serve you better.
 
 ## The Alternatives
 
@@ -13,42 +13,42 @@ DuckLake's catalog protocol is backend-agnostic. DuckDB's `ducklake` extension c
 | **PostgreSQL** | Traditional relational database running DuckLake's schema | Production-ready, default |
 | **SQLite** | Embedded database file with DuckLake tables | Development/single-machine |
 | **MySQL** | Alternative relational backend | Supported but less common |
-| **SlateDuck** | Purpose-built serverless catalog on object storage | Production-ready |
+| **Rocklake** | Purpose-built serverless catalog on object storage | Production-ready |
 
 ## Raw Performance Comparison
 
 ### Read Latency (Point Operations)
 
-| Operation | SlateDuck (S3 Std) | SlateDuck (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
+| Operation | Rocklake (S3 Std) | Rocklake (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
 |-----------|-------------------|----------------------|-----------------|---------------|
 | Point read (cold) | 30–100ms | 3–10ms | 1–3ms | < 0.1ms |
 | Point read (warm) | 0.8–2ms | 0.8–2ms | 1–3ms | < 0.1ms |
 | Schema lookup | 1–50ms | 1–5ms | 1–3ms | < 0.1ms |
 
-**Analysis:** For cold reads (first access), PostgreSQL wins against SlateDuck-on-S3-Standard by a large margin. For warm reads, SlateDuck and PostgreSQL are nearly identical. SQLite dominates both because it is in-process with zero network overhead.
+**Analysis:** For cold reads (first access), PostgreSQL wins against Rocklake-on-S3-Standard by a large margin. For warm reads, Rocklake and PostgreSQL are nearly identical. SQLite dominates both because it is in-process with zero network overhead.
 
-SlateDuck's warm-read latency (0.8–2ms) is competitive with PostgreSQL (1–3ms) because both are bound by TCP round-trip time. The storage backend latency is irrelevant when the block cache is warm.
+Rocklake's warm-read latency (0.8–2ms) is competitive with PostgreSQL (1–3ms) because both are bound by TCP round-trip time. The storage backend latency is irrelevant when the block cache is warm.
 
 ### Read Latency (Scan Operations)
 
-| Operation | SlateDuck (S3 Std) | SlateDuck (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
+| Operation | Rocklake (S3 Std) | Rocklake (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
 |-----------|-------------------|----------------------|-----------------|---------------|
 | List 50 columns (cold) | 30–80ms | 5–12ms | 2–5ms | < 1ms |
 | List 50 columns (warm) | 3–8ms | 3–8ms | 2–5ms | < 1ms |
 | List 1000 files (cold) | 80–250ms | 10–30ms | 5–15ms | 1–5ms |
 | List 1000 files (warm) | 15–30ms | 15–30ms | 5–15ms | 1–5ms |
 
-**Analysis:** For large scans, PostgreSQL maintains an advantage because its buffer pool and sequential scan optimization are highly tuned. SlateDuck's scan performance is respectable with warm cache but cannot match a database optimized for relational scans over 40 years.
+**Analysis:** For large scans, PostgreSQL maintains an advantage because its buffer pool and sequential scan optimization are highly tuned. Rocklake's scan performance is respectable with warm cache but cannot match a database optimized for relational scans over 40 years.
 
 ### Write Latency
 
-| Operation | SlateDuck (S3 Std) | SlateDuck (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
+| Operation | Rocklake (S3 Std) | Rocklake (S3 Express) | PostgreSQL (RDS) | SQLite (local) |
 |-----------|-------------------|----------------------|-----------------|---------------|
 | Single write | 50–150ms | 3–10ms | 5–15ms | < 1ms |
 | Batch 100 writes | 60–160ms | 5–15ms | 20–50ms | 1–5ms |
 | Batch 1000 writes | 100–200ms | 10–25ms | 50–200ms | 5–20ms |
 
-**Analysis:** SlateDuck on S3 Standard is the slowest writer. On S3 Express, SlateDuck is competitive with PostgreSQL for single writes and better for large batches (because SlateDuck's batching has constant overhead regardless of batch size, while PostgreSQL's write amplification grows with transaction size).
+**Analysis:** Rocklake on S3 Standard is the slowest writer. On S3 Express, Rocklake is competitive with PostgreSQL for single writes and better for large batches (because Rocklake's batching has constant overhead regardless of batch size, while PostgreSQL's write amplification grows with transaction size).
 
 SQLite dominates write latency because it writes to local disk with fsync — no network involved.
 
@@ -56,12 +56,12 @@ SQLite dominates write latency because it writes to local disk with fsync — no
 
 | Backend | Writes/second (sequential) | Writes/second (concurrent) |
 |---------|---------------------------|---------------------------|
-| SlateDuck (S3 Standard) | 8–13 | 8–13 (single writer) |
-| SlateDuck (S3 Express) | 80–150 | 80–150 (single writer) |
+| Rocklake (S3 Standard) | 8–13 | 8–13 (single writer) |
+| Rocklake (S3 Express) | 80–150 | 80–150 (single writer) |
 | PostgreSQL (RDS) | 500–2,000 | 5,000–20,000 |
 | SQLite (local) | 1,000–5,000 | 1,000–5,000 (single writer) |
 
-**Analysis:** PostgreSQL has vastly higher write throughput, especially with concurrent writes. SlateDuck's single-writer model limits throughput to one transaction at a time. For catalog workloads (a few writes per minute), SlateDuck's throughput is more than sufficient. For high-write scenarios, PostgreSQL is clearly better.
+**Analysis:** PostgreSQL has vastly higher write throughput, especially with concurrent writes. Rocklake's single-writer model limits throughput to one transaction at a time. For catalog workloads (a few writes per minute), Rocklake's throughput is more than sufficient. For high-write scenarios, PostgreSQL is clearly better.
 
 ## Operational Complexity Comparison
 
@@ -87,7 +87,7 @@ To run PostgreSQL as a DuckLake catalog backend in production:
 
 **Total ongoing effort:** 2–8 hours/month for a typical team (monitoring, patching, occasional incident response).
 
-### SlateDuck Operational Requirements
+### Rocklake Operational Requirements
 
 | Concern | Requirement | Effort |
 |---------|-------------|--------|
@@ -124,7 +124,7 @@ To run PostgreSQL as a DuckLake catalog backend in production:
 
 Assumptions: 50 tables, 2,500 columns, 50,000 data files, moderate read traffic (1,000 reads/hour), low write traffic (10 writes/hour).
 
-| Component | SlateDuck | PostgreSQL (RDS) | SQLite |
+| Component | Rocklake | PostgreSQL (RDS) | SQLite |
 |-----------|-----------|-----------------|--------|
 | Compute | $15 (t3.micro) | $50 (db.t3.small) | $0 (in-process) |
 | Storage | $1 (S3 Standard) | $5 (EBS gp3) | $0 (local disk) |
@@ -134,7 +134,7 @@ Assumptions: 50 tables, 2,500 columns, 50,000 data files, moderate read traffic 
 
 For an enterprise deployment (larger instance, S3 Express, monitoring):
 
-| Component | SlateDuck | PostgreSQL (RDS) | SQLite |
+| Component | Rocklake | PostgreSQL (RDS) | SQLite |
 |-----------|-----------|-----------------|--------|
 | Compute | $50 (t3.medium) | $200 (db.r5.large + replica) | N/A |
 | Storage | $30 (S3 Express) | $50 (EBS io1) | N/A |
@@ -144,9 +144,9 @@ For an enterprise deployment (larger instance, S3 Express, monitoring):
 
 ### Cost Scaling
 
-SlateDuck's cost scales primarily with storage size and access frequency. PostgreSQL's cost scales with instance size (which must be provisioned for peak, not average). For catalogs that grow over time:
+Rocklake's cost scales primarily with storage size and access frequency. PostgreSQL's cost scales with instance size (which must be provisioned for peak, not average). For catalogs that grow over time:
 
-| Catalog Growth | SlateDuck Cost Impact | PostgreSQL Cost Impact |
+| Catalog Growth | Rocklake Cost Impact | PostgreSQL Cost Impact |
 |---------------|----------------------|----------------------|
 | 2x tables | +$0.50/month (more S3 storage) | +$0 (unless instance maxes out) |
 | 10x reads | +$5/month (more S3 GETs) | May need instance upgrade (+$100–$300) |
@@ -154,7 +154,7 @@ SlateDuck's cost scales primarily with storage size and access frequency. Postgr
 
 ## Feature Comparison
 
-| Feature | SlateDuck | PostgreSQL | SQLite |
+| Feature | Rocklake | PostgreSQL | SQLite |
 |---------|-----------|-----------|--------|
 | DuckLake protocol | Full | Full | Full (single machine) |
 | Time travel | Built-in (snapshots) | Manual (triggers/temporal tables) | No |
@@ -169,17 +169,17 @@ SlateDuck's cost scales primarily with storage size and access frequency. Postgr
 
 ## Decision Framework
 
-### Choose SlateDuck When
+### Choose Rocklake When
 
-- **You want minimal operational overhead.** If your team does not have dedicated DBA capacity and you want to deploy once and forget, SlateDuck eliminates 90% of the operational surface area of running PostgreSQL.
+- **You want minimal operational overhead.** If your team does not have dedicated DBA capacity and you want to deploy once and forget, Rocklake eliminates 90% of the operational surface area of running PostgreSQL.
 
-- **You are already using object storage.** If your data files are in S3/GCS/Azure, adding a SlateDuck catalog means your entire data platform (data + metadata) lives in object storage. No additional infrastructure to manage.
+- **You are already using object storage.** If your data files are in S3/GCS/Azure, adding a Rocklake catalog means your entire data platform (data + metadata) lives in object storage. No additional infrastructure to manage.
 
-- **You need durable time travel.** SlateDuck's immutable architecture provides free, reliable time travel to any historical snapshot. PostgreSQL can achieve this with temporal tables or triggers, but it requires additional engineering.
+- **You need durable time travel.** Rocklake's immutable architecture provides free, reliable time travel to any historical snapshot. PostgreSQL can achieve this with temporal tables or triggers, but it requires additional engineering.
 
-- **Cost matters.** SlateDuck costs $18–$90/month. PostgreSQL costs $70–$300/month. For teams running many catalogs (one per environment, one per team), the cost difference multiplied by N is significant.
+- **Cost matters.** Rocklake costs $18–$90/month. PostgreSQL costs $70–$300/month. For teams running many catalogs (one per environment, one per team), the cost difference multiplied by N is significant.
 
-- **You value simplicity over flexibility.** SlateDuck's bounded scope means fewer things can go wrong. There are no vacuum issues, no connection exhaustion, no bloat problems, no lock contention.
+- **You value simplicity over flexibility.** Rocklake's bounded scope means fewer things can go wrong. There are no vacuum issues, no connection exhaustion, no bloat problems, no lock contention.
 
 ### Choose PostgreSQL When
 
@@ -187,11 +187,11 @@ SlateDuck's cost scales primarily with storage size and access frequency. Postgr
 
 - **You need sub-5ms latency consistently.** PostgreSQL's buffer pool serves reads in 1–3ms consistently (no cold-start penalty for warm databases). If every query plan must complete in under 100ms, and catalog lookup is a meaningful fraction of that budget, PostgreSQL is faster.
 
-- **You need high write throughput.** If your pipeline registers hundreds of files per second (continuous streaming ingestion), PostgreSQL's concurrent write capability is necessary. SlateDuck's single-writer model tops out at ~10–15 sequential writes per second on S3 Standard.
+- **You need high write throughput.** If your pipeline registers hundreds of files per second (continuous streaming ingestion), PostgreSQL's concurrent write capability is necessary. Rocklake's single-writer model tops out at ~10–15 sequential writes per second on S3 Standard.
 
-- **You need ad-hoc catalog queries.** If you regularly query catalog metadata directly (analytics about your data lake — "which tables grew fastest this month?"), PostgreSQL allows full SQL. SlateDuck requires exporting to NDJSON first.
+- **You need ad-hoc catalog queries.** If you regularly query catalog metadata directly (analytics about your data lake — "which tables grew fastest this month?"), PostgreSQL allows full SQL. Rocklake requires exporting to NDJSON first.
 
-- **You need a managed service.** AWS RDS, Google Cloud SQL, and Azure Database for PostgreSQL provide fully managed PostgreSQL. SlateDuck does not have a managed offering (though deploying it on Kubernetes or Fly.io is straightforward).
+- **You need a managed service.** AWS RDS, Google Cloud SQL, and Azure Database for PostgreSQL provide fully managed PostgreSQL. Rocklake does not have a managed offering (though deploying it on Kubernetes or Fly.io is straightforward).
 
 ### Choose SQLite When
 
@@ -203,29 +203,29 @@ SlateDuck's cost scales primarily with storage size and access frequency. Postgr
 
 ## Migration Paths
 
-### PostgreSQL → SlateDuck
+### PostgreSQL → Rocklake
 
-If you are running PostgreSQL and want to migrate to SlateDuck:
+If you are running PostgreSQL and want to migrate to Rocklake:
 
 1. Export catalog state from PostgreSQL (DuckLake's schema is well-defined)
-2. Import into SlateDuck (tool provided)
+2. Import into Rocklake (tool provided)
 3. Update DuckDB connection strings
 4. Decommission PostgreSQL instance
 
 The migration preserves all catalog metadata, including historical snapshots (if you used temporal tables in PostgreSQL).
 
-### SlateDuck → PostgreSQL
+### Rocklake → PostgreSQL
 
-If SlateDuck does not meet your needs and you want to migrate to PostgreSQL:
+If Rocklake does not meet your needs and you want to migrate to PostgreSQL:
 
-1. Export catalog state using `slateduck export`
+1. Export catalog state using `rocklake export`
 2. Load into PostgreSQL using DuckLake's schema
 3. Update DuckDB connection strings
 
-The export includes all current catalog state. Historical snapshots are not migrated (PostgreSQL does not natively support SlateDuck's snapshot model).
+The export includes all current catalog state. Historical snapshots are not migrated (PostgreSQL does not natively support Rocklake's snapshot model).
 
 ## Further Reading
 
-- **[When to Use SlateDuck](when-to-use.md)** — Detailed workload analysis
+- **[When to Use Rocklake](when-to-use.md)** — Detailed workload analysis
 - **[Benchmarks](benchmarks.md)** — Raw numbers you can reproduce
-- **[Deployment: Configuration](../deployment/configuration.md)** — Setting up SlateDuck for production
+- **[Deployment: Configuration](../deployment/configuration.md)** — Setting up Rocklake for production

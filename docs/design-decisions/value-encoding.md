@@ -1,6 +1,6 @@
 # Value Encoding: FlatBuffers Evaluation
 
-SlateDuck uses Protocol Buffers (protobuf) for all catalog value encoding.
+Rocklake uses Protocol Buffers (protobuf) for all catalog value encoding.
 See [Protobuf Encoding](protobuf-encoding.md) for the full rationale.
 
 During v0.9 planning, FlatBuffers was evaluated as a potential replacement
@@ -40,14 +40,14 @@ well below measurement noise (< 1% of query latency).  The savings do not
 justify:
 
 - A mandatory build-tool dependency (`flatc` schema compiler)
-- A format migration (`slateduck migrate`) for all existing catalogs
+- A format migration (`rocklake migrate`) for all existing catalogs
 - Increased wire size (negates the object-storage cost advantage of protobuf)
 - Learning curve for contributors unfamiliar with the FlatBuffers builder API
 
 FlatBuffers remains a viable option for a future version if:
 
 - Catalog row counts exceed ~10M (where decode CPU becomes a bottleneck)
-- SlateDuck adds a columnar layout that benefits from random field access
+- Rocklake adds a columnar layout that benefits from random field access
 - The FlatBuffers Rust crate matures to offer safe zero-copy with lifetimes
 
 ## Schema evolution compatibility

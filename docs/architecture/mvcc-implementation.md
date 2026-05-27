@@ -1,12 +1,12 @@
 # MVCC Implementation
 
-This page describes the storage-level implementation of multi-version concurrency control in SlateDuck. While the [Concepts: MVCC & Snapshots](../concepts/mvcc.md) page explains the theory — what MVCC means, why it matters, and how readers and writers coexist — this page focuses on the engineering: how version information is encoded in keys and values, how the visibility filter works at the code level, how the three different MVCC behaviors (versioned, append-only, mutable singleton) are implemented, and how garbage collection identifies rows that are safe to remove.
+This page describes the storage-level implementation of multi-version concurrency control in Rocklake. While the [Concepts: MVCC & Snapshots](../concepts/mvcc.md) page explains the theory — what MVCC means, why it matters, and how readers and writers coexist — this page focuses on the engineering: how version information is encoded in keys and values, how the visibility filter works at the code level, how the three different MVCC behaviors (versioned, append-only, mutable singleton) are implemented, and how garbage collection identifies rows that are safe to remove.
 
 Understanding this page requires familiarity with the [Key Layout](key-layout.md) and [Value Encoding](value-encoding.md) — specifically, how `begin_snapshot` appears as both a key suffix (for versioned entities) and a value field, and how `end_snapshot` is stored exclusively in the value.
 
 ## The Three MVCC Behaviors
 
-Not all catalog tables use the same versioning strategy. SlateDuck defines three distinct MVCC behaviors, assigned per table type in the tag registry. The behavior determines how rows are written, how they are superseded, and how visibility filtering works during reads.
+Not all catalog tables use the same versioning strategy. Rocklake defines three distinct MVCC behaviors, assigned per table type in the tag registry. The behavior determines how rows are written, how they are superseded, and how visibility filtering works during reads.
 
 ### Behavior 1: Versioned Entities
 
@@ -48,7 +48,7 @@ At snapshot 4, the reader sees nothing (begin=5 > 4 for both versions).
 
 **Supersession process:**
 
-When a versioned entity is modified (renamed, altered, dropped), SlateDuck:
+When a versioned entity is modified (renamed, altered, dropped), Rocklake:
 
 1. Reads the current version's key-value pair
 2. Updates the current version's value with `end_snapshot = new_snapshot_id` (this is a SlateDB PUT to the existing key with a new value)
@@ -104,7 +104,7 @@ Mutable singletons are catalog objects with exactly one current value, updated i
 
 **Implementation:** A write to a mutable singleton is a simple SlateDB PUT to a fixed key. The new value replaces the old value (conceptually — in the LSM-tree, the new write shadows the old one until compaction merges them).
 
-Mutable singletons are the exception to SlateDuck's immutability principle. They exist because some metadata (like "how many data files does table X have?" or "what is the current writer epoch?") changes frequently and where only the current value matters. Keeping historical versions of these values would waste storage for no benefit.
+Mutable singletons are the exception to Rocklake's immutability principle. They exist because some metadata (like "how many data files does table X have?" or "what is the current writer epoch?") changes frequently and where only the current value matters. Keeping historical versions of these values would waste storage for no benefit.
 
 ## The Core Visibility Filter
 
@@ -215,9 +215,9 @@ SlateDB's compaction process merges SST files to reduce read amplification. It d
 
 - Superseded MVCC versions (rows with `end_snapshot` set) remain in storage after compaction
 - Compaction does not remove "old" versions because it cannot distinguish MVCC-superseded rows from active ones
-- Physical deletion of superseded rows only happens through SlateDuck's explicit excision process
+- Physical deletion of superseded rows only happens through Rocklake's explicit excision process
 
-SlateDB's own tombstones (markers for deleted keys) are handled by SlateDB compaction. But during normal SlateDuck operation, keys are never deleted — supersession updates the value at an existing key (setting `end_snapshot`) but does not remove any key. Physical key deletion happens only during excision, which uses SlateDB's delete API.
+SlateDB's own tombstones (markers for deleted keys) are handled by SlateDB compaction. But during normal Rocklake operation, keys are never deleted — supersession updates the value at an existing key (setting `end_snapshot`) but does not remove any key. Physical key deletion happens only during excision, which uses SlateDB's delete API.
 
 ## Invariants and Safety Checks
 

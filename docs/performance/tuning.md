@@ -1,8 +1,8 @@
 # Performance Tuning
 
-This page covers the configuration options and operational practices that improve SlateDuck's performance for specific workloads. The guidance is ordered by impact — the first item provides the largest performance improvement for the least effort, and subsequent items provide diminishing returns. For most deployments, applying the first two or three recommendations is sufficient. Going further is for environments where every millisecond matters.
+This page covers the configuration options and operational practices that improve Rocklake's performance for specific workloads. The guidance is ordered by impact — the first item provides the largest performance improvement for the least effort, and subsequent items provide diminishing returns. For most deployments, applying the first two or three recommendations is sufficient. Going further is for environments where every millisecond matters.
 
-Performance tuning in SlateDuck is different from tuning a traditional database. There are no query plans to optimize, no indexes to create, no buffer pool sizes to calculate. The primary knobs are: where data lives (storage backend), how much is cached (block cache size), how clean the data is (garbage collection), and how work is organized (write batching). These are operational decisions, not code changes.
+Performance tuning in Rocklake is different from tuning a traditional database. There are no query plans to optimize, no indexes to create, no buffer pool sizes to calculate. The primary knobs are: where data lives (storage backend), how much is cached (block cache size), how clean the data is (garbage collection), and how work is organized (write batching). These are operational decisions, not code changes.
 
 ## Storage Backend Selection
 
@@ -23,21 +23,21 @@ The single highest-impact performance decision is your choice of object storage 
 
 ```bash
 # Local development
-slateduck serve --catalog ./local-catalog/
+rocklake serve --catalog ./local-catalog/
 ```
 
 **Cost-optimized production:** Use S3 Standard (or GCS/Azure equivalent). The 50–150ms write latency and 20–100ms cold-read latency is acceptable for most catalog workloads. The cost is minimal. This is the correct default for new deployments.
 
 ```bash
 # Production with S3 Standard
-slateduck serve --catalog s3://your-bucket/catalogs/production/
+rocklake serve --catalog s3://your-bucket/catalogs/production/
 ```
 
 **Latency-sensitive production:** Use S3 Express One Zone. This reduces all storage-bound operations by 5–10x. The cost is approximately 10x higher than S3 Standard, but for a metadata catalog (typically under 1GB), the absolute cost difference is small ($23/month vs. $300/month for 100GB — and most catalogs are 10–100MB, making the cost difference trivial).
 
 ```bash
 # Low-latency production with S3 Express
-slateduck serve --catalog s3express://your-bucket--use1-az4--x-s3/catalogs/production/
+rocklake serve --catalog s3express://your-bucket--use1-az4--x-s3/catalogs/production/
 ```
 
 **Air-gapped or sovereignty-constrained:** Use MinIO (S3-compatible) deployed within your controlled environment. Latency depends on network distance but is typically 1–5ms for same-datacenter deployments.
@@ -51,7 +51,7 @@ You can migrate a catalog between storage backends by copying the SlateDB direct
 aws s3 sync s3://standard-bucket/catalog/ s3express://express-bucket--use1-az4--x-s3/catalog/
 ```
 
-After migration, restart SlateDuck pointing to the new location. No catalog modification is needed.
+After migration, restart Rocklake pointing to the new location. No catalog modification is needed.
 
 ## Cache Sizing
 
@@ -78,7 +78,7 @@ The optimal cache size depends on your catalog's total size and access patterns:
 
 ```bash
 # Set cache size to 256MB
-SLATEDUCK_CACHE_SIZE_MB=256 slateduck serve --catalog s3://bucket/catalog/
+ROCKLAKE_CACHE_SIZE_MB=256 rocklake serve --catalog s3://bucket/catalog/
 
 # Verify cache effectiveness via metrics
 # Look at cache_hit_ratio — should be > 0.9 in steady state
@@ -86,11 +86,11 @@ SLATEDUCK_CACHE_SIZE_MB=256 slateduck serve --catalog s3://bucket/catalog/
 
 ### Cache Cold Start
 
-When SlateDuck starts, the cache is empty. The first operations (typically 10–50 depending on catalog size and access pattern) will be slow because they trigger block fetches. After warm-up, the cache contains the active working set and subsequent operations are fast.
+When Rocklake starts, the cache is empty. The first operations (typically 10–50 depending on catalog size and access pattern) will be slow because they trigger block fetches. After warm-up, the cache contains the active working set and subsequent operations are fast.
 
 **Strategies to reduce cold-start impact:**
 
-1. **Sticky scheduling:** Deploy SlateDuck on the same node across restarts (preserves OS page cache, though not SlateDB's block cache)
+1. **Sticky scheduling:** Deploy Rocklake on the same node across restarts (preserves OS page cache, though not SlateDB's block cache)
 2. **Warm-up queries:** After startup, issue a few representative queries to prime the cache before directing production traffic
 3. **Large cache:** A cache that holds the entire catalog means warm-up completes after one full scan of the catalog (a few seconds)
 
@@ -117,7 +117,7 @@ This seems modest, but for tables with heavy churn:
 Use the inspect tool to measure current amplification:
 
 ```bash
-slateduck inspect --catalog s3://bucket/catalog/
+rocklake inspect --catalog s3://bucket/catalog/
 
 # Output includes:
 # Total rows: 45,000
@@ -142,17 +142,17 @@ GC marks old versions as reclaimable by advancing `retain_from`. Excision (compa
 
 ```bash
 # Step 1: Mark old versions as reclaimable
-slateduck gc --catalog s3://bucket/catalog/ --retain-snapshots 10
+rocklake gc --catalog s3://bucket/catalog/ --retain-snapshots 10
 
 # Step 2: Physically remove dead rows (reduce SST file sizes)
-slateduck excise --catalog s3://bucket/catalog/
+rocklake excise --catalog s3://bucket/catalog/
 ```
 
 After excision, scan amplification drops to 1.0x (only visible rows remain in storage).
 
 ## Write Batching
 
-SlateDuck's write performance is determined by the number of object storage PUTs, not the number of rows written. A single PUT can carry thousands of key-value pairs. The optimization strategy is to group as many writes as possible into each transaction.
+Rocklake's write performance is determined by the number of object storage PUTs, not the number of rows written. A single PUT can carry thousands of key-value pairs. The optimization strategy is to group as many writes as possible into each transaction.
 
 ### How Batching Works
 
@@ -177,11 +177,11 @@ INSERT INTO my_table SELECT * FROM read_parquet('s3://data/*.parquet');
 
 DuckDB writes all the resulting Parquet files, then registers them all in the catalog in a single transaction. You do not need to manually batch — DuckDB does it for you.
 
-Manual batching is only relevant when writing to SlateDuck directly (via `psql` or custom clients) outside of DuckDB's extension.
+Manual batching is only relevant when writing to Rocklake directly (via `psql` or custom clients) outside of DuckDB's extension.
 
 ## Network Optimization
 
-Network latency is the dominant factor for cache-hot operations (where storage I/O is avoided). Reducing network distance between DuckDB and SlateDuck provides consistent latency reduction on every operation.
+Network latency is the dominant factor for cache-hot operations (where storage I/O is avoided). Reducing network distance between DuckDB and Rocklake provides consistent latency reduction on every operation.
 
 ### Co-Location Strategies
 
@@ -193,11 +193,11 @@ Network latency is the dominant factor for cache-hot operations (where storage I
 | Same region, different AZ | 2–5ms | Default for HA |
 | Cross-region | 20–100ms | Avoid if possible |
 
-**Recommendation:** Deploy SlateDuck in the same availability zone as your DuckDB instances. If DuckDB runs in multiple AZs, deploy SlateDuck readers in each AZ with a single writer in one AZ.
+**Recommendation:** Deploy Rocklake in the same availability zone as your DuckDB instances. If DuckDB runs in multiple AZs, deploy Rocklake readers in each AZ with a single writer in one AZ.
 
 ### VPC Endpoints
 
-When SlateDuck accesses S3, the traffic can go through the public internet or through a VPC endpoint. VPC endpoints provide:
+When Rocklake accesses S3, the traffic can go through the public internet or through a VPC endpoint. VPC endpoints provide:
 
 - Lower latency (private network path, no internet gateway)
 - Higher bandwidth (not subject to internet routing congestion)
@@ -205,13 +205,13 @@ When SlateDuck accesses S3, the traffic can go through the public internet or th
 
 ```bash
 # Ensure VPC endpoint for S3 is configured in your VPC
-# SlateDuck uses it automatically (no configuration needed)
+# Rocklake uses it automatically (no configuration needed)
 # Verify with: aws s3 ls --debug 2>&1 | grep endpoint
 ```
 
 ### Native Extension (Strategy C)
 
-For maximum performance, eliminate the network entirely by using SlateDuck as a native DuckDB extension. The extension embeds the catalog logic directly in DuckDB's process — there is no TCP connection, no protocol serialization, no network latency.
+For maximum performance, eliminate the network entirely by using Rocklake as a native DuckDB extension. The extension embeds the catalog logic directly in DuckDB's process — there is no TCP connection, no protocol serialization, no network latency.
 
 Performance with the native extension:
 
@@ -232,7 +232,7 @@ SlateDB periodically compacts SST files — merging small files into larger ones
 
 ### Default Behavior
 
-SlateDB's compaction runs in the background with conservative settings. For most SlateDuck deployments, the defaults are appropriate.
+SlateDB's compaction runs in the background with conservative settings. For most Rocklake deployments, the defaults are appropriate.
 
 ### When to Tune Compaction
 
@@ -259,7 +259,7 @@ For a new deployment, walk through this checklist:
 
 - [ ] Storage backend appropriate for latency requirements?
 - [ ] Cache sized to hold working set (or full catalog if small)?
-- [ ] DuckDB and SlateDuck in same availability zone?
+- [ ] DuckDB and Rocklake in same availability zone?
 - [ ] VPC endpoint configured for object storage access?
 - [ ] GC scheduled to run periodically (daily or weekly)?
 - [ ] Monitoring alerts on cache hit ratio and latency percentiles?

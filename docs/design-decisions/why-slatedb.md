@@ -1,6 +1,6 @@
 # Why SlateDB?
 
-The most fundamental architectural decision in SlateDuck is the choice of persistence engine. Everything else — the key encoding, the MVCC model, the deployment topology, the operational procedures — flows from this choice. SlateDB is a Rust-native LSM-tree key-value store that writes directly to object storage (S3, GCS, Azure Blob), with no local disk required for durability. This page explains why SlateDB was chosen over a field of strong alternatives, examines the consequences in detail, and honestly addresses the costs.
+The most fundamental architectural decision in Rocklake is the choice of persistence engine. Everything else — the key encoding, the MVCC model, the deployment topology, the operational procedures — flows from this choice. SlateDB is a Rust-native LSM-tree key-value store that writes directly to object storage (S3, GCS, Azure Blob), with no local disk required for durability. This page explains why SlateDB was chosen over a field of strong alternatives, examines the consequences in detail, and honestly addresses the costs.
 
 ## The Requirements
 
@@ -26,7 +26,7 @@ Before evaluating options, we established what the persistence layer must provid
 
 FoundationDB is arguably the best distributed key-value store ever built. Its transaction model is correct, performant, and well-tested by Apple at enormous scale.
 
-**Why not:** FoundationDB requires a cluster of 3+ servers for its coordination layer. This violates requirement #1 — SlateDuck must work with nothing but object storage. Running a FoundationDB cluster adds operational complexity that defeats the purpose of a "deploy one binary and a bucket" system.
+**Why not:** FoundationDB requires a cluster of 3+ servers for its coordination layer. This violates requirement #1 — Rocklake must work with nothing but object storage. Running a FoundationDB cluster adds operational complexity that defeats the purpose of a "deploy one binary and a bucket" system.
 
 ### RocksDB
 
@@ -38,11 +38,11 @@ RocksDB is the industry-standard embedded LSM-tree. It is mature, fast, well-und
 
 SQLite is the world's most deployed database. It is lightweight, zero-configuration, and extremely reliable.
 
-**Why not:** SQLite requires a local filesystem with POSIX locking semantics. It does not support concurrent access from multiple processes without a network filesystem (which introduces its own problems). More fundamentally, DuckLake already has a SQLite backend — SlateDuck exists specifically to provide an alternative that does not require local filesystem state.
+**Why not:** SQLite requires a local filesystem with POSIX locking semantics. It does not support concurrent access from multiple processes without a network filesystem (which introduces its own problems). More fundamentally, DuckLake already has a SQLite backend — Rocklake exists specifically to provide an alternative that does not require local filesystem state.
 
 ### Custom LSM-Tree Implementation
 
-We could build a custom LSM-tree tailored exactly to SlateDuck's needs, writing SST files directly to object storage.
+We could build a custom LSM-tree tailored exactly to Rocklake's needs, writing SST files directly to object storage.
 
 **Why not:** Building a correct, performant LSM-tree is a multi-year engineering effort. It involves compaction scheduling, bloom filter tuning, block cache management, write-ahead log design, and manifest file management. SlateDB provides all of this already, maintained by a dedicated team. The build-vs-buy calculus strongly favors using an existing implementation.
 
@@ -50,7 +50,7 @@ We could build a custom LSM-tree tailored exactly to SlateDuck's needs, writing 
 
 Cloud-managed key-value stores offer zero-ops persistence with strong consistency guarantees.
 
-**Why not:** These services are proprietary and not self-hostable. Using DynamoDB would tie SlateDuck to AWS permanently. Users running on GCS, Azure, or on-premises would be unable to use it. The `object_store` crate provides a provider-agnostic abstraction over S3/GCS/Azure — this portability is essential.
+**Why not:** These services are proprietary and not self-hostable. Using DynamoDB would tie Rocklake to AWS permanently. Users running on GCS, Azure, or on-premises would be unable to use it. The `object_store` crate provides a provider-agnostic abstraction over S3/GCS/Azure — this portability is essential.
 
 ### TiKV
 
@@ -80,23 +80,23 @@ SlateDB meets all seven requirements directly and elegantly:
 
 Beyond the core requirements, SlateDB offers additional advantages:
 
-**Active maintenance.** SlateDB is maintained by the team building SlateDB Cloud, which means sustained investment in correctness, performance, and cloud-native features. The project has a roadmap that aligns with SlateDuck's needs (caching, tiered storage, compaction optimization).
+**Active maintenance.** SlateDB is maintained by the team building SlateDB Cloud, which means sustained investment in correctness, performance, and cloud-native features. The project has a roadmap that aligns with Rocklake's needs (caching, tiered storage, compaction optimization).
 
 **Clean API.** SlateDB's API is small and well-designed: `get`, `put`, `delete`, `write_batch`, `scan`. There are no complex configuration knobs that require deep LSM expertise to tune correctly.
 
-**Provider agnostic.** Through the `object_store` crate, SlateDB works identically on S3, GCS, Azure Blob Storage, and local filesystem. SlateDuck inherits this portability without any provider-specific code.
+**Provider agnostic.** Through the `object_store` crate, SlateDB works identically on S3, GCS, Azure Blob Storage, and local filesystem. Rocklake inherits this portability without any provider-specific code.
 
-**Compaction handled internally.** SlateDB manages its own compaction (merging small SST files into larger ones) without SlateDuck needing to schedule or monitor it. This keeps the operational model simple.
+**Compaction handled internally.** SlateDB manages its own compaction (merging small SST files into larger ones) without Rocklake needing to schedule or monitor it. This keeps the operational model simple.
 
 ## Consequences of This Choice
 
 ### Positive Consequences
 
-**Zero infrastructure for persistence.** The only infrastructure SlateDuck needs is an object storage bucket. No databases to provision, no disks to size, no replicas to configure, no backups to schedule (object storage is the backup). This dramatically reduces operational burden.
+**Zero infrastructure for persistence.** The only infrastructure Rocklake needs is an object storage bucket. No databases to provision, no disks to size, no replicas to configure, no backups to schedule (object storage is the backup). This dramatically reduces operational burden.
 
-**Cloud-provider durability SLAs.** S3 offers 99.999999999% (11 nines) durability. GCS and Azure offer similar guarantees. SlateDuck inherits these guarantees directly. No replication strategy we could build ourselves would match this.
+**Cloud-provider durability SLAs.** S3 offers 99.999999999% (11 nines) durability. GCS and Azure offer similar guarantees. Rocklake inherits these guarantees directly. No replication strategy we could build ourselves would match this.
 
-**No local state to manage.** The SlateDuck process is stateless (all durable state is in object storage). This means:
+**No local state to manage.** The Rocklake process is stateless (all durable state is in object storage). This means:
 
 - Instances can be killed and restarted freely
 - Scaling down does not require draining
@@ -113,11 +113,11 @@ Beyond the core requirements, SlateDB offers additional advantages:
 
 **Dependency on cloud provider availability.** If S3 is down, the catalog is unavailable. S3 has excellent availability (99.99% SLA, often better in practice), but it is not 100%.
 
-**Limited control over compaction.** SlateDB's compaction runs on its own schedule. SlateDuck cannot force immediate compaction or fine-tune compaction parameters for specific workload patterns (though this is rarely needed).
+**Limited control over compaction.** SlateDB's compaction runs on its own schedule. Rocklake cannot force immediate compaction or fine-tune compaction parameters for specific workload patterns (though this is rarely needed).
 
 **Newer project than alternatives.** SlateDB has less production mileage than RocksDB (which has run at Facebook-scale for over a decade). The risk of undiscovered bugs is higher, though mitigated by extensive testing.
 
-**No built-in secondary indexes.** SlateDB provides sorted key-value pairs and prefix scans. If SlateDuck needs a different access pattern (e.g., "find all tables named X across all schemas"), it must implement its own indexing on top of the sorted key space.
+**No built-in secondary indexes.** SlateDB provides sorted key-value pairs and prefix scans. If Rocklake needs a different access pattern (e.g., "find all tables named X across all schemas"), it must implement its own indexing on top of the sorted key space.
 
 ## Mitigating the Negatives
 
@@ -131,19 +131,19 @@ The latency cost is mitigated through multiple strategies:
 
 - **S3 Express One Zone:** For latency-sensitive deployments, S3 Express provides 3–10ms first-byte latency (vs. 20–100ms for S3 Standard). This brings SlateDB reads to within 5–15ms.
 
-- **Acceptable in context:** SlateDuck serves lakehouse metadata. The DuckDB queries it enables typically scan gigabytes of Parquet data (taking seconds to minutes). 20ms of catalog overhead is negligible in this context.
+- **Acceptable in context:** Rocklake serves lakehouse metadata. The DuckDB queries it enables typically scan gigabytes of Parquet data (taking seconds to minutes). 20ms of catalog overhead is negligible in this context.
 
 ### Availability
 
-The availability dependency is acceptable because SlateDuck targets cloud-native deployments where object storage availability is a given baseline assumption. If S3 is down, your Parquet data files are also inaccessible — DuckDB cannot run queries regardless of whether the catalog is available. The catalog being unavailable during an S3 outage is not an additional failure mode.
+The availability dependency is acceptable because Rocklake targets cloud-native deployments where object storage availability is a given baseline assumption. If S3 is down, your Parquet data files are also inaccessible — DuckDB cannot run queries regardless of whether the catalog is available. The catalog being unavailable during an S3 outage is not an additional failure mode.
 
 ### Maturity
 
 The maturity concern is addressed through:
 
-- **SlateDuck's own test suite:** Property-based tests, golden tests, and integration tests exercise SlateDB under various failure conditions (crashes mid-write, corrupt manifests, concurrent access).
+- **Rocklake's own test suite:** Property-based tests, golden tests, and integration tests exercise SlateDB under various failure conditions (crashes mid-write, corrupt manifests, concurrent access).
 - **SlateDB's CI:** The SlateDB project runs continuous correctness tests including crash testing and fuzzing.
-- **Conservative usage:** SlateDuck uses a small subset of SlateDB's API surface (`get`, `put`, `delete`, `write_batch`, `scan`). The risk of hitting edge-case bugs is reduced by using only well-tested code paths.
+- **Conservative usage:** Rocklake uses a small subset of SlateDB's API surface (`get`, `put`, `delete`, `write_batch`, `scan`). The risk of hitting edge-case bugs is reduced by using only well-tested code paths.
 
 ## Further Reading
 

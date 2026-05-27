@@ -1,12 +1,12 @@
 # Lambda / Serverless Deployment
 
-SlateDuck can run as a serverless function for workloads with infrequent catalog access, where keeping a persistent process running would be wasteful and expensive. This deployment model trades latency (cold start penalty) for cost efficiency (pay only for actual milliseconds of computation). For catalogs that are accessed a few times per hour rather than thousands of times per second, serverless is the economically rational choice.
+Rocklake can run as a serverless function for workloads with infrequent catalog access, where keeping a persistent process running would be wasteful and expensive. This deployment model trades latency (cold start penalty) for cost efficiency (pay only for actual milliseconds of computation). For catalogs that are accessed a few times per hour rather than thousands of times per second, serverless is the economically rational choice.
 
-The architecture leverages a key property of SlateDuck's design: all state is in object storage. There is no local WAL to recover, no in-memory state that must survive across invocations, no warm-up period beyond reading the manifest. A fresh SlateDuck instance can serve a catalog operation within 50–100ms of starting.
+The architecture leverages a key property of Rocklake's design: all state is in object storage. There is no local WAL to recover, no in-memory state that must survive across invocations, no warm-up period beyond reading the manifest. A fresh Rocklake instance can serve a catalog operation within 50–100ms of starting.
 
 ## How It Works
 
-In serverless mode, SlateDuck operates with a different lifecycle than the persistent PG-wire server. Each function invocation follows this flow:
+In serverless mode, Rocklake operates with a different lifecycle than the persistent PG-wire server. Each function invocation follows this flow:
 
 ```mermaid
 sequenceDiagram
@@ -21,7 +21,7 @@ sequenceDiagram
     Note over Lambda: Runtime may keep process warm
 ```
 
-1. **Cold start (first invocation):** The function initializes a SlateDuck instance, reads the SlateDB manifest from object storage (one GET request, 20–50ms), and builds the in-memory catalog index.
+1. **Cold start (first invocation):** The function initializes a Rocklake instance, reads the SlateDB manifest from object storage (one GET request, 20–50ms), and builds the in-memory catalog index.
 2. **Execute operation:** Processes one or more catalog operations from the event payload. This may involve additional object storage reads/writes depending on the operation.
 3. **Return result:** Sends the operation result back as structured JSON.
 4. **Warm invocations:** If the runtime reuses the execution environment (which Lambda does for ~5–15 minutes after the last invocation), subsequent requests skip the manifest read and execute immediately.
@@ -32,14 +32,14 @@ The warm path is the common case for any catalog accessed more than once every f
 
 ### Building the Function
 
-Package SlateDuck as a Lambda custom runtime (provided.al2023):
+Package Rocklake as a Lambda custom runtime (provided.al2023):
 
 ```bash
 # Build for Amazon Linux 2023 (x86_64)
 cargo build --release --target x86_64-unknown-linux-gnu --features lambda
 
 # Package as Lambda deployment artifact
-cp target/x86_64-unknown-linux-gnu/release/slateduck-lambda bootstrap
+cp target/x86_64-unknown-linux-gnu/release/rocklake-lambda bootstrap
 zip lambda.zip bootstrap
 ```
 
@@ -47,7 +47,7 @@ For ARM64 (Graviton2, more cost-effective):
 
 ```bash
 cargo build --release --target aarch64-unknown-linux-gnu --features lambda
-cp target/aarch64-unknown-linux-gnu/release/slateduck-lambda bootstrap
+cp target/aarch64-unknown-linux-gnu/release/rocklake-lambda bootstrap
 zip lambda.zip bootstrap
 ```
 
@@ -59,10 +59,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
 Resources:
-  SlateDuckFunction:
+  RocklakeFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: slateduck-catalog
+      FunctionName: rocklake-catalog
       Handler: bootstrap
       Runtime: provided.al2023
       Architectures:
@@ -71,7 +71,7 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          SLATEDUCK_STORAGE: s3://my-lakehouse-bucket/catalog/
+          ROCKLAKE_STORAGE: s3://my-lakehouse-bucket/catalog/
           RUST_LOG: info
       Policies:
         - S3CrudPolicy:
@@ -161,19 +161,19 @@ This keeps 2 execution environments warm at all times. Cost is significantly low
 
 ## Google Cloud Functions
 
-SlateDuck can also run as a Google Cloud Function:
+Rocklake can also run as a Google Cloud Function:
 
 ```bash
 # Build for Cloud Functions (x86_64 Linux)
 cargo build --release --target x86_64-unknown-linux-gnu --features gcf
 
 # Deploy
-gcloud functions deploy slateduck-catalog \
+gcloud functions deploy rocklake-catalog \
   --runtime=provided \
   --trigger-http \
   --memory=256MB \
   --timeout=30s \
-  --set-env-vars="SLATEDUCK_STORAGE=gs://my-bucket/catalog/" \
+  --set-env-vars="ROCKLAKE_STORAGE=gs://my-bucket/catalog/" \
   --source=./deploy/
 ```
 
@@ -186,16 +186,16 @@ For Azure:
 cargo build --release --target x86_64-unknown-linux-gnu --features azure-func
 
 # Deploy using Azure Functions Core Tools
-func azure functionapp publish slateduck-catalog
+func azure functionapp publish rocklake-catalog
 ```
 
 ## DuckDB Integration via Proxy
 
-DuckDB's `ducklake` extension expects a persistent PG-wire connection. To use DuckDB with a serverless SlateDuck backend, you need a translation layer:
+DuckDB's `ducklake` extension expects a persistent PG-wire connection. To use DuckDB with a serverless Rocklake backend, you need a translation layer:
 
 ### Option 1: API Gateway + Lambda (HTTP Mode)
 
-Use SlateDuck's HTTP catalog API (separate from PG-wire) with a DuckDB httpfs-based catalog connector:
+Use Rocklake's HTTP catalog API (separate from PG-wire) with a DuckDB httpfs-based catalog connector:
 
 ```sql
 -- Future: HTTP-based catalog access
@@ -214,13 +214,13 @@ This is useful when you have many catalogs but few concurrent users per catalog.
 
 ### Option 3: Embedded Mode (FFI)
 
-For batch workloads, use SlateDuck's FFI integration to embed the catalog directly in your application, bypassing the network entirely:
+For batch workloads, use Rocklake's FFI integration to embed the catalog directly in your application, bypassing the network entirely:
 
 ```python
 import duckdb
-# Load SlateDuck as a DuckDB extension (no separate server)
+# Load Rocklake as a DuckDB extension (no separate server)
 conn = duckdb.connect()
-conn.execute("LOAD slateduck")
+conn.execute("LOAD rocklake")
 conn.execute("ATTACH 'ducklake:s3://my-bucket/catalog/' AS lake")
 ```
 
@@ -228,7 +228,7 @@ conn.execute("ATTACH 'ducklake:s3://my-bucket/catalog/' AS lake")
 
 ### Infrequent Access Patterns
 
-If your DuckLake catalog is queried only a few times per hour — for example, a daily ETL job that registers new Parquet files, or a weekly reporting pipeline that reads table metadata — a persistent SlateDuck process running 24/7 is economically wasteful. Lambda invocations cost fractions of a cent for the actual milliseconds of execution.
+If your DuckLake catalog is queried only a few times per hour — for example, a daily ETL job that registers new Parquet files, or a weekly reporting pipeline that reads table metadata — a persistent Rocklake process running 24/7 is economically wasteful. Lambda invocations cost fractions of a cent for the actual milliseconds of execution.
 
 ### Burst Workloads
 
@@ -288,7 +288,7 @@ For most catalog workloads (metadata operations, not data scanning), 500,000 ops
 
 ### CloudWatch Metrics
 
-Key metrics to monitor for Lambda-deployed SlateDuck:
+Key metrics to monitor for Lambda-deployed Rocklake:
 
 - **Duration** — P50, P95, P99 execution time. Alert if P99 exceeds 5 seconds.
 - **ConcurrentExecutions** — Detect if reserved concurrency is being exhausted.
@@ -297,11 +297,11 @@ Key metrics to monitor for Lambda-deployed SlateDuck:
 
 ### Custom Metrics
 
-SlateDuck emits custom CloudWatch metrics in serverless mode:
+Rocklake emits custom CloudWatch metrics in serverless mode:
 
-- `slateduck.operation.duration` — Per-operation timing
-- `slateduck.manifest.read_ms` — Manifest read latency (cold start indicator)
-- `slateduck.storage.bytes_read` — Object storage bytes read per invocation
+- `rocklake.operation.duration` — Per-operation timing
+- `rocklake.manifest.read_ms` — Manifest read latency (cold start indicator)
+- `rocklake.storage.bytes_read` — Object storage bytes read per invocation
 
 ## Other Serverless Platforms
 
@@ -314,12 +314,12 @@ The deployment model is similar to Lambda. Build for Linux x86_64 or ARM64, pack
 cargo build --release --target x86_64-unknown-linux-gnu --features cloud-functions
 
 # Deploy
-gcloud functions deploy slateduck-catalog \
+gcloud functions deploy rocklake-catalog \
     --runtime=provided \
     --trigger-http \
     --entry-point=handler \
     --source=./deploy/ \
-    --set-env-vars "SLATEDUCK_STORAGE=gs://my-bucket/catalog/"
+    --set-env-vars "ROCKLAKE_STORAGE=gs://my-bucket/catalog/"
 ```
 
 GCS (Google Cloud Storage) provides lower latency than S3 from GCF, since both are within Google's network. Expect 10–30ms for manifest reads.
@@ -331,20 +331,20 @@ GCS (Google Cloud Storage) provides lower latency than S3 from GCF, since both a
 cargo build --release --target x86_64-unknown-linux-gnu --features azure-functions
 
 # Deploy with Azure CLI
-func azure functionapp publish my-slateduck-app
+func azure functionapp publish my-rocklake-app
 ```
 
 Azure Blob Storage is the natural backend. Configure the storage connection string in Application Settings.
 
 ### Cloudflare Workers (Not Recommended)
 
-While technically possible, Cloudflare Workers have significant limitations for SlateDuck:
+While technically possible, Cloudflare Workers have significant limitations for Rocklake:
 
 - 50ms CPU time limit (free) / 30s (paid) — tight for catalog operations
 - No TCP socket support — cannot use S3 SDK directly
 - Limited memory (128 MB) — constrains block cache size
 
-Workers are better suited for routing/proxy logic (pointing DuckDB clients to the nearest SlateDuck instance) than hosting the catalog itself.
+Workers are better suited for routing/proxy logic (pointing DuckDB clients to the nearest Rocklake instance) than hosting the catalog itself.
 
 ## When to Choose Serverless
 
@@ -369,7 +369,7 @@ Workers are better suited for routing/proxy logic (pointing DuckDB clients to th
 A common pattern for cost-optimized deployments:
 
 - **Lambda function** handles infrequent writes (ETL pipeline commits, schema changes) — these are serialized naturally by Lambda's concurrency model
-- **Persistent SlateDuck instance** (Fly.io, ECS, Kubernetes) handles reads from DuckDB clients — provides low latency for interactive users
+- **Persistent Rocklake instance** (Fly.io, ECS, Kubernetes) handles reads from DuckDB clients — provides low latency for interactive users
 
 This works because SlateDB supports one writer (the Lambda function) and unlimited concurrent readers (the persistent instance in read-only mode).
 
