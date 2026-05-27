@@ -36,8 +36,15 @@ jobs:
       - name: Update workspace version in Cargo.toml
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # Replace the version line inside [workspace.package]
-          sed -i "s/^version = \".*\"$/version = \"${VERSION}\"/" Cargo.toml
+          CURRENT=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          # Only bump if tag version is newer than (or equal to) current version.
+          # This prevents accidentally downgrading main when re-releasing an older tag.
+          HIGHEST=$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -1)
+          if [ "$HIGHEST" = "$VERSION" ]; then
+            sed -i "s/^version = \".*\"$/version = \"${VERSION}\"/" Cargo.toml
+          else
+            echo "Skipping version bump: tag ${VERSION} <= current ${CURRENT} — no downgrade"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -65,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -107,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
