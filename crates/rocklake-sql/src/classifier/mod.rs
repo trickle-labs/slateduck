@@ -361,6 +361,18 @@ pub fn classify_statement(sql: &str) -> Result<StatementKind, SqlDispatchError> 
         return Ok(StatementKind::UpdateInlinedRowEndSnapshot);
     }
 
+    // `SET TIME ZONE <value>` is a PostgreSQL-specific syntax that sqlparser
+    // may emit as a non-SetVariable AST node.  Map it to SetVariable so
+    // drivers that send this form (e.g. pgcli, psycopg3) are accepted.
+    if lower.starts_with("set time zone") {
+        let tz = sql["set time zone".len()..]
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_string();
+        return Ok(StatementKind::SetVariable("TimeZone".to_string(), tz));
+    }
+
     if lower.contains("union all")
         && lower.contains("ducklake_snapshot")
         && lower.contains("ducklake_snapshot_changes")

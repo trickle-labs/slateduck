@@ -40,6 +40,20 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           df -h
 
+      - name: Install test prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          pip3 install --quiet pgcli
+
+      - name: Install test prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install postgresql@16 || true
+          echo "/opt/homebrew/opt/postgresql@16/bin" >> "$GITHUB_PATH"
+          pip3 install --quiet pgcli || pip install --quiet pgcli || true
+
       - name: Test
         run: cargo test --all
 
