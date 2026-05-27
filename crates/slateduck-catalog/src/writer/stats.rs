@@ -164,9 +164,17 @@ impl CatalogWriter {
         file_size_bytes: u64,
     ) -> CatalogResult<()> {
         let existing = self.read_table_stats_or_default(table_id).await?;
-        // Use the DuckLake-provided next_row_id (take the max to be safe with
-        // accumulated inserts that each advance next_row_id independently).
-        let merged_next_row_id = std::cmp::max(existing.next_row_id.unwrap_or(0), next_row_id);
+        // Advance next_row_id by at least the number of new rows inserted in this
+        // batch (additive), but also honour any larger absolute value that DuckDB
+        // may provide directly.  This handles both "absolute" and "batch-relative"
+        // next_row_id values sent during incremental inlined-data inserts.
+        let merged_next_row_id = std::cmp::max(
+            existing
+                .next_row_id
+                .unwrap_or(0)
+                .saturating_add(record_count),
+            next_row_id,
+        );
         let row = TableStatsRow {
             table_id,
             record_count: existing.record_count.saturating_add(record_count),
