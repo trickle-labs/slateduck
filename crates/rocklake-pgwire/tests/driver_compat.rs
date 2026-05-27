@@ -385,7 +385,8 @@ fn find_psql() -> String {
 }
 
 /// Locate `pgcli` binary in common install paths.
-fn find_pgcli() -> String {
+/// Returns `None` if pgcli is not available (test will be skipped).
+fn find_pgcli() -> Option<String> {
     // Build candidate list: static paths + $HOME/.local/bin + workspace venv.
     let mut candidates: Vec<String> = vec![
         "pgcli".to_string(),
@@ -424,10 +425,10 @@ fn find_pgcli() -> String {
             .output()
             .is_ok()
         {
-            return c.to_string();
+            return Some(c.to_string());
         }
     }
-    panic!("pgcli not found. Install: pip install pgcli  (or pip3 install pgcli)")
+    None
 }
 
 /// C-01 — psql CLI loopback connection and query.
@@ -483,7 +484,10 @@ async fn psql_cli_loopback_connection() {
 /// is confirmed, making it suitable for non-interactive testing.
 #[tokio::test]
 async fn pgcli_cli_loopback_connection() {
-    let pgcli = find_pgcli();
+    let Some(pgcli) = find_pgcli() else {
+        eprintln!("pgcli not found — skipping test (install: pip install pgcli)");
+        return;
+    };
     let dir = TempDir::new().unwrap();
     let (addr, _tx, _handle) = start_server(&dir).await;
 
