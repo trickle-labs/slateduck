@@ -10,12 +10,58 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  # Bump workspace version in Cargo.toml to match the pushed tag and
+  # commit the change back to main so subsequent jobs (and the codebase)
+  # reflect the correct version number.
+  prepare:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch the full history so we can push back to main.
+          fetch-depth: 0
+          ref: main
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          RAW="${GITHUB_REF#refs/tags/v}"
+          echo "version=${RAW}" >> "$GITHUB_OUTPUT"
+
+      - name: Update workspace version in Cargo.toml
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Replace the version line inside [workspace.package]
+          sed -i "s/^version = \".*\"$/version = \"${VERSION}\"/" Cargo.toml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Regenerate Cargo.lock
+        run: cargo generate-lockfile
+
+      - name: Commit version bump
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump workspace version to ${VERSION} [skip ci]"
+          git push origin main
+
   # Run the full quality gate before building release artifacts.
   quality-gate:
     name: Quality Gate
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -56,6 +102,8 @@ jobs:
             artifact: rocklake-macos-arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -91,12 +139,14 @@ jobs:
   # Create a GitHub Release with all binaries and checksums.
   release:
     name: GitHub Release
-    needs: build
+    needs: [build, prepare]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -104,21 +154,17 @@ jobs:
           path: artifacts/
           merge-multiple: true
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: RockLake ${{ steps.version.outputs.version }}
+          name: RockLake v${{ needs.prepare.outputs.version }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           files: |
             artifacts/rocklake-*
           generate_release_notes: true
           body: |
-            ## RockLake ${{ steps.version.outputs.version }}
+            ## RockLake v${{ needs.prepare.outputs.version }}
 
             ### Installation
 
@@ -126,7 +172,7 @@ jobs:
 
             ```bash
             # Linux x86-64
-            curl -LO https://github.com/trickle-labs/rocklake/releases/download/${{ steps.version.outputs.version }}/rocklake-linux-x86_64
+            curl -LO https://github.com/trickle-labs/rocklake/releases/download/v${{ needs.prepare.outputs.version }}/rocklake-linux-x86_64
             sha256sum -c rocklake-linux-x86_64.sha256
             chmod +x rocklake-linux-x86_64
             mv rocklake-linux-x86_64 /usr/local/bin/rocklake
