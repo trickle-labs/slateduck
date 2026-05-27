@@ -352,22 +352,14 @@ async fn stats_merge_negative_integers_via_executor() {
     let dir = TempDir::new().unwrap();
     let store = make_store(&dir).await;
 
-    exec(
-        "CREATE SCHEMA stats_s; \
-         CREATE TABLE stats_s.t (v INTEGER);",
-        &store,
-    )
-    .await;
-
-    // Batch 1: table stats insert (record_count, next_row_id, file_size_bytes)
-    // Column stats are tested indirectly via the catalog writer.
-    // Here we verify the executor round-trip for table stats.
+    // Batch 1: table stats insert (record_count=5, next_row_id=5, file_size_bytes=1024)
     exec(
         "INSERT INTO ducklake_table_stats VALUES (1, 5, 5, 1024);",
         &store,
     )
     .await;
 
+    // Batch 2: a second stats row for the same table_id
     exec(
         "INSERT INTO ducklake_table_stats VALUES (1, 3, 8, 512);",
         &store,
