@@ -3,11 +3,17 @@
 ---
 
 ## 1. Executive Summary & Purpose
-This document provides a comprehensive, rigorous, and complete specification of the remaining gaps between SlateDuck and DuckLake v1.0 (as implemented in `../ducklake` and `../duckdb`).
+This document provides a comprehensive, rigorous, and complete specification of the remaining gaps between SlateDuck and the DuckLake v1.0 specification.
 
-Our primary objective is to define the exact technical specifications and changes required in SlateDuck to achieve **100% perfect interoperability** with DuckDB and DuckLake across all operational regimes—including inlined data, data-file based storage, transaction-isolation guarantees, metadata replication, and complex analytical operations.
+### 1.1 Strict Scope and Targets
+This gap assessment and roadmap strictly target the following software and catalog versions:
+- **Client/Engine:** **DuckDB v1.5.3** (from the checked-out `v1.5.3` branch in `../duckdb`).
+- **Lakehouse Catalog Spec:** **DuckLake 1.0 Specification** (Catalog Version 7 / `V1_0` as defined in `../ducklake`).
+- **Strict Version Constraint:** SlateDuck **strictly targets only the 1.0 specification** of DuckLake. Any subsequent development branches (such as DuckLake v1.1 / Catalog Version 8 / `V1_1_DEV_1` or higher) are explicitly marked **out of scope**. This boundary limits scope creep and ensures a stable, robust compatibility baseline.
 
-Through deep code audits of the upstream components, we have identified the underlying protocol handshakes, system catalog queries, and metadata table specifications that dictate how DuckLake clients query, modify, and manage databases. When the specifications detailed in this report are implemented, SlateDuck and DuckDB/DuckLake will work together perfectly without any hacks, workarounds, or silent failures.
+Our primary objective is to define the exact technical specifications and changes required in SlateDuck to achieve **100% perfect interoperability** with DuckDB v1.5.3 and DuckLake v1.0 across all operational regimes—including inlined data, data-file based storage, transaction-isolation guarantees, metadata replication, and complex analytical operations.
+
+Through deep audits of the upstream components, we have identified the underlying protocol handshakes, system catalog queries, and metadata table specifications that dictate how DuckLake clients query, modify, and manage databases. When the specifications detailed in this report are implemented, SlateDuck and DuckDB v1.5.3 will work together perfectly without any hacks, workarounds, or silent failures.
 
 ---
 
@@ -15,16 +21,16 @@ Through deep code audits of the upstream components, we have identified the unde
 ### 2.1 The Connection & Connection Pool Reset Handshake
 When an external client executes standard attach operations such as:
 `LOAD ducklake; ATTACH 'ducklake:postgres:host=127.0.0.1 port=15434 dbname=slateduck' AS my_lake (DATA_PATH '/path/to/data');`
-Two separate extensions inside DuckDB interact with SlateDuck via the PostgreSQL PG-Wire protocol:
+Two separate extensions inside DuckDB v1.5.3 interact with SlateDuck via the PostgreSQL PG-Wire protocol:
 1. **Postgres Scanner Extension (`duckdb-postgres`):** Responsible for establishing the underlying PostgreSQL TCP connection, probing server versions, checking secret registry tables, and performing a complete **System Catalog Scan** to map OIDs.
 2. **DuckLake Extension (`duckdb-ducklake`):** Once connected, it initiates a transaction and queries the DuckLake metadata catalog tables to read snapshots, schemas, tables, columns, and files.
 
 Additionally, when connection pools return connections or clean up sessions, standard PostgreSQL session reset commands like `DISCARD ALL` are issued.
 
 ### 2.2 System Catalog Query Translation & Routing
-DuckLake executes its metadata calls within the DuckDB session using specialized CALL commands:
+DuckLake v1.0 executes its metadata calls within the DuckDB session using specialized CALL commands:
 `CALL postgres_query('pg', 'SELECT ...')` or `CALL postgres_execute('pg', 'INSERT ...')`
-These CALL statements are executed **locally inside DuckDB** by the `postgres_scanner` extension. The extension translates the embedded query and forwards standard PostgreSQL PG-Wire protocol frames directly to SlateDuck's socket. Thus, SlateDuck never sees `CALL postgres_query` or `CALL postgres_execute`. It only sees:
+These CALL statements are executed **locally inside DuckDB v1.5.3** by the `postgres_scanner` extension. The extension translates the embedded query and forwards standard PostgreSQL PG-Wire protocol frames directly to SlateDuck's socket. Thus, SlateDuck never sees `CALL postgres_query` or `CALL postgres_execute`. It only sees:
 - Standard SELECT queries (like `SELECT * FROM main.ducklake_snapshot`)
 - Standard INSERT statements (like `INSERT INTO main.ducklake_column VALUES (...)`)
 - Standard COPY TO STDOUT / COPY FROM STDIN protocol frames.
@@ -81,7 +87,7 @@ This section audits all 28 tables defined in DuckLake v1.0 (`ducklake_metadata_m
 ---
 
 ## 4. Implementation Roadmap
-To close these gaps systematically, we propose a four-phase technical execution plan:
+To close these gaps systematically, we propose a four-phase technical execution plan strictly constrained to DuckLake v1.0 and DuckDB v1.5.3:
 
 ### Phase 1: Perfect SQL Schema Facade & Schema Registry Refactoring
 **Goal:** Eliminate all catalog column name, type, and order drifts.
@@ -114,5 +120,5 @@ SlateDuck is fully "compatible" and ready for 1.0 when:
 - [ ] Every catalog table (all 28) can be fully described (`DescribeStatement` / `DescribePortal`) with column count, names, and OIDs identical to the upstream DuckLake specifications.
 - [ ] DuckDB's postgres_scanner can connect and successfully parse the multi-statement schema discovery transaction `StatementKind::PgCatalogScan` without warnings or failures.
 - [ ] Direct select queries against `ducklake_metadata` return `key` and `value` columns (not `metadata_key`/`metadata_value`).
-- [ ] Inlined and Parquet file-backed (non-inlined) workflows—including multi-row appends, deletes, updates, and cascading drops—succeed with correct stats, MVCC visibility, and row ID mappings.
-- [ ] A nightly CI job runs SlateDuck against a matrix of DuckDB + DuckLake versions to automatically flag protocol or schema drift.
+- [ ] Inlined and Parquet file-backed (non-inlined) workflows—including multi-row appends, deletes, updates, and cascading drops—succeed with correct stats, MVCC visibility, and row ID mappings under the **1.0 specification of DuckLake** (using DuckDB v1.5.3).
+- [ ] A nightly CI job runs SlateDuck against a matrix strictly consisting of **DuckDB v1.5.3** and **DuckLake 1.0 Spec (Catalog Version 7)** to automatically flag protocol or schema drift, rejecting any out-of-scope v1.1 / version 8 commits.
