@@ -59,7 +59,7 @@ binding on every roadmap release below.
 | **v0.9.2 — Security Enforcement** | Real PG-Wire auth, CLI/env-var alignment, encryption wired into storage, FFI null safety | **Done** |
 | **v0.9.3 — Operational Safety** | GC retention enforcement, excision guards, checkpoint restore, typed import validation, rebuild fix | **Done** |
 | **v0.9.4 — GA Ready** | Concurrent reads, zone-map (conditional), Spark/Trino clients, DataFusion scan/pg-wire, virtual catalog SQL, test coverage, CI gates, docs complete, versioning policy, release automation | **Done** |
-| **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated first with pg-trickle | **Done** |
+| **v0.18 — DuckLake Catalog Standard Interface** | `table_changes()` CDC function, stable `rowid`, snapshot lease, `NOTIFY` event-driven, extension schema (first-class catalog tag `0x23`), opaque mixed frontiers; validated against standard Postgres drivers | **Done** |
 | **v0.19 — CDC Correctness & Catalog Transaction Hardening** | Real row-level `table_changes()` with Parquet scan, versioned `DataFileRow` / `SnapshotDiff` windows, CAS writer epoch, transactional extension row-ID allocation, atomic GC lease + retain-from, staged write discipline, overflow-safe counters | **Done** |
 | **v0.20 — FFI Safety, Live Notifications & Operational Wire-Up** | FFI `&'static mut` removal + SAFETY docs + Miri/ASAN CI, LISTEN/NOTIFY end-to-end, configurable extension schema registration, extension JSON fix, collision-safe key encoding, TLS panic fix, auth/TLS defaults | **Done** |
 | **v0.21 — Performance, Scalability & Code Quality** | `list_data_files()` secondary index, O(1) aggregate deletions, SQL classifier hardening, module decomposition, MSRV + license CI, metrics path alignment, dead-code + dependency cleanup | **Done** |
@@ -79,9 +79,9 @@ binding on every roadmap release below.
 | **v0.27.8 — DuckLake Transaction Atomicity & Snapshot Changes Conformance** | Group all statements in one logical DuckLake commit into an atomic batch; spec-complete `ducklake_snapshot_changes` with `changes_made`, `author`, `commit_message`, `commit_extra_info`; interleaved writer and rollback tests; writer fencing validation; type-aware column stats for dates, timestamps, decimals | Done |
 | **v0.27.9 — DuckLake Advanced Metadata Validation** | End-to-end DuckDB tests for views, macros, tags, column tags, sort info, and partition info; DROP/ALTER cascade covering all metadata types; ALTER TABLE time-travel tests; imported existing DuckLake catalog support | Done |
 | **v0.27.10 — DuckLake Compatibility CI** | Pin known-good DuckDB and DuckLake versions in CI; nightly optional jobs; durable compatibility corpus covering PQsendQuery pg_catalog scans; exact column schema/OID describe checks | Done |
-| **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for pg-trickle CDC startup | Planning |
+| **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for CDC startup | Planning |
 | **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Done |
-| **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; remove pg-trickle-specific framing and archive planning docs as generic DuckLake CDC contract reference | Planning |
+| **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; archive planning docs as generic DuckLake CDC contract reference | Done |
 | **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Planning |
 | **v0.35.0 — Strategy C: Native DuckDB Extension** | Complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; eliminates all Postgres-scanner compatibility burden for local/embedded use; `rocklake-ffi` C ABI already done; C++ catalog registration is the remaining gap | Planning |
 | **v0.40.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
@@ -3601,31 +3601,31 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 ### Tasks
 
 #### Multi-Driver Smoke Test Suite
-- [ ] Create dedicated driver compatibility tests under `tests/driver_compat.rs`.
-- [ ] Verify basic schema list, table query, and inlined table INSERT/SELECT sequences using `tokio-postgres` (Rust), `pg` (Node.js), `psycopg` (Python), and `pgx` (Go).
-- [ ] Verify standard CLI compatibility using real executions of `psql` and `pgcli` loopback connections.
+- [x] Create dedicated driver compatibility tests under `tests/driver_compat.rs`.
+- [x] Verify basic schema list, table query, and inlined table INSERT/SELECT sequences using `tokio-postgres` (Rust), `pg` (Node.js), `psycopg` (Python), and `pgx` (Go).
+- [x] Verify standard CLI compatibility using real executions of `psql` and `pgcli` loopback connections.
 
 #### BI Tool Facade Validation
-- [ ] Verify that PgWire row descriptions, field formatting, and session commands (`DISCARD ALL`, `SET client_min_messages`, etc.) map correctly to BI tool queries.
-- [ ] Create headless verification tests simulating DBeaver and Metabase metadata schema discovery and catalog scans.
-- [ ] Verify all driver parameter-negotiation handshakes run to completion without unsupported feature errors.
+- [x] Verify that PgWire row descriptions, field formatting, and session commands (`DISCARD ALL`, `SET client_min_messages`, etc.) map correctly to BI tool queries.
+- [x] Create headless verification tests simulating DBeaver and Metabase metadata schema discovery and catalog scans.
+- [x] Verify all driver parameter-negotiation handshakes run to completion without unsupported feature errors.
 
 #### MVCC Visibility & File Order Sorting
-- [ ] Enforce visibility constraints on external files where `begin_snapshot <= snapshot_id` and `(end_snapshot IS NULL OR end_snapshot > snapshot_id)`.
-- [ ] Ensure `list_data_files` results are sorted ascending by the persisted `file_order` attribute.
-- [ ] Validate file listings and sorting rules against standard PostgreSQL drivers (e.g. `psql`, `pgcli`) to prevent query planner regressions.
-- [ ] Verify visibility and ordering strictly conform to DuckLake v1.0 specifications, ignoring any v1.1 schemas.
+- [x] Enforce visibility constraints on external files where `begin_snapshot <= snapshot_id` and `(end_snapshot IS NULL OR end_snapshot > snapshot_id)`.
+- [x] Ensure `list_data_files` results are sorted ascending by the persisted `file_order` attribute.
+- [x] Validate file listings and sorting rules against standard PostgreSQL drivers (e.g. `psql`, `pgcli`) to prevent query planner regressions.
+- [x] Verify visibility and ordering strictly conform to DuckLake v1.0 specifications, ignoring any v1.1 schemas.
 
 #### pg-trickle Reference Cleanup
-- [ ] Remove "for pg-trickle" framing from ROADMAP entries (v0.18 note, v0.27.11 `ducklake_latest_snapshot_id` description) and retarget them as generic DuckLake CDC contract items; the underlying features (`table_changes()`, stable `rowid`, snapshot leases, `NOTIFY`, `ducklake_latest_snapshot_id()`) are valid DuckLake spec conformance regardless of consumer.
-- [ ] Archive or retitle `plans/pg-trickle-ducklake-support.md` and any `plans/pg-trickle.md` as a generic "DuckLake CDC contract" reference document, since pg-trickle has dropped its DuckLake support.
+- [x] Remove "for pg-trickle" framing from ROADMAP entries (v0.18 note, v0.27.11 `ducklake_latest_snapshot_id` description) and retarget them as generic DuckLake CDC contract items; the underlying features (`table_changes()`, stable `rowid`, snapshot leases, `NOTIFY`, `ducklake_latest_snapshot_id()`) are valid DuckLake spec conformance regardless of consumer.
+- [x] Archive or retitle `plans/pg-trickle-ducklake-support.md` and any `plans/pg-trickle.md` as a generic "DuckLake CDC contract" reference document, since pg-trickle has dropped its DuckLake support.
 
 ### Definition of Done
-- [ ] `tests/driver_compat.rs` executes successfully against Rust, Node.js, Python, and Go postgres clients.
-- [ ] `psql` and `pgcli` CLI loopback connection tests pass.
-- [ ] DBeaver and Metabase schema scans return correct columns and formats without failing.
-- [ ] MVCC data-file and delete-file visibility filtering is fully verified, and files are correctly sorted by `file_order`.
-- [ ] All pg-trickle-specific framing removed from ROADMAP and planning docs; retained features reframed as DuckLake CDC contract.
+- [x] `tests/driver_compat.rs` executes successfully against Rust, Node.js, Python, and Go postgres clients.
+- [x] `psql` and `pgcli` CLI loopback connection tests pass.
+- [x] DBeaver and Metabase schema scans return correct columns and formats without failing.
+- [x] MVCC data-file and delete-file visibility filtering is fully verified, and files are correctly sorted by `file_order`.
+- [x] All pg-trickle-specific framing removed from ROADMAP and planning docs; retained features reframed as DuckLake CDC contract.
 
 ---
 
