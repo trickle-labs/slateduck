@@ -95,7 +95,10 @@ async fn export_manifest_covers_all_20_table_categories() {
     // Stats (row_count_delta: i64)
     writer.apply_table_stats_delta(table_id, 10).await.unwrap();
 
-    let _ = writer.create_snapshot(None, None).await.unwrap();
+    let _ = writer
+        .create_snapshot(Some("test-author"), Some("v032 manifest test"))
+        .await
+        .unwrap();
     store.close().await.unwrap();
 
     // Export
