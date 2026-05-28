@@ -44,7 +44,7 @@ catalog_backend_compat_test!(
 catalog_backend_compat_test!(localfs, {
     let tmp = tempfile::TempDir::new().expect("localfs: tempdir failed");
     // Leak the TempDir so it is not cleaned up while the tests run.
-    let path = tmp.into_path();
+    let path = tmp.keep();
     std::sync::Arc::new(
         object_store::local::LocalFileSystem::new_with_prefix(&path)
             .expect("localfs: LocalFileSystem::new_with_prefix failed"),
@@ -72,7 +72,7 @@ mod gcs_compat {
         harness.object_store("rocklake-test")
     }
 
-    catalog_backend_compat_test!(gcs, gcs_store().await);
+    catalog_backend_compat_test!(gcs, super::gcs_store().await);
 }
 
 // ── Azure Blob Storage emulator (requires --features azure-emulator + Docker) ─
@@ -96,5 +96,5 @@ mod azure_compat {
         harness.object_store("rocklake-test")
     }
 
-    catalog_backend_compat_test!(azure, azure_store().await);
+    catalog_backend_compat_test!(azure, super::azure_store().await);
 }
