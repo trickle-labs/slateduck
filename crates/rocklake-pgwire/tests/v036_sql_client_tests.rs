@@ -566,9 +566,9 @@ async fn pgcli_connection_and_catalog_select() {
     let dir = TempDir::new().unwrap();
     let (addr, _tx, _handle) = start_plain_server(&dir).await;
 
-    // Give each pgcli process its own HOME so parallel tests don't race on
-    // ~/.config/pgcli initialisation.
-    let pgcli_home = TempDir::new().unwrap();
+    // Give each pgcli process its own XDG_CONFIG_HOME so parallel tests
+    // don't race on ~/.config/pgcli initialisation.
+    let pgcli_cfg = TempDir::new().unwrap();
     let output = tokio::process::Command::new(&pgcli)
         .args([
             "-h",
@@ -582,7 +582,7 @@ async fn pgcli_connection_and_catalog_select() {
             "--no-password",
             "--ping",
         ])
-        .env("HOME", pgcli_home.path())
+        .env("XDG_CONFIG_HOME", pgcli_cfg.path())
         .output()
         .await
         .unwrap_or_else(|e| panic!("pgcli spawn failed: {e}"));
@@ -608,8 +608,9 @@ async fn pgcli_transaction_begin_commit() {
     let (addr, _tx, _handle) = start_plain_server(&dir).await;
 
     // pgcli has no -c / --execute flag; feed SQL via stdin instead.
-    // When stdin is not a TTY pgcli runs in batch mode and exits when EOF.
-    let pgcli_home = TempDir::new().unwrap();
+    // Use XDG_CONFIG_HOME to avoid racing with other pgcli tests on the
+    // shared ~/.config/pgcli directory.
+    let pgcli_cfg = TempDir::new().unwrap();
     let mut child = tokio::process::Command::new(&pgcli)
         .args([
             "-h",
@@ -622,7 +623,7 @@ async fn pgcli_transaction_begin_commit() {
             "ducklake",
             "--no-password",
         ])
-        .env("HOME", pgcli_home.path())
+        .env("XDG_CONFIG_HOME", pgcli_cfg.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -665,7 +666,7 @@ async fn pgcli_auth_failure() {
     let dir = TempDir::new().unwrap();
     let (addr, _tx, _handle) = start_auth_server(&dir, "adminuser", "secret123").await;
 
-    let pgcli_home = TempDir::new().unwrap();
+    let pgcli_cfg = TempDir::new().unwrap();
     let output = tokio::process::Command::new(&pgcli)
         .args([
             "-h",
@@ -680,7 +681,7 @@ async fn pgcli_auth_failure() {
             "--ping",
         ])
         .env("PGPASSWORD", "wrong-password")
-        .env("HOME", pgcli_home.path())
+        .env("XDG_CONFIG_HOME", pgcli_cfg.path())
         .output()
         .await
         .unwrap_or_else(|e| panic!("pgcli spawn failed: {e}"));
@@ -706,7 +707,7 @@ async fn pgcli_tls_required_connection() {
     let (addr, _tx, _handle, _cert_path) = start_tls_server(&dir).await;
 
     // pgcli uses PGSSLMODE env to control TLS mode.
-    let pgcli_home = TempDir::new().unwrap();
+    let pgcli_cfg = TempDir::new().unwrap();
     let output = tokio::process::Command::new(&pgcli)
         .args([
             "-h",
@@ -721,7 +722,7 @@ async fn pgcli_tls_required_connection() {
             "--ping",
         ])
         .env("PGSSLMODE", "require")
-        .env("HOME", pgcli_home.path())
+        .env("XDG_CONFIG_HOME", pgcli_cfg.path())
         .output()
         .await
         .unwrap_or_else(|e| panic!("pgcli spawn failed: {e}"));
