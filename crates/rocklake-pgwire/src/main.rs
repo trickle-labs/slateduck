@@ -674,7 +674,7 @@ async fn cmd_rebuild(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
         .list(Some(&data_prefix))
         .try_collect()
         .await
-        .unwrap_or_default();
+        .map_err(|e| format!("Failed to list objects at '{data_path}': {e}"))?;
 
     for obj in objects {
         let path_str = obj.location.to_string();

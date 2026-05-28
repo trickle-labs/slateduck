@@ -85,7 +85,7 @@ binding on every roadmap release below.
 | **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Done |
 | **v0.28.0 — Writer Fencing & Concurrency Correctness** | Replace wall-clock millisecond writer epochs with a transactional monotonic counter; fix GC lease/pin checks outside the transaction; inject deterministic clock in writer-fencing tests; make rebuild atomically transactional | Done |
 | **v0.29.0 — Recovery Correctness** | Fix import to write secondary data-file index; apply MVCC predicate in export; make rebuild atomic; add export/import round-trip tests that exercise `list_data_files()` and reader scans | Done |
-| **v0.30.0 — PG-Wire & Protocol Hardening** | Make binary COPY parser fail-closed on truncation; sync CLI flags with documentation; fix migration docs; propagate object-store listing errors from `rebuild` command | Planning |
+| **v0.30.0 — PG-Wire & Protocol Hardening** | Make binary COPY parser fail-closed on truncation; sync CLI flags with documentation; fix migration docs; propagate object-store listing errors from `rebuild` command | Done |
 | **v0.31.0 — DataFusion Hardening** | Propagate catalog errors instead of `unwrap_or_default()`; error on data files with no readable root; carry data root explicitly; make AsyncBridge fallible; expand type mapping | Planning |
 | **v0.32.0 — DuckLake Export Completeness** | Make `export-catalog` cover all 28+ DuckLake tables; reconcile 32-vs-28 table count; correct backup/restore documentation; fix CLI docs | Planning |
 | **v0.33.0 — Security & Key Encoding Hardening** | Redact raw values from parameter-error messages; reject over-length identifiers in key encoding; classify `rocklake_catalog.*` mutations as read-only (SQLSTATE 25006); fix FFI NUL-string silent truncation | Planning |
@@ -3749,30 +3749,30 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 ### Tasks
 
 #### Fail-Closed COPY Parser
-- [ ] Change `parse_binary_copy_rows()` to return `Result<Vec<_>, CopyParseError>`.
-- [ ] Return `Err` on any truncated field count, field length, or field body; on malformed binary COPY signature; and on a missing end-of-data marker.
-- [ ] Propagate the error through `on_copy_done()` as a PostgreSQL protocol error message (SQLSTATE `08P01` — protocol violation).
-- [ ] Add unit tests for truncation after signature, mid-field-count, mid-length, mid-field-body, and missing end-of-data.
+- [x] Change `parse_binary_copy_rows()` to return `Result<Vec<_>, CopyParseError>`.
+- [x] Return `Err` on any truncated field count, field length, or field body; on malformed binary COPY signature; and on a missing end-of-data marker.
+- [x] Propagate the error through `on_copy_done()` as a PostgreSQL protocol error message (SQLSTATE `08P01` — protocol violation).
+- [x] Add unit tests for truncation after signature, mid-field-count, mid-length, mid-field-body, and missing end-of-data.
 
 #### CLI Flags Sync
-- [ ] Audit `cmd_export()` and `cmd_import()` against `docs/operations/cli-reference.md`. Either implement each documented flag or remove it from the docs.
-- [ ] `cmd_rebuild()`: propagate `object_store.list(...)` errors instead of `unwrap_or_default()`. The command must exit non-zero and print a diagnostic on list failure.
-- [ ] Add a CLI docs-to-parser test that reads the help text and asserts every documented flag appears in the parser.
+- [x] Audit `cmd_export()` and `cmd_import()` against `docs/operations/cli-reference.md`. Either implement each documented flag or remove it from the docs.
+- [x] `cmd_rebuild()`: propagate `object_store.list(...)` errors instead of `unwrap_or_default()`. The command must exit non-zero and print a diagnostic on list failure.
+- [x] Add a CLI docs-to-parser test that reads the help text and asserts every documented flag appears in the parser.
 
 #### Migration Docs Fix
-- [ ] Rewrite `docs/operations/migration-from-ducklake.md` to match the actual NDJSON-based `migrate-from-ducklake` path.
-- [ ] Split out the CSV/full-table migration as a future planned feature with a clearly marked "not yet implemented" notice.
+- [x] Rewrite `docs/operations/migration-from-ducklake.md` to match the actual NDJSON-based `migrate-from-ducklake` path.
+- [x] Split out the CSV/full-table migration as a future planned feature with a clearly marked "not yet implemented" notice.
 
 #### Native Extension Disclosure
-- [ ] Update the usage comment block in `extension/src/rocklake_extension.cpp` to say "ABI smoke wrapper only; `ATTACH` registration is pending v0.36.0."
-- [ ] Remove or annotate the `ATTACH 'ducklake:slatedb:...'` example in extension docs so it is clearly marked as a planned interface.
+- [x] Update the usage comment block in `extension/src/rocklake_extension.cpp` to say "ABI smoke wrapper only; `ATTACH` registration is pending v0.36.0."
+- [x] Remove or annotate the `ATTACH 'ducklake:slatedb:...'` example in extension docs so it is clearly marked as a planned interface.
 
 ### Definition of Done
-- [ ] Truncated binary COPY stream returns a protocol error; bootstrap is not marked complete.
-- [ ] `rocklake rebuild` exits non-zero on object-store list failure.
-- [ ] CLI docs and parser flags are in sync; conformance test passes.
-- [ ] Migration docs describe only currently working paths.
-- [ ] C++ extension source does not claim a functional native attach.
+- [x] Truncated binary COPY stream returns a protocol error; bootstrap is not marked complete.
+- [x] `rocklake rebuild` exits non-zero on object-store list failure.
+- [x] CLI docs and parser flags are in sync; conformance test passes.
+- [x] Migration docs describe only currently working paths.
+- [x] C++ extension source does not claim a functional native attach.
 
 ---
 

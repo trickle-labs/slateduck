@@ -264,7 +264,7 @@ rocklake checkpoint restore \
 
 ### `export` — NDJSON Catalog Export
 
-Exports the full catalog (or a subset) to NDJSON (Newline-Delimited JSON) format. Each line of the output file is a self-contained JSON object representing one catalog row. The export is point-in-time: it captures the catalog state at a specific snapshot and is not affected by concurrent writes.
+Exports the full catalog to NDJSON (Newline-Delimited JSON) format. Each line of the output file is a self-contained JSON object representing one catalog row. The export is point-in-time: it captures the catalog state at a specific snapshot and is not affected by concurrent writes.
 
 ```bash
 rocklake export --catalog <path> [options]
@@ -274,11 +274,8 @@ rocklake export --catalog <path> [options]
 
 | Option | Description |
 |--------|-------------|
-| `--output <path>` | Output file path (default: stdout) |
-| `--at-snapshot <id>` | Export at a specific snapshot ID |
-| `--at-time <ISO8601>` | Export at the snapshot closest to a specific time |
-| `--schema <name>` | Export only the specified schema (repeatable) |
-| `--table <schema.table>` | Export only the specified table (repeatable) |
+| `--output <path>` | Output file path (default: `catalog.ndjson`) |
+| `--snapshot-id <id>` | Export at a specific snapshot ID (default: latest) |
 
 **Examples:**
 
@@ -291,23 +288,8 @@ rocklake export \
 # Export at a specific snapshot
 rocklake export \
   --catalog s3://my-bucket/catalog/ \
-  --at-snapshot 1000 \
+  --snapshot-id 1000 \
   --output catalog-at-1000.ndjson
-
-# Export at a specific time
-rocklake export \
-  --catalog s3://my-bucket/catalog/ \
-  --at-time "2024-06-30T23:59:59Z" \
-  --output q2-close.ndjson
-
-# Export only the analytics schema
-rocklake export \
-  --catalog s3://my-bucket/catalog/ \
-  --schema analytics \
-  --output analytics.ndjson
-
-# Export to stdout and pipe to gzip
-rocklake export --catalog s3://my-bucket/catalog/ | gzip > catalog.ndjson.gz
 ```
 
 ---
@@ -325,8 +307,6 @@ rocklake import --catalog <path> --input <file>
 | Option | Description |
 |--------|-------------|
 | `--input <path>` | Input NDJSON file (required) |
-| `--merge` | Merge into existing catalog (default: fail if catalog is not empty) |
-| `--dry-run` | Validate the import file without writing |
 
 **Example:**
 
@@ -335,33 +315,34 @@ rocklake import --catalog <path> --input <file>
 rocklake import \
   --catalog s3://new-bucket/catalog/ \
   --input catalog-backup.ndjson
-
-# Validate before importing
-rocklake import \
-  --catalog s3://new-bucket/catalog/ \
-  --input catalog-backup.ndjson \
-  --dry-run
 ```
 
 ---
 
 ### `pg-migrate` — Convert NDJSON to PostgreSQL INSERTs
 
-Converts an NDJSON catalog export to SQL `INSERT` statements that can be executed against a PostgreSQL database. This is the migration path from RockLake to a PostgreSQL-backed DuckLake catalog.
+Converts an NDJSON catalog export to SQL `INSERT` statements printed to stdout. Pipe the output to a file or directly to `psql`.
 
 ```bash
-rocklake pg-migrate --input <ndjson-file> --output <sql-file>
+rocklake pg-migrate --input <ndjson-file>
 ```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--input <path>` | Input NDJSON file (required) |
 
 **Example:**
 
 ```bash
+# Convert to SQL and save to a file
 rocklake pg-migrate \
   --input catalog-export.ndjson \
-  --output catalog-inserts.sql
+  > catalog-inserts.sql
 
-# Apply to PostgreSQL
-psql -h pg-host -U ducklake -d catalog_db -f catalog-inserts.sql
+# Convert and apply directly to PostgreSQL
+rocklake pg-migrate --input catalog-export.ndjson | psql -h pg-host -U ducklake -d catalog_db
 ```
 
 ---

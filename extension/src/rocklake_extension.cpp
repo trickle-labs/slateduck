@@ -1,11 +1,16 @@
 /**
- * rocklake_extension.cpp — DuckDB extension implementing a DuckLake catalog
- * backed by SlateDB via the RockLake C FFI.
+ * rocklake_extension.cpp — DuckDB extension ABI smoke wrapper for the
+ * RockLake C FFI.
  *
- * Usage in DuckDB:
+ * NOTE: This file is an ABI smoke wrapper only. The ATTACH registration
+ * required to make `ATTACH 'ducklake:slatedb:...' AS lake` work from DuckDB
+ * is pending v0.36.0. The example below describes the planned interface and
+ * is NOT yet functional.
+ *
+ * Planned usage in DuckDB (v0.36.0+):
  *   INSTALL rocklake;
  *   LOAD rocklake;
- *   ATTACH 'ducklake:slatedb:///path/to/catalog' AS lake;
+ *   ATTACH 'ducklake:slatedb:///path/to/catalog' AS lake;  -- planned v0.36.0
  *
  * This extension implements the DuckDB Catalog interface by delegating to the
  * Rust-based rocklake-ffi library through a stable C ABI.

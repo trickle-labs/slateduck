@@ -99,7 +99,25 @@ impl CopyHandler for RockLakeCopyHandler {
         };
 
         // Parse the binary COPY stream and extract bootstrap rows.
-        let rows = copy_parser::parse_binary_copy_rows(&data);
+        let rows = match copy_parser::parse_binary_copy_rows(&data) {
+            Ok(rows) => rows,
+            Err(e) => {
+                // Binary COPY stream is malformed — fail closed with SQLSTATE 08P01
+                // (protocol violation). Do NOT mark bootstrap as complete.
+                let msg = format!("binary COPY parse error for table '{table}': {e}");
+                client
+                    .send(PgWireBackendMessage::ErrorResponse(ErrorResponse::from(
+                        ErrorInfo::new("ERROR".to_string(), "08P01".to_string(), msg.clone()),
+                    )))
+                    .await
+                    .ok();
+                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_string(),
+                    "08P01".to_string(),
+                    msg,
+                ))));
+            }
+        };
         let row_count = rows.len();
 
         {

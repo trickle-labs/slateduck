@@ -9,57 +9,49 @@ DuckLake is a catalog format that stores metadata in a PostgreSQL or SQLite
 database. RockLake implements the same DuckLake v1.0 catalog protocol but
 stores metadata in an object-store-native key-value format (SlateDB).
 
-The `rocklake migrate-from-ducklake` command provides a migration path from
-any DuckLake deployment that can produce an NDJSON dump to a RockLake catalog.
+The migration path uses RockLake's NDJSON export/import commands:
+
+1. Export the source catalog to NDJSON using `rocklake export`.
+2. Import the NDJSON into a new RockLake catalog using `rocklake import`.
 
 ## Prerequisites
 
-- RockLake v0.27 or later
+- RockLake v0.30 or later
 - An NDJSON export of the source DuckLake catalog (see [Exporting from DuckLake](#exporting-from-ducklake))
 - Write access to the destination object store (S3, GCS, Azure Blob, or local filesystem)
 
 ## Exporting from DuckLake
 
-Use `rocklake export-catalog` to produce an NDJSON dump of the current catalog
-snapshot:
+If you have an existing RockLake catalog, export it with:
 
 ```sh
-rocklake export-catalog --catalog ./source-catalog --out source-dump.ndjson
+rocklake export --catalog ./source-catalog --output source-dump.ndjson
 ```
 
-For an existing DuckLake deployment backed by PostgreSQL or SQLite, export the
-metadata tables using the DuckLake `COPY TO` facility:
+If you have a DuckLake deployment backed by PostgreSQL or SQLite, you first need
+to stand up a RockLake PG-Wire sidecar pointed at the source catalog, run
+`rocklake export` against it, and then import the result into the destination.
 
-```sql
--- From DuckDB with ducklake extension attached:
-ATTACH 'ducklake:postgres://user:pass@host/db' AS lake;
-COPY (SELECT * FROM lake.ducklake_snapshot) TO 'snapshot.csv';
--- ... repeat for all 28 catalog tables ...
-```
-
-Then convert the CSV files to the RockLake NDJSON format using the
-`rocklake pg-migrate` tool:
-
-```sh
-rocklake pg-migrate --input snapshot.csv --output snapshot.ndjson
-```
+!!! note "CSV migration path"
+    A direct CSV-to-NDJSON migration tool (`rocklake pg-migrate`) converts
+    NDJSON catalog exports to PostgreSQL `INSERT` statements. Full CSV import
+    from DuckLake's raw `COPY TO` output is **not yet implemented** and is
+    planned for a future release.
 
 ## Running the Migration
 
 ```sh
-rocklake migrate-from-ducklake \
-  --source source-dump.ndjson \
-  --catalog s3://my-bucket/my-catalog
+rocklake import \
+  --catalog s3://my-bucket/my-catalog \
+  --input source-dump.ndjson
 ```
 
 On success, the command prints a migration report:
 
 ```
-migrate-from-ducklake: source=source-dump.ndjson, catalog=s3://my-bucket/my-catalog
-Migration complete:
+Import complete:
   Rows imported:   1428
   Tables imported: 28
-  Catalog written to: s3://my-bucket/my-catalog
 ```
 
 ## Verifying the Migration
@@ -67,7 +59,7 @@ Migration complete:
 After migration, use `rocklake inspect` to confirm the catalog state:
 
 ```sh
-rocklake inspect snapshot s3://my-bucket/my-catalog
+rocklake inspect snapshot --latest --catalog s3://my-bucket/my-catalog
 ```
 
 Then start RockLake in serve mode and run a quick connectivity check from DuckDB:
@@ -82,8 +74,8 @@ SELECT COUNT(*) FROM lake.ducklake_table;
 ## Cutover Procedure
 
 1. **Freeze writes** on the source DuckLake deployment.
-2. **Export** the final snapshot: `rocklake export-catalog --catalog ./source --out final.ndjson`
-3. **Migrate**: `rocklake migrate-from-ducklake --source final.ndjson --catalog <dest>`
+2. **Export** the final snapshot: `rocklake export --catalog ./source --output final.ndjson`
+3. **Import**: `rocklake import --catalog <dest> --input final.ndjson`
 4. **Verify** row counts and schema presence as described above.
 5. **Update connection strings** in all DuckDB clients to point to the RockLake PG-Wire sidecar.
 6. **Detach** the old DuckLake attachment and **attach** RockLake.
