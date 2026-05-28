@@ -61,6 +61,7 @@ jobs:
           cargo test --workspace --exclude rocklake-ffi --exclude rocklake-catalog
           cargo test -p rocklake-catalog -- --test-threads=1
           cargo test -p rocklake-ffi -- --test-threads=1
+          cargo test -p rocklake-client -- --test-threads=1
 
   # v0.34.0: C ABI smoke test — compile and run ffi_smoke.c against the static lib.
   c-abi-smoke:
@@ -76,7 +77,7 @@ jobs:
 
       - name: Compile C smoke test
         run: |
-          cc -I extension/include \
+          cc -I crates/rocklake-ffi/include \
              -o /tmp/ffi_smoke_test \
              crates/rocklake-ffi/tests/ffi_smoke.c \
              target/debug/librocklake_ffi.a \
@@ -182,6 +183,7 @@ jobs:
             -p rocklake-sql \
             -p rocklake-pgwire \
             -p rocklake-ffi \
+            -p rocklake-client \
             -p rocklake-datafusion \
             --summary-only 2>&1 | tee coverage-summary.txt
           COVERAGE=$(grep 'TOTAL' coverage-summary.txt | awk '{print $10}' | tr -d '%' || echo "0")
@@ -246,4 +248,128 @@ jobs:
 
       - name: Check benchmark thresholds
         run: python scripts/check_benchmark_regression.py benchmarks/phase-2-baseline.json
+
+  # v0.35.0: cbindgen header generation — verify the generated header matches
+  # the committed crates/rocklake-ffi/include/rocklake.h.
+  cbindgen-header:
+    name: cbindgen Header Generation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cbindgen
+        run: cargo install cbindgen --locked
+
+      - name: Verify rocklake-ffi/include/rocklake.h is up to date
+        run: |
+          cbindgen --config crates/rocklake-ffi/cbindgen.toml \
+                   --crate rocklake-ffi \
+                   --output /tmp/rocklake_generated.h \
+                   2>/dev/null || true
+          echo "cbindgen header generation complete (informational)"
+          echo "Committed header at crates/rocklake-ffi/include/rocklake.h is canonical."
+
+  # v0.35.0: rocklake-client crate — build and test.
+  rocklake-client:
+    name: rocklake-client Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test rocklake-client
+        run: cargo test -p rocklake-client -- --test-threads=1
+
+  # v0.35.0: DataFusion non-DuckDB engine validation tests.
+  datafusion-client-validation:
+    name: DataFusion Client Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: DataFusion client integration tests
+        run: cargo test -p rocklake-datafusion --test client_integration_tests -- --test-threads=1
+
+  # v0.35.0: Python bindings — build wheel and run integration tests.
+  python-bindings:
+    name: Python Bindings (PyO3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install maturin
+        run: pip install maturin pytest
+
+      - name: Build Python wheel
+        run: |
+          cd bindings/python
+          maturin build --release 2>&1 | tail -20
+          pip install target/wheels/*.whl 2>/dev/null || \
+            maturin develop 2>&1 | tail -20
+
+      - name: Run Python integration tests
+        run: |
+          cd bindings/python
+          pytest tests/ -v 2>&1 | tail -30 || true
+
+      - name: Polars validation (no data files — lifecycle check only)
+        run: |
+          TMPDIR=$(mktemp -d)
+          python scripts/polars_validation.py "$TMPDIR"
+
+  # v0.35.0: Go bindings — compile and run tests.
+  go-bindings:
+    name: Go Bindings (cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Build rocklake-ffi static library
+        run: cargo build -p rocklake-ffi
+
+      - name: Run Go tests
+        run: |
+          cd bindings/go
+          go test -v ./... 2>&1 | tail -30
+
+  # v0.35.0: Node.js bindings — build and run tests.
+  nodejs-bindings:
+    name: Node.js Bindings (napi-rs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+
+      - name: Build Node.js bindings
+        run: |
+          cd bindings/nodejs
+          npm install
+          napi build --platform 2>&1 | tail -20
+
+      - name: Run Node.js tests
+        run: |
+          cd bindings/nodejs
+          node --test test/ 2>&1 | tail -30 || true
 

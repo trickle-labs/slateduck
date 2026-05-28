@@ -12,7 +12,7 @@ use std::ptr;
 use rocklake_ffi::{
     rocklake_abi_version, rocklake_close, rocklake_error_code, rocklake_error_free,
     rocklake_error_message, rocklake_list_schemas, rocklake_open, rocklake_schema_list_free,
-    RockLakeError, RockLakeSchemaList,
+    RockLakeError, RockLakeSchemaList, ROCKLAKE_ABI_VERSION,
 };
 use tempfile::TempDir;
 
@@ -31,6 +31,16 @@ fn blank_err() -> RockLakeError {
 fn abi_version_is_positive() {
     let v = rocklake_abi_version();
     assert!(v > 0, "ABI version must be > 0, got {v}");
+}
+
+/// Runtime ABI version matches the compile-time constant.
+#[test]
+fn abi_version_matches_constant() {
+    assert_eq!(
+        rocklake_abi_version(),
+        ROCKLAKE_ABI_VERSION,
+        "rocklake_abi_version() must equal ROCKLAKE_ABI_VERSION"
+    );
 }
 
 /// Full open → list_schemas → close lifecycle on a fresh catalog.

@@ -1,0 +1,22 @@
+[package]
+name = "rocklake-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Idiomatic async Rust client for the RockLake catalog"
+repository = "https://github.com/trickle-labs/rocklake"
+readme = "README.md"
+keywords = ["lakehouse", "catalog", "ducklake", "slatedb"]
+categories = ["database"]
+
+[dependencies]
+rocklake-core = { path = "../rocklake-core" }
+rocklake-catalog = { path = "../rocklake-catalog" }
+object_store = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

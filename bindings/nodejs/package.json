@@ -1,0 +1,28 @@
+{
+  "name": "@rocklake/client",
+  "version": "0.35.0",
+  "description": "Node.js bindings for the RockLake lakehouse catalog",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trickle-labs/rocklake"
+  },
+  "keywords": ["lakehouse", "catalog", "ducklake", "slatedb", "parquet"],
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "napi": {
+    "name": "rocklake",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "files": ["index.js", "index.d.ts", "*.node"]
+}

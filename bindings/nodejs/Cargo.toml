@@ -1,0 +1,17 @@
+[package]
+name = "rocklake-node"
+version = "0.35.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rocklake-client = { path = "../../crates/rocklake-client" }
+napi = { version = "2.16", features = ["napi4", "async"] }
+napi-derive = "2.16"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+napi-build = "2"

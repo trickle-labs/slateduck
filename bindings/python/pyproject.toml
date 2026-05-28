@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rocklake"
+version = "0.35.0"
+description = "Python bindings for the RockLake lakehouse catalog"
+authors = [{ name = "Trickle Labs" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+]
+keywords = ["lakehouse", "catalog", "ducklake", "slatedb", "parquet"]
+
+[project.urls]
+Homepage = "https://github.com/trickle-labs/rocklake"
+Repository = "https://github.com/trickle-labs/rocklake"
+Documentation = "https://rocklake.readthedocs.io"
+
+[tool.maturin]
+python-source = "python"
+module-name = "rocklake._rocklake"
+features = ["pyo3/extension-module"]

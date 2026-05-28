@@ -79,7 +79,7 @@ binding on every roadmap release below.
 | **v0.27.8 — DuckLake Transaction Atomicity & Snapshot Changes Conformance** | Group all statements in one logical DuckLake commit into an atomic batch; spec-complete `ducklake_snapshot_changes` with `changes_made`, `author`, `commit_message`, `commit_extra_info`; interleaved writer and rollback tests; writer fencing validation; type-aware column stats for dates, timestamps, decimals | Done |
 | **v0.27.9 — DuckLake Advanced Metadata Validation** | End-to-end DuckDB tests for views, macros, tags, column tags, sort info, and partition info; DROP/ALTER cascade covering all metadata types; ALTER TABLE time-travel tests; imported existing DuckLake catalog support | Done |
 | **v0.27.10 — DuckLake Compatibility CI** | Pin known-good DuckDB and DuckLake versions in CI; nightly optional jobs; durable compatibility corpus covering PQsendQuery pg_catalog scans; exact column schema/OID describe checks | Done |
-| **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for CDC startup | Planning |
+| **v0.27.11 — Wire & SQL Resiliency Hardening** | Implement DataFusion virtual catalog, AST visitor, settings registry, fuzzer; fully refactor schema registry (matching all 28 tables exactly, renaming key/value, sql, tag columns); expose `ducklake_latest_snapshot_id(regclass)` for CDC startup | Done |
 | **v0.27.12 — Containerized Multi-Backend Object Store Emulator Testing** | Implement containerized GCS/Azure emulators; verify catalog CRUD, snapshot commit, and epoch fencing; persist/expose data-file and delete-file spec fields (footer_size, partition_id, encryption_key) | Done |
 | **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; archive planning docs as generic DuckLake CDC contract reference | Done |
 | **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Done |
@@ -90,7 +90,7 @@ binding on every roadmap release below.
 | **v0.32.0 — DuckLake Export Completeness** | Make `export-catalog` cover all 28+ DuckLake tables; reconcile 32-vs-28 table count; correct backup/restore documentation; fix CLI docs | Done |
 | **v0.33.0 — Security & Key Encoding Hardening** | Redact raw values from parameter-error messages; reject over-length identifiers in key encoding; classify `rocklake_catalog.*` mutations as read-only (SQLSTATE 25006); fix FFI NUL-string silent truncation | Done |
 | **v0.34.0 — Testing, FFI & Operational Completeness** | Add C/C++ ABI smoke test; configure CI test concurrency; add checkpoint/excision monotonic IDs; fix checkpoint counter advance; add CLI docs-conformance test; document C header ownership; disclose C++ extension stub status | Done |
-| **v0.35.0 — Embedded Catalog Client Library** | Generalize `rocklake-ffi` from a DuckDB-specific C ABI into a universal embedded library; add a `rocklake-client` Rust crate as the idiomatic high-level API; ship language bindings for Python (PyO3), Go (cgo), and Node.js (napi-rs); document building against the C ABI from any language; validate non-DuckDB clients (Polars, DataFusion, Spark, Trino) against the same catalog | Planning |
+| **v0.35.0 — Embedded Catalog Client Library** | Generalize `rocklake-ffi` from a DuckDB-specific C ABI into a universal embedded library; add a `rocklake-client` Rust crate as the idiomatic high-level API; ship language bindings for Python (PyO3), Go (cgo), and Node.js (napi-rs); document building against the C ABI from any language; validate non-DuckDB clients (Polars, DataFusion, Spark, Trino) against the same catalog | Done |
 | **v0.36.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation from v0.35.0 to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; eliminates all Postgres-scanner compatibility burden for local/embedded use; C++ catalog registration against DuckDB's community extension API is the remaining gap | Planning |
 | **v0.40.0 — Full Ecosystem Compatibility Certification** | Release-blocking CI evidence for every `docs/compatibility.md` row: real DuckDB/DuckLake versions, SQL clients, Spark/Trino/Presto disposition, DataFusion, object stores, TLS/auth, Rust/MSRV, and release platforms | Planning |
 | **v1.0 — General Availability** | TPC-H @ SF10/SF100 benchmarks, S3 Express acceptance gate, real-world validation gate | Planning |
@@ -3947,70 +3947,70 @@ The current `rocklake-ffi` crate was designed alongside the DuckDB extension and
 
 ### Step 1 — Audit and Neutralize the C ABI
 
-- [ ] Rename `ABI_VERSION` to `ROCKLAKE_ABI_VERSION` and update the constant comment to remove the DuckDB-extension-specific framing.
-- [ ] Audit all `RockLakeErrorCode` values and ensure they map to generic catalog semantics rather than DuckDB-internal concepts. Add a `ROCKLAKE_OK`, `ROCKLAKE_ERR_CONFLICT`, `ROCKLAKE_ERR_FENCED` convention that matches POSIX-style error models.
-- [ ] Generate a stable C header (`include/rocklake.h`) from `cbindgen` and commit it to `crates/rocklake-ffi/include/`. This header is the contract for all language bindings and is the interface the native DuckDB extension (v0.36.0) will wrap.
-- [ ] Write `docs/reference/c-api.md` documenting every exported function, its ownership model, and the error code semantics.
-- [ ] Add a `#[deprecated]` path for any symbol renamed during the audit to maintain backward compatibility for one release cycle.
+- [x] Rename `ABI_VERSION` to `ROCKLAKE_ABI_VERSION` and update the constant comment to remove the DuckDB-extension-specific framing.
+- [x] Audit all `RockLakeErrorCode` values and ensure they map to generic catalog semantics rather than DuckDB-internal concepts. Add a `ROCKLAKE_OK`, `ROCKLAKE_ERR_CONFLICT`, `ROCKLAKE_ERR_FENCED` convention that matches POSIX-style error models.
+- [x] Generate a stable C header (`include/rocklake.h`) from `cbindgen` and commit it to `crates/rocklake-ffi/include/`. This header is the contract for all language bindings and is the interface the native DuckDB extension (v0.36.0) will wrap.
+- [x] Write `docs/reference/c-api.md` documenting every exported function, its ownership model, and the error code semantics.
+- [x] Add a `#[deprecated]` path for any symbol renamed during the audit to maintain backward compatibility for one release cycle.
 
 ### Step 2 — `rocklake-client` Rust Crate
 
-- [ ] Add `crates/rocklake-client/` to the workspace.
-- [ ] Define a `CatalogClient` struct wrapping `rocklake-catalog`'s `CatalogStore` with an async-first API: `open()`, `close()`, `snapshot_id()`, `list_schemas()`, `list_tables()`, `get_table()`, `list_data_files()`, `begin_write()`, `commit()`, `rollback()`.
-- [ ] Add a `CatalogClientBuilder` for configuration: object-store URL, auth, TLS, epoch, retry policy.
-- [ ] Expose a synchronous blocking wrapper (`CatalogClientSync`) for contexts that cannot use async Rust (e.g., C extension threads, Python GIL).
-- [ ] Write doc-tests for every public method in `rocklake-client`.
-- [ ] Add `rocklake-client` to the workspace version policy and release workflow.
+- [x] Add `crates/rocklake-client/` to the workspace.
+- [x] Define a `CatalogClient` struct wrapping `rocklake-catalog`'s `CatalogStore` with an async-first API: `open()`, `close()`, `snapshot_id()`, `list_schemas()`, `list_tables()`, `get_table()`, `list_data_files()`, `begin_write()`, `commit()`, `rollback()`.
+- [x] Add a `CatalogClientBuilder` for configuration: object-store URL, auth, TLS, epoch, retry policy.
+- [x] Expose a synchronous blocking wrapper (`CatalogClientSync`) for contexts that cannot use async Rust (e.g., C extension threads, Python GIL).
+- [x] Write doc-tests for every public method in `rocklake-client`.
+- [x] Add `rocklake-client` to the workspace version policy and release workflow.
 
 ### Step 3 — Python Bindings (PyO3)
 
-- [ ] Create `bindings/python/` as a `maturin`-based Python package (`rocklake-py`).
-- [ ] Expose `RockLakeCatalog`, `RockLakeTable`, `RockLakeSnapshot`, and `RockLakeDataFile` as Python classes.
-- [ ] Implement `list_data_files()` returning a list of Python dicts compatible with `pandas.DataFrame` and `polars.DataFrame` construction.
-- [ ] Publish a `pyproject.toml` and wheel build job to GitHub Actions.
-- [ ] Add integration tests in `bindings/python/tests/` that attach a catalog, create a table, insert data files, and read them back — without any PG-wire sidecar.
-- [ ] Publish to PyPI under `rocklake` once bindings stabilize.
+- [x] Create `bindings/python/` as a `maturin`-based Python package (`rocklake-py`).
+- [x] Expose `RockLakeCatalog`, `RockLakeTable`, `RockLakeSnapshot`, and `RockLakeDataFile` as Python classes.
+- [x] Implement `list_data_files()` returning a list of Python dicts compatible with `pandas.DataFrame` and `polars.DataFrame` construction.
+- [x] Publish a `pyproject.toml` and wheel build job to GitHub Actions.
+- [x] Add integration tests in `bindings/python/tests/` that attach a catalog, create a table, insert data files, and read them back — without any PG-wire sidecar.
+- [x] Publish to PyPI under `rocklake` once bindings stabilize.
 
 ### Step 4 — Go Bindings (cgo)
 
-- [ ] Create `bindings/go/` as a Go module (`github.com/trickle-labs/rocklake-go`).
-- [ ] Wrap the C ABI via `cgo` with a `Catalog` struct, `Open()`, `Close()`, `ListSchemas()`, `ListTables()`, `ListDataFiles()`, `BeginWrite()`, `Commit()` functions.
-- [ ] Ship pre-built `.a` static libraries for Linux x86-64/arm64 and macOS arm64 as release assets so consumers do not need a Rust toolchain.
-- [ ] Add an integration test in `bindings/go/test/` covering the same lifecycle as the Python tests.
-- [ ] Publish the Go module to `pkg.go.dev`.
+- [x] Create `bindings/go/` as a Go module (`github.com/trickle-labs/rocklake-go`).
+- [x] Wrap the C ABI via `cgo` with a `Catalog` struct, `Open()`, `Close()`, `ListSchemas()`, `ListTables()`, `ListDataFiles()`, `BeginWrite()`, `Commit()` functions.
+- [x] Ship pre-built `.a` static libraries for Linux x86-64/arm64 and macOS arm64 as release assets so consumers do not need a Rust toolchain.
+- [x] Add an integration test in `bindings/go/test/` covering the same lifecycle as the Python tests.
+- [x] Publish the Go module to `pkg.go.dev`.
 
 ### Step 5 — Node.js Bindings (napi-rs)
 
-- [ ] Create `bindings/nodejs/` as an `napi-rs` package (`@rocklake/client`).
-- [ ] Expose `Catalog`, `Table`, `Snapshot`, and `DataFile` classes with both callback and `Promise`-based async APIs.
-- [ ] Add an integration test in `bindings/nodejs/test/` using the same lifecycle.
-- [ ] Publish to npm under `@rocklake/client`.
+- [x] Create `bindings/nodejs/` as an `napi-rs` package (`@rocklake/client`).
+- [x] Expose `Catalog`, `Table`, `Snapshot`, and `DataFile` classes with both callback and `Promise`-based async APIs.
+- [x] Add an integration test in `bindings/nodejs/test/` using the same lifecycle.
+- [x] Publish to npm under `@rocklake/client`.
 
 ### Step 6 — Non-DuckDB Engine Validation
 
-- [ ] **Polars**: write a Python script that opens a RockLake catalog, calls `list_data_files()` to get Parquet URLs, and reads them with `polars.read_parquet()`. Assert row counts match. Add to CI.
-- [ ] **DataFusion (Rust)**: add a `rocklake-datafusion` integration test that attaches a catalog using `rocklake-client` (not the existing PG-wire bridge) and runs a `SELECT COUNT(*)` query.
-- [ ] **Spark (optional, documented)**: document the path for Spark users to call the Go or Python bindings from PySpark or to use the JVM FFI if a JVM binding is contributed later.
-- [ ] Add a `docs/integration/client-library.md` page covering all language bindings, object-store URL format, versioning policy, and the non-DuckDB engine matrix.
+- [x] **Polars**: write a Python script that opens a RockLake catalog, calls `list_data_files()` to get Parquet URLs, and reads them with `polars.read_parquet()`. Assert row counts match. Add to CI.
+- [x] **DataFusion (Rust)**: add a `rocklake-datafusion` integration test that attaches a catalog using `rocklake-client` (not the existing PG-wire bridge) and runs a `SELECT COUNT(*)` query.
+- [x] **Spark (optional, documented)**: document the path for Spark users to call the Go or Python bindings from PySpark or to use the JVM FFI if a JVM binding is contributed later.
+- [x] Add a `docs/integration/client-library.md` page covering all language bindings, object-store URL format, versioning policy, and the non-DuckDB engine matrix.
 
 ### Step 7 — Documentation and Examples
 
-- [ ] Add `docs/reference/c-api.md` with full function reference (generated from `cbindgen` output and hand-annotated).
-- [ ] Add `docs/integration/client-library.md` with a quickstart for each language (Rust, Python, Go, Node.js).
-- [ ] Add a `examples/` directory under each language binding with a self-contained runnable demo.
-- [ ] Update `docs/getting-started/what-is-rocklake.md` to describe the embedded client library as a third deployment option alongside Strategy B (PG-wire) and the Native DuckDB Extension (v0.36.0).
-- [ ] Update the glossary: rename "Strategy C" to "Native DuckDB Extension" and add a new "Embedded Client Library" entry for the generic path.
+- [x] Add `docs/reference/c-api.md` with full function reference (generated from `cbindgen` output and hand-annotated).
+- [x] Add `docs/integration/client-library.md` with a quickstart for each language (Rust, Python, Go, Node.js).
+- [x] Add a `examples/` directory under each language binding with a self-contained runnable demo.
+- [x] Update `docs/getting-started/what-is-rocklake.md` to describe the embedded client library as a third deployment option alongside Strategy B (PG-wire) and the Native DuckDB Extension (v0.36.0).
+- [x] Update the glossary: rename "Strategy C" to "Native DuckDB Extension" and add a new "Embedded Client Library" entry for the generic path.
 
 ### Definition of Done
 
-- [ ] `include/rocklake.h` committed and generated by `cbindgen` in CI.
-- [ ] `rocklake-client` crate published to crates.io with doc-tests passing.
-- [ ] Python wheel published to PyPI; `pip install rocklake` + 10-line example works.
-- [ ] Go module published to `pkg.go.dev`; `go get github.com/trickle-labs/rocklake-go` + 10-line example works.
-- [ ] Node.js package published to npm; `npm install @rocklake/client` + 10-line example works.
-- [ ] Polars and DataFusion non-DuckDB engine validation tests green in CI.
-- [ ] `docs/integration/client-library.md` written and reviewed.
-- [ ] No DuckDB-isms remain in `rocklake-ffi` public symbols.
+- [x] `include/rocklake.h` committed and generated by `cbindgen` in CI.
+- [x] `rocklake-client` crate published to crates.io with doc-tests passing.
+- [x] Python wheel published to PyPI; `pip install rocklake` + 10-line example works.
+- [x] Go module published to `pkg.go.dev`; `go get github.com/trickle-labs/rocklake-go` + 10-line example works.
+- [x] Node.js package published to npm; `npm install @rocklake/client` + 10-line example works.
+- [x] Polars and DataFusion non-DuckDB engine validation tests green in CI.
+- [x] `docs/integration/client-library.md` written and reviewed.
+- [x] No DuckDB-isms remain in `rocklake-ffi` public symbols.
 
 ---
 

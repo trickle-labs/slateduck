@@ -1,7 +1,15 @@
-//! RockLake FFI: C/C++ foreign function interface for embedding RockLake in DuckDB.
+//! RockLake FFI: C/C++ foreign function interface for embedding RockLake catalog
+//! operations in any language ecosystem.
 //!
 //! This crate provides a stable C ABI over `rocklake-catalog` operations.
 //! All async operations are bridged via a blocking Tokio runtime.
+//!
+//! The primary consumers are:
+//! - The `rocklake-client` Rust crate (idiomatic async Rust wrapper)
+//! - Python bindings via PyO3
+//! - Go bindings via cgo
+//! - Node.js bindings via napi-rs
+//! - The native DuckDB extension (v0.36.0)
 
 // FFI functions must accept raw pointers from C callers.
 // Null/handle safety is enforced explicitly via validate_catalog() and
@@ -20,14 +28,23 @@ use rocklake_core::mvcc::SnapshotId;
 
 // ─── ABI Version ───────────────────────────────────────────────────────────
 
-/// ABI version: major * 1000 + minor. The DuckDB extension checks this at
-/// load time and refuses to proceed on version mismatch.
-const ABI_VERSION: u32 = 5_000; // v5.0 (matches v0.5 release)
+/// ABI version: major * 1000 + minor.
+///
+/// Language bindings and embedding callers MUST call `rocklake_abi_version()`
+/// at load time and refuse to proceed on version mismatch.
+pub const ROCKLAKE_ABI_VERSION: u32 = 5_000; // v5.0 (matches v0.35 release)
 
-/// Returns the ABI version. Extension checks this at load time.
+/// Backward-compatible alias for `ROCKLAKE_ABI_VERSION`.
+///
+/// Deprecated: use `ROCKLAKE_ABI_VERSION` in all new code. This alias will be
+/// removed in the release cycle following v0.36.0.
+#[deprecated(since = "0.35.0", note = "use ROCKLAKE_ABI_VERSION instead")]
+pub const ABI_VERSION: u32 = ROCKLAKE_ABI_VERSION;
+
+/// Returns the ABI version. Language bindings check this at load time.
 #[no_mangle]
 pub extern "C" fn rocklake_abi_version() -> u32 {
-    ABI_VERSION
+    ROCKLAKE_ABI_VERSION
 }
 
 // ─── CString Safety ────────────────────────────────────────────────────────
@@ -53,17 +70,29 @@ pub struct RockLakeError {
     pub message: *mut c_char,
 }
 
-/// Error codes matching DuckDB's expected return values.
+/// Error codes for the RockLake C ABI.
+///
+/// These map to generic catalog semantics — no engine-specific assumptions.
 #[repr(i32)]
 #[derive(Clone, Copy)]
 pub enum RockLakeErrorCode {
+    /// Success. Matches `ROCKLAKE_OK` in the C header.
     Ok = 0,
+    /// Unexpected internal error.
     Internal = 1,
+    /// Requested resource not found.
     NotFound = 2,
+    /// Writer was fenced by a competing writer with a higher epoch.
+    /// Alias: `ROCKLAKE_ERR_FENCED` in the C header.
     WriterFenced = 3,
+    /// Catalog format version mismatch.
     FormatMismatch = 4,
+    /// Value exceeds the maximum encoded size.
     ValueTooLarge = 5,
+    /// Serializable transaction conflict; the caller should retry.
+    /// Alias: `ROCKLAKE_ERR_CONFLICT` in the C header.
     TransactionConflict = 6,
+    /// Catalog has not been initialized.
     NotInitialized = 7,
     /// Null or already-closed catalog handle passed to an FFI function.
     InvalidHandle = 8,
@@ -761,6 +790,7 @@ mod tests {
 
     #[test]
     fn abi_version_returns_expected() {
+        assert_eq!(rocklake_abi_version(), ROCKLAKE_ABI_VERSION);
         assert_eq!(rocklake_abi_version(), 5_000);
     }
 

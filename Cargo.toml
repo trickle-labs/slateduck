@@ -5,13 +5,14 @@ members = [
     "crates/rocklake-sql",
     "crates/rocklake-pgwire",
     "crates/rocklake-ffi",
+    "crates/rocklake-client",
     "crates/rocklake-datafusion",
     "crates/rocklake-testkit",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.34.0"
+version = "0.35.0"
 edition = "2021"
 rust-version = "1.93"
 license = "Apache-2.0"

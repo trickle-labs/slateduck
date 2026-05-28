@@ -1,0 +1,19 @@
+[package]
+name = "rocklake-py"
+version = "0.35.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Python bindings for RockLake catalog (PyO3)"
+repository = "https://github.com/trickle-labs/rocklake"
+
+[lib]
+name = "rocklake"
+crate-type = ["cdylib"]
+
+[dependencies]
+rocklake-client = { path = "../../crates/rocklake-client" }
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }

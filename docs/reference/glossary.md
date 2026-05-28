@@ -132,7 +132,11 @@ This page defines all terms used throughout the RockLake documentation. If you e
 
 **Strategy B** — One of two deployment strategies for RockLake. Strategy B runs RockLake as a standalone process (sidecar) that DuckDB connects to over the PostgreSQL wire protocol (TCP). This is the primary deployment mode.
 
-**Strategy C** — The alternative deployment strategy where RockLake runs as a native DuckDB extension (shared library loaded into the DuckDB process). Catalog operations are in-process function calls rather than network round-trips. Lower latency but tighter coupling.
+**Strategy C** — The legacy name for the native DuckDB extension deployment strategy. Renamed to **Native DuckDB Extension** in v0.35.0. See *Native DuckDB Extension* and *Embedded Client Library*.
+
+**Native DuckDB Extension** — Deployment strategy (formerly Strategy C) where RockLake runs as a native DuckDB extension (`.duckdb_extension` shared library loaded into the DuckDB process). Catalog operations are in-process function calls rather than network round-trips. Lower latency but tighter coupling. Builds on the stable `rocklake.h` C ABI introduced in v0.35.0.
+
+**Embedded Client Library** — A universal C ABI (`rocklake.h`) and language bindings (Rust via `rocklake-client`, Python via PyO3, Go via cgo, Node.js via napi-rs) for embedding the RockLake catalog client in any language ecosystem without a PG-wire sidecar. DuckDB is a consumer but not the only one. Introduced in v0.35.0; provides the foundation for the Native DuckDB Extension (v0.36.0).
 
 ---
 
