@@ -553,8 +553,8 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
         path_is_relative: None,
     };
     batch.put(
-        &keys::key_schema(schema_id),
-        &values::encode_value(&schema_row),
+        keys::key_schema(schema_id),
+        values::encode_value(&schema_row),
     );
 
     // Create the default table (table_id = 2, because catalog IDs 1..=2 are used)
@@ -570,8 +570,8 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
         path_is_relative: None,
     };
     batch.put(
-        &keys::key_table(schema_id, table_id, 1),
-        &values::encode_value(&table_row),
+        keys::key_table(schema_id, table_id, 1),
+        values::encode_value(&table_row),
     );
 
     // Register data files under the default table
@@ -596,10 +596,10 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
             partial_max: None,
         };
         let encoded = values::encode_value(&row);
-        batch.put(&keys::key_data_file(table_id, file_id), &encoded);
+        batch.put(keys::key_data_file(table_id, file_id), &encoded);
         // Write secondary index for O(log N) snapshot-bounded scans.
         batch.put(
-            &keys::key_data_file_by_snapshot(table_id, 1, file_id),
+            keys::key_data_file_by_snapshot(table_id, 1, file_id),
             &encoded,
         );
         file_id += 1;
@@ -616,21 +616,21 @@ pub async fn rebuild_catalog(db: &Db, data_paths: &[String]) -> CatalogResult<u6
         next_catalog_id: None,
         next_file_id: None,
     };
-    batch.put(&keys::key_snapshot(1), &values::encode_value(&snapshot_row));
+    batch.put(keys::key_snapshot(1), values::encode_value(&snapshot_row));
 
     // Update counters: next_snapshot = 2, next_catalog_id = table_id + 1 = 3,
     // next_file_id = file_id (already incremented past the last used id)
     batch.put(
-        &keys::key_counter(COUNTER_NEXT_SNAPSHOT_ID),
-        &values::encode_counter(2),
+        keys::key_counter(COUNTER_NEXT_SNAPSHOT_ID),
+        values::encode_counter(2),
     );
     batch.put(
-        &keys::key_counter(COUNTER_NEXT_CATALOG_ID),
-        &values::encode_counter(table_id + 1),
+        keys::key_counter(COUNTER_NEXT_CATALOG_ID),
+        values::encode_counter(table_id + 1),
     );
     batch.put(
-        &keys::key_counter(COUNTER_NEXT_FILE_ID),
-        &values::encode_counter(file_id),
+        keys::key_counter(COUNTER_NEXT_FILE_ID),
+        values::encode_counter(file_id),
     );
 
     // Commit all rows atomically.
