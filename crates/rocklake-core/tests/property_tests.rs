@@ -390,7 +390,10 @@ fn distinct_consumer_ids_produce_distinct_lease_keys() {
         "abcd",
         "dcba",
     ];
-    let keys: Vec<Vec<u8>> = ids.iter().map(|id| key_snapshot_lease(id).unwrap()).collect();
+    let keys: Vec<Vec<u8>> = ids
+        .iter()
+        .map(|id| key_snapshot_lease(id).unwrap())
+        .collect();
     for i in 0..keys.len() {
         for j in (i + 1)..keys.len() {
             assert_ne!(
