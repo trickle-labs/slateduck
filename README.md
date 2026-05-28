@@ -135,9 +135,10 @@ RockLake is a Cargo workspace of focused crates, each with a clear responsibilit
 | `rocklake-catalog` | All 28 DuckLake v1.0 catalog operations + 4 RockLake extension tables (32 total): schemas, tables, columns, snapshots, and data files |
 | `rocklake-sql` | Bounded SQL parser and AST dispatcher — only the shapes DuckDB actually emits |
 | `rocklake-pgwire` | PostgreSQL wire protocol sidecar binary (startup, simple query, extended query) |
-| `rocklake-datafusion` | DataFusion integration for query planning |
-| `rocklake-sqlite-vfs` | SQLite VFS layer (planned: native embedded extension path) |
-| `rocklake-ffi` | C/C++ FFI bindings (planned: native DuckDB extension) |
+| `rocklake-datafusion` | DataFusion integration for catalog-backed query planning and virtual-table scans |
+| `rocklake-ffi` | Universal embedded C ABI library; language bindings for Python (PyO3), Go (cgo), and Node.js (napi-rs) |
+| `rocklake-client` | Idiomatic high-level Rust API over the C ABI; entry point for non-DuckDB clients (Polars, DataFusion, Spark, Trino) |
+| `rocklake-testkit` | Shared test helpers, golden-file fixtures, and integration-test scaffolding |
 
 ---
 
@@ -163,9 +164,12 @@ RockLake is an opinionated piece of software. It makes strong bets and does not 
 
 | Version | Theme | Status |
 |---|---|---|
-| v0.9.x | Write-protocol correctness, security enforcement, operational safety, GA readiness | In progress |
-| v0.10 | Streaming ingest | Released |
-| v1.0 | GA: all acceptance tests green, full docs, migration tooling | Planned |
+| v0.27.x | DuckLake v1.0 conformance, SQL facade, stats, external compatibility | Done |
+| v0.28–v0.35 | Writer fencing, recovery, protocol hardening, DataFusion, security, embedded client library | Done |
+| **v0.35.0** | Embedded catalog client library — universal C ABI, `rocklake-client`, Python/Go/Node.js bindings | **Current** |
+| v0.36.0 | Native DuckDB extension — `ATTACH 'ducklake:slatedb:s3://...'` without PG-wire sidecar | Planning |
+| v0.40.0 | Full ecosystem compatibility certification — DuckDB, Spark, Trino, all object stores | Planning |
+| v1.0 | GA — TPC-H benchmarks, S3 Express, real-world validation | Planning |
 
 See [ROADMAP.md](ROADMAP.md) for full milestone details.
 
