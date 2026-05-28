@@ -84,7 +84,7 @@ binding on every roadmap release below.
 | **v0.27.13 — Real Multi-Client & Multi-Driver Interoperability Certification** | Build multi-driver compat suite; verify binary formats; validate client schema discovery; enforce visibility constraints (begin_snapshot/end_snapshot) and sort data files by file_order; archive planning docs as generic DuckLake CDC contract reference | Done |
 | **v0.27.14 — Security Hardening & Protocol-Level Testing** | Verify constant-time auth; SCRAM-SHA-256; TLS version gating; implement atomic metadata commits, consolidated stats deltas, and repeatable-read writer fencing (SQLSTATE 40001) | Done |
 | **v0.28.0 — Writer Fencing & Concurrency Correctness** | Replace wall-clock millisecond writer epochs with a transactional monotonic counter; fix GC lease/pin checks outside the transaction; inject deterministic clock in writer-fencing tests; make rebuild atomically transactional | Done |
-| **v0.29.0 — Recovery Correctness** | Fix import to write secondary data-file index; apply MVCC predicate in export; make rebuild atomic; add export/import round-trip tests that exercise `list_data_files()` and reader scans | Planning |
+| **v0.29.0 — Recovery Correctness** | Fix import to write secondary data-file index; apply MVCC predicate in export; make rebuild atomic; add export/import round-trip tests that exercise `list_data_files()` and reader scans | Done |
 | **v0.30.0 — PG-Wire & Protocol Hardening** | Make binary COPY parser fail-closed on truncation; sync CLI flags with documentation; fix migration docs; propagate object-store listing errors from `rebuild` command | Planning |
 | **v0.31.0 — DataFusion Hardening** | Propagate catalog errors instead of `unwrap_or_default()`; error on data files with no readable root; carry data root explicitly; make AsyncBridge fallible; expand type mapping | Planning |
 | **v0.32.0 — DuckLake Export Completeness** | Make `export-catalog` cover all 28+ DuckLake tables; reconcile 32-vs-28 table count; correct backup/restore documentation; fix CLI docs | Planning |
@@ -3716,25 +3716,25 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 ### Tasks
 
 #### Secondary Index on Import
-- [ ] In `import_catalog()`, for each imported `ducklake_data_file` row write both `keys::key_data_file(table_id, data_file_id)` and `keys::key_data_file_by_snapshot(table_id, begin_snapshot, data_file_id)`.
-- [ ] Verify that `reader.list_data_files()` returns the correct file list after import.
-- [ ] Extend the existing export/import round-trip test in `v04_tests.rs` to open a `CatalogStore`, call `list_data_files()`, read tables and columns, verify counters, and assert no data files are missing.
+- [x] In `import_catalog()`, for each imported `ducklake_data_file` row write both `keys::key_data_file(table_id, data_file_id)` and `keys::key_data_file_by_snapshot(table_id, begin_snapshot, data_file_id)`.
+- [x] Verify that `reader.list_data_files()` returns the correct file list after import.
+- [x] Extend the existing export/import round-trip test in `v04_tests.rs` to open a `CatalogStore`, call `list_data_files()`, read tables and columns, verify counters, and assert no data files are missing.
 
 #### MVCC Filter in Export
-- [ ] Apply `begin_snapshot <= target_snapshot && (end_snapshot IS NULL || end_snapshot > target_snapshot)` for every versioned row in `export_catalog()` (data files, delete files, schemas, tables, columns).
-- [ ] Add a regression test: create a table, add a data file, retire it, export at a later snapshot, import, and assert the retired file is absent.
+- [x] Apply `begin_snapshot <= target_snapshot && (end_snapshot IS NULL || end_snapshot > target_snapshot)` for every versioned row in `export_catalog()` (data files, delete files, schemas, tables, columns).
+- [x] Add a regression test: create a table, add a data file, retire it, export at a later snapshot, import, and assert the retired file is absent.
 
 #### Export Coverage Tracking
-- [ ] Add a manifest assertion in the export tests that lists every expected table category and fails if the export omits one. This is a prerequisite for the full-coverage work in v0.32.0.
+- [x] Add a manifest assertion in the export tests that lists every expected table category and fails if the export omits one. This is a prerequisite for the full-coverage work in v0.32.0.
 
 #### Checkpoint Counter Fix
-- [ ] In `restore_checkpoint()`, skip the `hide_snapshot + 1` counter advance when `hide_snapshot == meta.snapshot_id + 1` (no post-checkpoint facts). Only advance past `hide_snapshot` when it is actually used as a tombstone boundary.
+- [x] In `restore_checkpoint()`, skip the `hide_snapshot + 1` counter advance when `hide_snapshot == meta.snapshot_id + 1` (no post-checkpoint facts). Only advance past `hide_snapshot` when it is actually used as a tombstone boundary.
 
 ### Definition of Done
-- [ ] Import + `list_data_files()` round-trip test passes with real data files.
-- [ ] Retired data files are excluded from exports at the correct snapshot.
-- [ ] Export manifest test exists and passes.
-- [ ] Checkpoint counter advance is conditional; no-op restore test passes.
+- [x] Import + `list_data_files()` round-trip test passes with real data files.
+- [x] Retired data files are excluded from exports at the correct snapshot.
+- [x] Export manifest test exists and passes.
+- [x] Checkpoint counter advance is conditional; no-op restore test passes.
 
 ---
 

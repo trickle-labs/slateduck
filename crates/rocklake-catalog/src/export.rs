@@ -190,7 +190,12 @@ pub async fn export_catalog<W: Write>(
     {
         let row: DataFileRow = values::decode_value(&kv.value)?;
         let begin = row.begin_snapshot.unwrap_or(0);
-        if begin <= dl_snapshot_id.as_u64() {
+        // MVCC: only export rows visible at dl_snapshot_id (not yet retired).
+        let live_at_snapshot = begin <= dl_snapshot_id.as_u64()
+            && row
+                .end_snapshot
+                .is_none_or(|end| end > dl_snapshot_id.as_u64());
+        if live_at_snapshot {
             let exported = ExportedRow {
                 table: "ducklake_data_file".to_string(),
                 data: serde_json::json!({
@@ -223,7 +228,12 @@ pub async fn export_catalog<W: Write>(
     {
         let row: DeleteFileRow = values::decode_value(&kv.value)?;
         let begin = row.begin_snapshot.unwrap_or(row.snapshot_id);
-        if begin <= dl_snapshot_id.as_u64() {
+        // MVCC: only export rows visible at dl_snapshot_id (not yet retired).
+        let live_at_snapshot = begin <= dl_snapshot_id.as_u64()
+            && row
+                .end_snapshot
+                .is_none_or(|end| end > dl_snapshot_id.as_u64());
+        if live_at_snapshot {
             let exported = ExportedRow {
                 table: "ducklake_delete_file".to_string(),
                 data: serde_json::json!({
@@ -437,8 +447,15 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
                     mapping_id: d["mapping_id"].as_u64(),
                     partial_max: d["partial_max"].as_str().map(|s| s.to_string()),
                 };
+                let encoded = values::encode_value(&row);
+                // Primary key.
                 let key = keys::key_data_file(table_id, data_file_id);
-                db.put(&key, &values::encode_value(&row)).await?;
+                db.put(&key, &encoded).await?;
+                // Secondary index (TAG_DATA_FILE_BY_SNAPSHOT) required by
+                // list_data_files() so that readers see the file after import.
+                let idx_begin = begin_snapshot.unwrap_or(0);
+                let idx_key = keys::key_data_file_by_snapshot(table_id, idx_begin, data_file_id);
+                db.put(&idx_key, &encoded).await?;
                 rows_imported += 1;
             }
             "ducklake_delete_file" => {

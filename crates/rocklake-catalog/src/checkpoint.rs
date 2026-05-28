@@ -123,18 +123,16 @@ pub async fn restore_checkpoint(db: &Db, checkpoint_id: u64) -> CatalogResult<Ch
         None => meta.snapshot_id + 1,
     };
 
-    // If no snapshots were written after the checkpoint, just advance to avoid
-    // any future counter ambiguity.
     if hide_snapshot > meta.snapshot_id + 1 {
-        // Hide all post-checkpoint versioned facts so they are invisible at
-        // snapshot IDs >= hide_snapshot.
+        // Post-checkpoint facts exist: mark them hidden and advance the counter
+        // past hide_snapshot so it cannot be reused as a live snapshot ID.
         hide_post_checkpoint_facts(db, meta.snapshot_id, hide_snapshot).await?;
+        db.put(&counter_key, &values::encode_counter(hide_snapshot + 1))
+            .await?;
     }
-
-    // Set next_snapshot_id to hide_snapshot + 1 so new writes start from a
-    // fresh, strictly-increasing ID and cannot collide with existing history.
-    db.put(&counter_key, &values::encode_counter(hide_snapshot + 1))
-        .await?;
+    // When hide_snapshot == meta.snapshot_id + 1 no facts were written after
+    // the checkpoint, so hide_snapshot is already the correct next-snapshot-id.
+    // Skip the +1 advance: the counter is already at the right value.
 
     Ok(CheckpointInfo {
         id: meta.id,
