@@ -216,10 +216,9 @@ async fn detect_snapshot_gaps(
 
     let start = retain_from.max(1);
     let scan_limit = 10_000u64;
-    let mut scanned = 0u64;
 
-    for snapshot_id in start..=latest {
-        if scanned >= scan_limit {
+    for (scanned, snapshot_id) in (start..=latest).enumerate() {
+        if scanned as u64 >= scan_limit {
             findings.push(DiagnosticFinding {
                 severity: FindingSeverity::P2,
                 category: "snapshot-gaps".to_string(),
@@ -227,7 +226,6 @@ async fn detect_snapshot_gaps(
             });
             break;
         }
-        scanned += 1;
 
         let key = bytes::Bytes::from(keys::key_snapshot(snapshot_id));
         match db.get(&key).await {
