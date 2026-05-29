@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/v0.39.0-observability-operational-tooling']
   pull_request:
     branches: [main]
 
