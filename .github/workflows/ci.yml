@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/v0.39.0-observability-operational-tooling']
+    branches: [main, 'feat/v0.39.0-observability-operational-tooling', 'feat/v0.40.0-fault-injection-security-testing']
   pull_request:
     branches: [main]
 
@@ -236,6 +236,30 @@ jobs:
 
       - name: PG-Wire security tests
         run: cargo test -p rocklake-pgwire --test security_tests
+
+  # Tier 7 v0.40.0: Fault injection tests.
+  fault-injection-v040:
+    name: Fault Injection & Kill-9 Recovery Tests (v0.40.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.40.0 fault injection tests
+        run: cargo test -p rocklake-catalog --test v040_fault_injection_tests -- --test-threads=1
+
+  # Tier 8 v0.40.0: Security tests.
+  security-v040:
+    name: Security Tests (v0.40.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.40.0 security tests
+        run: cargo test -p rocklake-pgwire --test v040_security_tests -- --test-threads=1
 
   # N-11: Network-level PG-Wire integration test.
   # Spawns the real rocklake binary and verifies a tokio-postgres client can
@@ -541,6 +565,8 @@ jobs:
       - backend-compat
       - tls-compat
       - observability
+      - fault-injection-v040
+      - security-v040
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

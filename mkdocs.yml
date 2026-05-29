@@ -182,6 +182,8 @@ nav:
     - Inspect: operations/inspect.md
     - Logging: operations/logging.md
     - Monitoring: operations/monitoring.md
+    - Failover: operations/failover.md
+    - Security: operations/security.md
     - Troubleshooting: operations/troubleshooting.md
     - Upgrades: operations/upgrades.md
     - Verify & Repair: operations/verify-repair.md

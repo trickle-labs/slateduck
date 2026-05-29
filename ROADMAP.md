@@ -95,7 +95,7 @@ binding on every roadmap release below.
 | **v0.37.0 — Engine Integration & Wire Protocol Hardening** | Real Spark 3.5 and Trino 432+ jobs; DataFusion matrix integration; wire-corpus replay with golden assertions; version-policy checks | Complete |
 | **v0.38.0 — Release Certification & Platform Support** | Compatibility manifest system (TOML validator, CI gates, docs-sync); Rust MSRV reconciliation; Windows x86-64 CI and release artifacts; release gates and final certification | Complete |
 | **v0.39.0 — Observability & Operational Tooling** | Prometheus `/metrics` endpoint; OpenTelemetry tracing; `rocklake diagnose` CLI; orphan file sweep with configurable grace period | Complete |
-| **v0.40.0 — Fault Injection & Security Testing** | Tier 6 fault injection suite (`fail` crate, toxiproxy, kill-9 recovery); Tier 8 security (IAM credential isolation, SQL injection guards, TLS audit) | Planning |
+| **v0.40.0 — Fault Injection & Security Testing** | Tier 6 fault injection suite (`fail` crate, toxiproxy, kill-9 recovery); Tier 8 security (IAM credential isolation, SQL injection guards, TLS audit) | Complete |
 | **v0.41.0 — Migration Tooling & DuckLake Forward Compatibility** | `rocklake migrate-from-ducklake` (PostgreSQL & SQLite sources); MVCC-correct export/import; DuckLake v1.1 forward-compatibility gate | Planning |
 | **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Planning |
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Planning |
@@ -4242,31 +4242,31 @@ Fix the two known export/import bugs from the assessment:
 
 The `fail` crate is already used; this milestone wires it comprehensively into pre-release CI.
 
-- [ ] Add `fail` injection points at every catalog write boundary: before SlateDB commit, after Parquet write but before `register_data_file`, between primary and secondary key writes in `register_data_file`.
-- [ ] Add kill-9 tests: start a writer, inject a failure mid-snapshot, restart, verify the next writer fences correctly and the catalog is consistent.
-- [ ] Add S3 error injection via toxiproxy: 503 responses, connection drops, partial reads. Verify RockLake returns correct errors (not silent empty results) and retries appropriately.
-- [ ] Add GC race test: run GC concurrently with active writes; verify `retain-from` never advances past live snapshots.
-- [ ] Add compaction race test: concurrent SlateDB compaction during catalog scan; verify prefix-scan latest-value semantics hold.
-- [ ] Measure kill-9 → writer-available SLO: target p99 < 10 seconds. Document in `docs/operations/failover.md`.
-- [ ] Wire all fault injection tests into a `fault-injection` CI job that runs on every pre-release tag.
+- [x] Add `fail` injection points at every catalog write boundary: before SlateDB commit, after Parquet write but before `register_data_file`, between primary and secondary key writes in `register_data_file`.
+- [x] Add kill-9 tests: start a writer, inject a failure mid-snapshot, restart, verify the next writer fences correctly and the catalog is consistent.
+- [x] Add S3 error injection via toxiproxy: 503 responses, connection drops, partial reads. Verify RockLake returns correct errors (not silent empty results) and retries appropriately.
+- [x] Add GC race test: run GC concurrently with active writes; verify `retain-from` never advances past live snapshots.
+- [x] Add compaction race test: concurrent SlateDB compaction during catalog scan; verify prefix-scan latest-value semantics hold.
+- [x] Measure kill-9 → writer-available SLO: target p99 < 10 seconds. Document in `docs/operations/failover.md`.
+- [x] Wire all fault injection tests into a `fault-injection` CI job that runs on every pre-release tag.
 
 ### Tier 8 — Security Testing
 
-- [ ] **IAM credential isolation**: using MinIO, configure `catalog-only` and `data-only` policies. Verify the PG-wire sidecar cannot read or write `data/` prefix; verify DuckDB data-plane access cannot read or write `catalogs/` prefix. Verify expected SQLSTATE `42501` is returned.
-- [ ] **SQL injection guards**: fuzz the PG-wire SQL classifier with adversarial inputs (NUL bytes, overlong strings, nested quotes, Unicode lookalikes). Verify the dispatcher returns `SQLSTATE 42601` or `42000`, never a wrong result or panic.
-- [ ] **TLS audit**: verify TLS 1.1-and-older rejected; TLS 1.2 and 1.3 accepted; `--require-tls` with plaintext client returns correct PG error code. Add as a separate CI job (`tls-security`).
-- [ ] **Auth timing**: verify password comparison is constant-time (using `subtle::ConstantTimeEq` or equivalent); add a regression test that confirms no fast-path exit on wrong-length passwords.
-- [ ] **Excision audit trail**: run `rocklake excise --apply`; verify the audit record is written under `0xFF | "excised"` prefix and is visible to `rocklake diagnose`.
-- [ ] Wire all security tests into a `security` CI job on pre-release tags.
+- [x] **IAM credential isolation**: using MinIO, configure `catalog-only` and `data-only` policies. Verify the PG-wire sidecar cannot read or write `data/` prefix; verify DuckDB data-plane access cannot read or write `catalogs/` prefix. Verify expected SQLSTATE `42501` is returned.
+- [x] **SQL injection guards**: fuzz the PG-wire SQL classifier with adversarial inputs (NUL bytes, overlong strings, nested quotes, Unicode lookalikes). Verify the dispatcher returns `SQLSTATE 42601` or `42000`, never a wrong result or panic.
+- [x] **TLS audit**: verify TLS 1.1-and-older rejected; TLS 1.2 and 1.3 accepted; `--require-tls` with plaintext client returns correct PG error code. Add as a separate CI job (`tls-security`).
+- [x] **Auth timing**: verify password comparison is constant-time (using `subtle::ConstantTimeEq` or equivalent); add a regression test that confirms no fast-path exit on wrong-length passwords.
+- [x] **Excision audit trail**: run `rocklake excise --apply`; verify the audit record is written under `0xFF | "excised"` prefix and is visible to `rocklake diagnose`.
+- [x] Wire all security tests into a `security` CI job on pre-release tags.
 
 ### Deliverables
 
-- [ ] `fault-injection` CI job green on pre-release
-- [ ] `security` CI job green on pre-release
-- [ ] Kill-9 → writer-available SLO measured and documented
-- [ ] IAM isolation verified on MinIO; expected errors documented
-- [ ] SQL injection fuzz results: zero panics, zero wrong results
-- [ ] `docs/operations/failover.md` and `docs/operations/security.md` updated
+- [x] `fault-injection` CI job green on pre-release
+- [x] `security` CI job green on pre-release
+- [x] Kill-9 → writer-available SLO measured and documented
+- [x] IAM isolation verified on MinIO; expected errors documented
+- [x] SQL injection fuzz results: zero panics, zero wrong results
+- [x] `docs/operations/failover.md` and `docs/operations/security.md` updated
 
 ---
 ## v0.42.0 — Performance Benchmarks & Cost Analysis

@@ -15,6 +15,7 @@ pub mod error;
 pub mod excise;
 pub mod export;
 pub mod extension;
+pub mod fault_injection;
 pub mod gc;
 pub mod init;
 pub mod inspect;
