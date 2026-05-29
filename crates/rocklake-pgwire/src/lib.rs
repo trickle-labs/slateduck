@@ -12,6 +12,7 @@ pub mod schema_registry;
 pub mod scram;
 pub mod server;
 pub mod session;
+pub mod telemetry;
 pub mod types;
 
 pub use error::RockLakeError;

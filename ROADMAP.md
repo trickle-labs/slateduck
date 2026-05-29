@@ -94,7 +94,7 @@ binding on every roadmap release below.
 | **v0.36.0 — SQL Clients & Object Storage Backend Testing** | Real psql, pgcli, DBeaver, Metabase smoke tests; GCS and Azure emulator harnesses; containerized backend compat suite; TLS 1.2/1.3 protocol gating | Done |
 | **v0.37.0 — Engine Integration & Wire Protocol Hardening** | Real Spark 3.5 and Trino 432+ jobs; DataFusion matrix integration; wire-corpus replay with golden assertions; version-policy checks | Complete |
 | **v0.38.0 — Release Certification & Platform Support** | Compatibility manifest system (TOML validator, CI gates, docs-sync); Rust MSRV reconciliation; Windows x86-64 CI and release artifacts; release gates and final certification | Complete |
-| **v0.39.0 — Observability & Operational Tooling** | Prometheus `/metrics` endpoint; OpenTelemetry tracing; `rocklake diagnose` CLI; orphan file sweep with configurable grace period | Planning |
+| **v0.39.0 — Observability & Operational Tooling** | Prometheus `/metrics` endpoint; OpenTelemetry tracing; `rocklake diagnose` CLI; orphan file sweep with configurable grace period | Complete |
 | **v0.40.0 — Fault Injection & Security Testing** | Tier 6 fault injection suite (`fail` crate, toxiproxy, kill-9 recovery); Tier 8 security (IAM credential isolation, SQL injection guards, TLS audit) | Planning |
 | **v0.41.0 — Migration Tooling & DuckLake Forward Compatibility** | `rocklake migrate-from-ducklake` (PostgreSQL & SQLite sources); MVCC-correct export/import; DuckLake v1.1 forward-compatibility gate | Planning |
 | **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Planning |
@@ -4097,49 +4097,49 @@ Enforce protocol version acceptance/rejection:
 
 ### Prometheus Metrics Endpoint
 
-- [ ] Add a `--metrics-addr` flag to `rocklake serve` that starts an HTTP `/metrics` endpoint compatible with the Prometheus text exposition format.
-- [ ] Instrument catalog operation latency histograms: `rocklake_catalog_op_duration_seconds{op="create_snapshot"|"list_data_files"|"describe_table"|...}`.
-- [ ] Instrument PG-wire metrics: active sessions, query latency (`rocklake_pgwire_query_duration_seconds`), error rate by SQLSTATE.
-- [ ] Instrument SlateDB-level metrics where available: compaction lag, memtable size, SST count.
-- [ ] Instrument GC and excision operations: `rocklake_gc_retain_from_snapshot`, `rocklake_excision_bytes_deleted_total`.
-- [ ] Add a Grafana dashboard JSON template to `docs/operations/grafana-dashboard.json`.
+- [x] Add a `--metrics-addr` flag to `rocklake serve` that starts an HTTP `/metrics` endpoint compatible with the Prometheus text exposition format.
+- [x] Instrument catalog operation latency histograms: `rocklake_catalog_op_duration_seconds{op="create_snapshot"|"list_data_files"|"describe_table"|...}`.
+- [x] Instrument PG-wire metrics: active sessions, query latency (`rocklake_pgwire_query_duration_seconds`), error rate by SQLSTATE.
+- [x] Instrument SlateDB-level metrics where available: compaction lag, memtable size, SST count.
+- [x] Instrument GC and excision operations: `rocklake_gc_retain_from_snapshot`, `rocklake_excision_bytes_deleted_total`.
+- [x] Add a Grafana dashboard JSON template to `docs/operations/grafana-dashboard.json`.
 
 ### OpenTelemetry Tracing
 
-- [ ] Instrument catalog write paths with OTLP spans: `create_snapshot`, `register_data_file`, `commit_transaction`.
-- [ ] Instrument PG-wire request lifecycle: startup, query parse, execute, response.
-- [ ] Add `--otlp-endpoint` flag; default: disabled. Document in `docs/operations/monitoring.md`.
-- [ ] Add trace propagation across the SlateDB write and compaction boundary where observable.
-- [ ] Integration test: start a Jaeger all-in-one container; verify spans appear for a DuckDB attach + insert round-trip.
+- [x] Instrument catalog write paths with OTLP spans: `create_snapshot`, `register_data_file`, `commit_transaction`.
+- [x] Instrument PG-wire request lifecycle: startup, query parse, execute, response.
+- [x] Add `--otlp-endpoint` flag; default: disabled. Document in `docs/operations/monitoring.md`.
+- [x] Add trace propagation across the SlateDB write and compaction boundary where observable.
+- [x] Integration test: start a Jaeger all-in-one container; verify spans appear for a DuckDB attach + insert round-trip.
 
 ### `rocklake diagnose` CLI
 
-- [ ] Implement `rocklake diagnose --catalog <path>` that produces a structured health report covering:
+- [x] Implement `rocklake diagnose --catalog <path>` that produces a structured health report covering:
   - Catalog format version and writer epoch
   - Current snapshot ID and `retain-from` floor
   - Secondary index (`TAG_DATA_FILE_BY_SNAPSHOT`) consistency check: scan primary data-file keys and verify each has a matching secondary key
   - Orphan Parquet file detection: list `{data_root}/` in object storage and report files not referenced by any live catalog snapshot
   - Snapshot gap detection: missing snapshot IDs between `retain-from` and current
-- [ ] Output as human-readable text (default) and `--json` for machine consumption.
-- [ ] Add `rocklake diagnose` to CI as a post-integration-test gate; fail if any P0 findings are reported.
-- [ ] Document in `docs/operations/diagnostics.md`.
+- [x] Output as human-readable text (default) and `--json` for machine consumption.
+- [x] Add `rocklake diagnose` to CI as a post-integration-test gate; fail if any P0 findings are reported.
+- [x] Document in `docs/operations/diagnostics.md`.
 
 ### Orphan File Sweep
 
-- [ ] Implement `rocklake sweep-orphans --catalog <path> --grace-period-hours <N> [--apply]` that identifies Parquet files present in object storage but not referenced in any live catalog snapshot after the grace period.
-- [ ] Default grace period: 24 hours. Make configurable.
-- [ ] Dry-run mode (default): print orphan file list without deleting. `--apply` performs deletion.
-- [ ] Integrate orphan sweep into the GC workflow documentation as a recommended periodic operation.
-- [ ] Add integration test: write files, abort the catalog commit, run sweep after grace period, verify files are deleted.
+- [x] Implement `rocklake sweep-orphans --catalog <path> --grace-period-hours <N> [--apply]` that identifies Parquet files present in object storage but not referenced in any live catalog snapshot after the grace period.
+- [x] Default grace period: 24 hours. Make configurable.
+- [x] Dry-run mode (default): print orphan file list without deleting. `--apply` performs deletion.
+- [x] Integrate orphan sweep into the GC workflow documentation as a recommended periodic operation.
+- [x] Add integration test: write files, abort the catalog commit, run sweep after grace period, verify files are deleted.
 
 ### Deliverables
 
-- [ ] `/metrics` endpoint on all CI integration tests; verified with `curl`
-- [ ] OTLP spans captured in Jaeger integration test
-- [ ] `rocklake diagnose` green on all test catalogs in CI
-- [ ] `rocklake sweep-orphans` integration test green
-- [ ] `docs/operations/monitoring.md` updated with metrics reference and OTLP instructions
-- [ ] `docs/operations/diagnostics.md` written
+- [x] `/metrics` endpoint on all CI integration tests; verified with `curl`
+- [x] OTLP spans captured in Jaeger integration test
+- [x] `rocklake diagnose` green on all test catalogs in CI
+- [x] `rocklake sweep-orphans` integration test green
+- [x] `docs/operations/monitoring.md` updated with metrics reference and OTLP instructions
+- [x] `docs/operations/diagnostics.md` written
 
 ---
 ## v0.37.0 — Engine Integration & Wire Protocol Hardening
@@ -4890,3 +4890,4 @@ Some acceptance criteria cannot run in normal CI: 24 h soaks, 1 TB inputs, and T
 
 **Choose RockLake when:** you are serverless or spot-based and cannot afford a persistent database server; you want a lakehouse with zero external infrastructure; you need cheap point-in-time catalog snapshots; your workload is write-heavy rather than read-heavy; or you are already in the SlateDB ecosystem.
 
+# v0.39.0

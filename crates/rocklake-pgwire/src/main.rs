@@ -4,7 +4,8 @@
 //!   serve, gc, excise, checkpoint, export, import, pg-migrate,
 //!   rebuild, inspect, verify, repair,
 //!   warmup, migrate, corpus, tune,
-//!   migrate-from-ducklake, export-catalog
+//!   migrate-from-ducklake, export-catalog,
+//!   diagnose, sweep-orphans
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -49,6 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "tune" => cmd_tune(&args).await?,
         "migrate-from-ducklake" => cmd_migrate_from_ducklake(&args).await?,
         "export-catalog" => cmd_export_catalog(&args).await?,
+        "diagnose" => cmd_diagnose(&args).await?,
+        "sweep-orphans" => cmd_sweep_orphans(&args).await?,
         "--help" | "-h" => print_usage(),
         other => {
             eprintln!("Unknown command: {other}");
@@ -82,6 +85,8 @@ Commands:
   tune [--target-cost-usd N]     Output recommended settings
   migrate-from-ducklake          Migrate from an external DuckLake catalog
   export-catalog                 Export all 32 DuckLake catalog tables to NDJSON
+  diagnose                       Structured catalog health report (v0.39.0)
+  sweep-orphans                  Identify / delete orphan Parquet files (v0.39.0)
 
 Options:
   --catalog <path>             Catalog path (required for most commands)
@@ -94,6 +99,14 @@ Options:
 
 async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_serve_args(args)?;
+
+    // v0.39.0: Initialise OTLP tracing if --otlp-endpoint is set.
+    let _telemetry = rocklake_pgwire::telemetry::TelemetryConfig {
+        otlp_endpoint: config.otlp_endpoint.clone(),
+        service_name: "rocklake".to_string(),
+    }
+    .init();
+
     let s3_opts = S3Options {
         endpoint: config.s3_endpoint.clone(),
         path_style: config.s3_path_style,
@@ -220,6 +233,9 @@ struct ServeConfig {
     datafusion_pg_wire_port: Option<u16>,
     /// Allowed extension schema names (default: ["pgtrickle"]).
     extension_schemas: Vec<String>,
+    /// Optional OTLP HTTP endpoint for OpenTelemetry tracing (e.g. "http://jaeger:4318").
+    /// When not set, no spans are exported. Document: docs/operations/monitoring.md.
+    otlp_endpoint: Option<String>,
 }
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
@@ -236,6 +252,8 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     // Read auth from env vars first; CLI flags override.
     let mut auth_username: Option<String> = std::env::var("ROCKLAKE_AUTH_USER").ok();
     let mut auth_password: Option<String> = std::env::var("ROCKLAKE_AUTH_PASSWORD").ok();
+    // OTLP endpoint: read from env first, CLI flag overrides.
+    let mut otlp_endpoint: Option<String> = std::env::var("ROCKLAKE_OTLP_ENDPOINT").ok();
     let mut mode = "writer".to_string();
     let mut cost_mode = rocklake_catalog::CostMode::Balanced;
     let mut s3_endpoint: Option<String> = None;
@@ -390,6 +408,27 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     .filter(|x| !x.is_empty())
                     .collect();
             }
+            // v0.39.0: OTLP tracing endpoint.
+            "--otlp-endpoint" => {
+                i += 1;
+                otlp_endpoint = Some(
+                    args.get(i)
+                        .cloned()
+                        .ok_or("--otlp-endpoint requires a URL value")?,
+                );
+            }
+            // v0.39.0: --metrics-addr is a convenient alias for --metrics-bind.
+            "--metrics-addr" => {
+                i += 1;
+                let bind_str = args
+                    .get(i)
+                    .ok_or("--metrics-addr requires a <host:port> value")?;
+                let port: u16 = bind_str
+                    .rsplit_once(':')
+                    .ok_or("--metrics-addr must be in <host:port> format")
+                    .and_then(|(_, p)| p.parse().map_err(|_| "--metrics-addr port is invalid"))?;
+                metrics_port = Some(port);
+            }
             "--help" | "-h" => {
                 eprintln!(
                     "Usage: rocklake serve --catalog <path> \
@@ -451,6 +490,7 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         encryption_key,
         datafusion_pg_wire_port,
         extension_schemas,
+        otlp_endpoint,
     })
 }
 
@@ -1244,5 +1284,90 @@ async fn cmd_export_catalog(args: &[String]) -> Result<(), Box<dyn std::error::E
     println!("  Output:          {output_path}");
 
     db.close().await?;
+    Ok(())
+}
+
+// ─── diagnose (v0.39.0) ────────────────────────────────────────────────────
+
+/// Run a structured health diagnostic against a catalog.
+///
+/// Example:
+///   rocklake diagnose --catalog ./my-catalog
+///   rocklake diagnose --catalog s3://bucket/catalog/ --json
+///   rocklake diagnose --catalog ./my-catalog --data-root ./data/
+async fn cmd_diagnose(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let catalog_url =
+        extract_string_arg(args, "--catalog").ok_or("--catalog <path> is required for diagnose")?;
+    let json_output = args.iter().any(|a| a == "--json");
+    let data_root = extract_string_arg(args, "--data-root");
+
+    let (catalog_path, object_store) = resolve_catalog(&catalog_url)?;
+    let db = slatedb::Db::open(catalog_path, object_store.clone()).await?;
+
+    let store_and_root = data_root.map(|root| (object_store, root));
+
+    let report = rocklake_catalog::diagnose_catalog(&db, store_and_root).await?;
+    db.close().await?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{}", rocklake_catalog::format_report_text(&report));
+    }
+
+    // Exit non-zero if P0 findings are present (suitable for CI gates).
+    if !report.is_ok() {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+// ─── sweep-orphans (v0.39.0) ───────────────────────────────────────────────
+
+/// Identify (and optionally delete) orphan Parquet files in object storage.
+///
+/// Example:
+///   rocklake sweep-orphans --catalog ./my-catalog --data-root ./data/
+///   rocklake sweep-orphans --catalog ./my-catalog --data-root s3://bucket/data/ --grace-period-hours 48
+///   rocklake sweep-orphans --catalog ./my-catalog --data-root ./data/ --apply
+async fn cmd_sweep_orphans(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let catalog_url = extract_string_arg(args, "--catalog")
+        .ok_or("--catalog <path> is required for sweep-orphans")?;
+    let data_root = extract_string_arg(args, "--data-root")
+        .ok_or("--data-root <prefix> is required for sweep-orphans")?;
+    let grace_period_hours = extract_numeric_arg(args, "--grace-period-hours").unwrap_or(24);
+    let apply = args.iter().any(|a| a == "--apply");
+
+    let (catalog_path, object_store) = resolve_catalog(&catalog_url)?;
+    let db = slatedb::Db::open(catalog_path, object_store.clone()).await?;
+
+    let config = rocklake_catalog::SweepOrphansConfig {
+        grace_period_hours,
+        apply,
+        data_root: data_root.clone(),
+    };
+
+    let result = rocklake_catalog::sweep_orphans(&db, object_store, &config).await?;
+    db.close().await?;
+
+    if apply {
+        println!("Sweep complete (--apply mode):");
+    } else {
+        println!("Sweep complete (dry-run — use --apply to delete):");
+    }
+    println!("  Data root:          {data_root}");
+    println!("  Files scanned:      {}", result.total_scanned);
+    println!("  Orphan files found: {}", result.orphan_files.len());
+    println!("  Files deleted:      {}", result.deleted);
+    println!("  Grace period:       {grace_period_hours}h");
+
+    if !result.orphan_files.is_empty() {
+        println!("\nOrphan files:");
+        for f in &result.orphan_files {
+            println!("  {f}");
+        }
+    }
+
     Ok(())
 }

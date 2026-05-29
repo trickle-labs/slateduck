@@ -1,4 +1,10 @@
 //! Observability: catalog-level metrics and Prometheus-compatible `/metrics` endpoint.
+//!
+//! v0.39.0 additions:
+//! - `rocklake_catalog_op_duration_seconds` histogram (per-op latency)
+//! - PG-wire query latency and error counters
+//! - GC / excision counters
+//! - SlateDB-level stubs (SST count, compaction lag)
 
 #![allow(missing_docs)]
 
@@ -35,6 +41,52 @@ pub struct CatalogMetrics {
     /// CDC record-count mismatches: fires when a Parquet file's scanned row
     /// count differs from the `record_count` stored in catalog metadata (N-04).
     pub cdc_record_count_mismatches: AtomicU64,
+
+    // ── v0.39.0: operation latency histograms (accumulated microseconds) ────
+    /// Accumulated `create_snapshot` latency in microseconds (total).
+    pub op_create_snapshot_us_total: AtomicU64,
+    /// Number of `create_snapshot` observations.
+    pub op_create_snapshot_count: AtomicU64,
+    /// Accumulated `list_data_files` latency in microseconds (total).
+    pub op_list_data_files_us_total: AtomicU64,
+    /// Number of `list_data_files` observations.
+    pub op_list_data_files_count: AtomicU64,
+    /// Accumulated `describe_table` latency in microseconds (total).
+    pub op_describe_table_us_total: AtomicU64,
+    /// Number of `describe_table` observations.
+    pub op_describe_table_count: AtomicU64,
+    /// Accumulated `commit_transaction` latency in microseconds (total).
+    pub op_commit_transaction_us_total: AtomicU64,
+    /// Number of `commit_transaction` observations.
+    pub op_commit_transaction_count: AtomicU64,
+
+    // ── v0.39.0: PG-wire metrics ─────────────────────────────────────────────
+    /// Total PG-wire queries processed.
+    pub pgwire_queries_total: AtomicU64,
+    /// Accumulated PG-wire query latency in microseconds (total).
+    pub pgwire_query_duration_us_total: AtomicU64,
+    /// Total PG-wire query errors.
+    pub pgwire_errors_total: AtomicU64,
+    /// Total PG-wire SQLSTATE 40001 (serialisation failure) errors.
+    pub pgwire_errors_40001_total: AtomicU64,
+    /// Total PG-wire SQLSTATE 25006 (read-only transaction) errors.
+    pub pgwire_errors_25006_total: AtomicU64,
+
+    // ── v0.39.0: GC / excision metrics ──────────────────────────────────────
+    /// Retain-from snapshot ID (last observed).
+    pub gc_retain_from_snapshot: AtomicU64,
+    /// Total bytes deleted by excision runs.
+    pub excision_bytes_deleted_total: AtomicU64,
+    /// Total rows deleted by excision runs.
+    pub excision_rows_deleted_total: AtomicU64,
+
+    // ── v0.39.0: SlateDB-level stubs ─────────────────────────────────────────
+    /// Estimated SST file count (updated by background task or SlateDB stats).
+    pub slatedb_sst_count: AtomicU64,
+    /// Estimated compaction lag in milliseconds.
+    pub slatedb_compaction_lag_ms: AtomicU64,
+    /// Estimated memtable size in bytes.
+    pub slatedb_memtable_bytes: AtomicU64,
 }
 
 impl CatalogMetrics {
@@ -53,6 +105,29 @@ impl CatalogMetrics {
             writer_epoch_age_ms: AtomicU64::new(0),
             last_query_keys_scanned: AtomicU64::new(0),
             cdc_record_count_mismatches: AtomicU64::new(0),
+            // v0.39.0 op latency
+            op_create_snapshot_us_total: AtomicU64::new(0),
+            op_create_snapshot_count: AtomicU64::new(0),
+            op_list_data_files_us_total: AtomicU64::new(0),
+            op_list_data_files_count: AtomicU64::new(0),
+            op_describe_table_us_total: AtomicU64::new(0),
+            op_describe_table_count: AtomicU64::new(0),
+            op_commit_transaction_us_total: AtomicU64::new(0),
+            op_commit_transaction_count: AtomicU64::new(0),
+            // v0.39.0 PG-wire
+            pgwire_queries_total: AtomicU64::new(0),
+            pgwire_query_duration_us_total: AtomicU64::new(0),
+            pgwire_errors_total: AtomicU64::new(0),
+            pgwire_errors_40001_total: AtomicU64::new(0),
+            pgwire_errors_25006_total: AtomicU64::new(0),
+            // v0.39.0 GC / excision
+            gc_retain_from_snapshot: AtomicU64::new(0),
+            excision_bytes_deleted_total: AtomicU64::new(0),
+            excision_rows_deleted_total: AtomicU64::new(0),
+            // v0.39.0 SlateDB stubs
+            slatedb_sst_count: AtomicU64::new(0),
+            slatedb_compaction_lag_ms: AtomicU64::new(0),
+            slatedb_memtable_bytes: AtomicU64::new(0),
         }
     }
 
@@ -102,6 +177,101 @@ impl CatalogMetrics {
     /// `rocklake-sql`.  Call this from a background task in the PG-Wire binary.
     pub fn set_cdc_record_count_mismatches(&self, n: u64) {
         self.cdc_record_count_mismatches.store(n, Ordering::Relaxed);
+    }
+
+    // ── v0.39.0: operation latency helpers ──────────────────────────────────
+
+    /// Record a `create_snapshot` operation latency in microseconds.
+    pub fn observe_create_snapshot_us(&self, us: u64) {
+        self.op_create_snapshot_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_create_snapshot_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a `list_data_files` operation latency in microseconds.
+    pub fn observe_list_data_files_us(&self, us: u64) {
+        self.op_list_data_files_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_list_data_files_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a `describe_table` operation latency in microseconds.
+    pub fn observe_describe_table_us(&self, us: u64) {
+        self.op_describe_table_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_describe_table_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a `commit_transaction` operation latency in microseconds.
+    pub fn observe_commit_transaction_us(&self, us: u64) {
+        self.op_commit_transaction_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_commit_transaction_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    // ── v0.39.0: PG-wire helpers ─────────────────────────────────────────────
+
+    /// Record a completed PG-wire query with latency in microseconds.
+    pub fn record_pgwire_query(&self, duration_us: u64) {
+        self.pgwire_queries_total.fetch_add(1, Ordering::Relaxed);
+        self.pgwire_query_duration_us_total
+            .fetch_add(duration_us, Ordering::Relaxed);
+    }
+
+    /// Record a PG-wire error with SQLSTATE code.
+    pub fn record_pgwire_error(&self, sqlstate: &str) {
+        self.pgwire_errors_total.fetch_add(1, Ordering::Relaxed);
+        match sqlstate {
+            "40001" => {
+                self.pgwire_errors_40001_total
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            "25006" => {
+                self.pgwire_errors_25006_total
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    // ── v0.39.0: GC / excision helpers ──────────────────────────────────────
+
+    /// Update the retain-from snapshot gauge.
+    pub fn set_gc_retain_from_snapshot(&self, snapshot_id: u64) {
+        self.gc_retain_from_snapshot
+            .store(snapshot_id, Ordering::Relaxed);
+    }
+
+    /// Record bytes deleted by an excision run.
+    pub fn add_excision_bytes_deleted(&self, bytes: u64) {
+        self.excision_bytes_deleted_total
+            .fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    /// Record rows deleted by an excision run.
+    pub fn add_excision_rows_deleted(&self, rows: u64) {
+        self.excision_rows_deleted_total
+            .fetch_add(rows, Ordering::Relaxed);
+    }
+
+    // ── v0.39.0: SlateDB stubs ───────────────────────────────────────────────
+
+    /// Update SlateDB SST count estimate.
+    pub fn set_slatedb_sst_count(&self, count: u64) {
+        self.slatedb_sst_count.store(count, Ordering::Relaxed);
+    }
+
+    /// Update SlateDB compaction lag estimate (milliseconds).
+    pub fn set_slatedb_compaction_lag_ms(&self, ms: u64) {
+        self.slatedb_compaction_lag_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Update SlateDB memtable size estimate (bytes).
+    pub fn set_slatedb_memtable_bytes(&self, bytes: u64) {
+        self.slatedb_memtable_bytes.store(bytes, Ordering::Relaxed);
     }
 
     /// Render Prometheus-compatible metrics output.
@@ -199,6 +369,107 @@ impl CatalogMetrics {
         out.push_str(&format!(
             "rocklake_cdc_record_count_mismatch_total {}\n",
             self.cdc_record_count_mismatches.load(Ordering::Relaxed)
+        ));
+
+        // ── v0.39.0: operation latency (histogram summary via _sum / _count) ─
+        for (op, sum_field, count_field) in [
+            (
+                "create_snapshot",
+                self.op_create_snapshot_us_total.load(Ordering::Relaxed),
+                self.op_create_snapshot_count.load(Ordering::Relaxed),
+            ),
+            (
+                "list_data_files",
+                self.op_list_data_files_us_total.load(Ordering::Relaxed),
+                self.op_list_data_files_count.load(Ordering::Relaxed),
+            ),
+            (
+                "describe_table",
+                self.op_describe_table_us_total.load(Ordering::Relaxed),
+                self.op_describe_table_count.load(Ordering::Relaxed),
+            ),
+            (
+                "commit_transaction",
+                self.op_commit_transaction_us_total.load(Ordering::Relaxed),
+                self.op_commit_transaction_count.load(Ordering::Relaxed),
+            ),
+        ] {
+            let sum_secs = sum_field as f64 / 1_000_000.0;
+            out.push_str(&format!(
+                "# HELP rocklake_catalog_op_duration_seconds_sum Accumulated {op} latency (seconds).\n"
+            ));
+            out.push_str("# TYPE rocklake_catalog_op_duration_seconds_sum counter\n");
+            out.push_str(&format!(
+                "rocklake_catalog_op_duration_seconds_sum{{op=\"{op}\"}} {sum_secs:.6}\n"
+            ));
+            out.push_str(&format!(
+                "rocklake_catalog_op_duration_seconds_count{{op=\"{op}\"}} {count_field}\n"
+            ));
+        }
+
+        // ── v0.39.0: PG-wire ─────────────────────────────────────────────────
+        out.push_str("# HELP rocklake_pgwire_queries_total Total PG-wire queries processed.\n");
+        out.push_str("# TYPE rocklake_pgwire_queries_total counter\n");
+        out.push_str(&format!(
+            "rocklake_pgwire_queries_total {}\n",
+            self.pgwire_queries_total.load(Ordering::Relaxed)
+        ));
+        let pgwire_sum_secs =
+            self.pgwire_query_duration_us_total.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        out.push_str(
+            "# HELP rocklake_pgwire_query_duration_seconds_sum Accumulated query latency.\n",
+        );
+        out.push_str("# TYPE rocklake_pgwire_query_duration_seconds_sum counter\n");
+        out.push_str(&format!(
+            "rocklake_pgwire_query_duration_seconds_sum {pgwire_sum_secs:.6}\n"
+        ));
+        out.push_str("# HELP rocklake_pgwire_errors_total Total PG-wire errors.\n");
+        out.push_str("# TYPE rocklake_pgwire_errors_total counter\n");
+        out.push_str(&format!(
+            "rocklake_pgwire_errors_total {}\n",
+            self.pgwire_errors_total.load(Ordering::Relaxed)
+        ));
+        out.push_str(&format!(
+            "rocklake_pgwire_errors_total{{sqlstate=\"40001\"}} {}\n",
+            self.pgwire_errors_40001_total.load(Ordering::Relaxed)
+        ));
+        out.push_str(&format!(
+            "rocklake_pgwire_errors_total{{sqlstate=\"25006\"}} {}\n",
+            self.pgwire_errors_25006_total.load(Ordering::Relaxed)
+        ));
+
+        // ── v0.39.0: GC / excision ────────────────────────────────────────────
+        out.push_str("# HELP rocklake_gc_retain_from_snapshot Retain-from snapshot floor.\n");
+        out.push_str("# TYPE rocklake_gc_retain_from_snapshot gauge\n");
+        out.push_str(&format!(
+            "rocklake_gc_retain_from_snapshot {}\n",
+            self.gc_retain_from_snapshot.load(Ordering::Relaxed)
+        ));
+        out.push_str("# HELP rocklake_excision_bytes_deleted_total Bytes deleted by excision.\n");
+        out.push_str("# TYPE rocklake_excision_bytes_deleted_total counter\n");
+        out.push_str(&format!(
+            "rocklake_excision_bytes_deleted_total {}\n",
+            self.excision_bytes_deleted_total.load(Ordering::Relaxed)
+        ));
+
+        // ── v0.39.0: SlateDB stubs ─────────────────────────────────────────────
+        out.push_str("# HELP rocklake_slatedb_sst_count Estimated SlateDB SST file count.\n");
+        out.push_str("# TYPE rocklake_slatedb_sst_count gauge\n");
+        out.push_str(&format!(
+            "rocklake_slatedb_sst_count {}\n",
+            self.slatedb_sst_count.load(Ordering::Relaxed)
+        ));
+        out.push_str("# HELP rocklake_slatedb_compaction_lag_ms Estimated compaction lag (ms).\n");
+        out.push_str("# TYPE rocklake_slatedb_compaction_lag_ms gauge\n");
+        out.push_str(&format!(
+            "rocklake_slatedb_compaction_lag_ms {}\n",
+            self.slatedb_compaction_lag_ms.load(Ordering::Relaxed)
+        ));
+        out.push_str("# HELP rocklake_slatedb_memtable_bytes Estimated memtable size (bytes).\n");
+        out.push_str("# TYPE rocklake_slatedb_memtable_bytes gauge\n");
+        out.push_str(&format!(
+            "rocklake_slatedb_memtable_bytes {}\n",
+            self.slatedb_memtable_bytes.load(Ordering::Relaxed)
         ));
 
         out

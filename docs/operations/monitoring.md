@@ -242,9 +242,63 @@ Understanding baseline behavior helps identify anomalies:
 | `rocklake_active_sessions` / `rocklake_max_sessions` | < 80% | > 95% |
 | `rocklake_writer_epoch_age_ms` | < 60 000 ms | > 300 000 ms |
 | `rocklake_cdc_record_count_mismatch_total` | 0 | Any increase |
+| `rocklake_catalog_op_duration_seconds_sum / count` (per op) | < 0.5 s avg | > 2 s avg |
+| `rocklake_pgwire_errors_total{sqlstate="40001"}` rate | 0 | Any sustained rate |
+| `rocklake_gc_retain_from_snapshot` | Advancing each GC run | Static for > 7 days |
+| `rocklake_slatedb_compaction_lag_ms` | < 5 000 ms | > 30 000 ms |
+
+## OpenTelemetry Tracing (v0.39.0)
+
+RockLake can export distributed traces to any OpenTelemetry-compatible backend
+(Jaeger, Tempo, OTLP/HTTP collectors).
+
+### Enabling OTLP Export
+
+```bash
+rocklake serve \
+    --catalog s3://bucket/catalog/ \
+    --otlp-endpoint http://jaeger:4318
+```
+
+Or via environment variable:
+
+```bash
+export ROCKLAKE_OTLP_ENDPOINT=http://jaeger:4318
+rocklake serve --catalog s3://bucket/catalog/
+```
+
+When `--otlp-endpoint` is not set (the default), no spans are exported and
+there is zero overhead.
+
+### Instrumented Operations
+
+The following catalog write paths are instrumented with OTLP spans:
+
+| Span | Path |
+|------|------|
+| `create_snapshot` | Catalog snapshot commit |
+| `register_data_file` | Data file registration |
+| `commit_transaction` | Full transaction commit |
+| PG-wire request lifecycle | Startup, query parse, execute, response |
+
+### Jaeger Quick-Start
+
+```yaml
+# docker-compose.yml
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "4318:4318"   # OTLP HTTP
+      - "16686:16686" # Jaeger UI
+```
+
+Then set `--otlp-endpoint http://localhost:4318` and open
+`http://localhost:16686` to view traces.
 
 ## Further Reading
 
+- **[Diagnostics](diagnostics.md)** — `rocklake diagnose` health report and orphan file sweep
 - **[Health Checks](health-checks.md)** — Probing operational readiness
 - **[Logging](logging.md)** — Complementary diagnostic information
 - **[Troubleshooting](troubleshooting.md)** — Investigating alerts

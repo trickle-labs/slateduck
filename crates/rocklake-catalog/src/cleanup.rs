@@ -99,8 +99,19 @@ pub async fn orphaned_file_sweep(
     match list_result {
         Ok(objects) => {
             for obj in &objects {
-                total_files_scanned += 1;
                 let path_str = obj.location.to_string();
+
+                // Only consider Parquet and Arrow IPC data files as potential
+                // orphans. SlateDB infrastructure files (.sst, .manifest, .wal,
+                // .db, etc.) are never orphans and must not be deleted.
+                let is_data_file = path_str.ends_with(".parquet")
+                    || path_str.ends_with(".arrow")
+                    || path_str.ends_with(".avro");
+                if !is_data_file {
+                    continue;
+                }
+
+                total_files_scanned += 1;
 
                 if !referenced.contains(&path_str) {
                     // Check grace period

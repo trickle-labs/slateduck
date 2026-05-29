@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/v0.39.0-observability-operational-tooling']
   pull_request:
     branches: [main]
 
@@ -463,6 +463,25 @@ jobs:
           cargo test -p rocklake-pgwire --test tls_compat_tests \
             -- --test-threads=4 --nocapture
 
+  # ── v0.39.0: Observability & Operational Tooling ────────────────────────────
+
+  # v0.39.0: Observability and diagnostics test suite.
+  # Validates the enhanced Prometheus metrics endpoint, rocklake diagnose,
+  # sweep-orphans dry-run, OTLP telemetry lifecycle, and metrics server HTTP
+  # response, as specified in the v0.39.0 roadmap.
+  observability:
+    name: Observability & Diagnostics (v0.39.0)
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run v0.39.0 observability tests
+        run: |
+          cargo test -p rocklake-pgwire --test v039_observability_tests \
+            -- --test-threads=4 --nocapture
+
   # ── v0.38.0: Release Certification & Platform Support ───────────────────────
 
   # v0.38.0: Compatibility manifest validator — verifies that docs/compatibility.md
@@ -521,6 +540,7 @@ jobs:
       - sql-clients
       - backend-compat
       - tls-compat
+      - observability
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
