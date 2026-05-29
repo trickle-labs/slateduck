@@ -183,26 +183,33 @@ impl CatalogMetrics {
 
     /// Record a `create_snapshot` operation latency in microseconds.
     pub fn observe_create_snapshot_us(&self, us: u64) {
-        self.op_create_snapshot_us_total.fetch_add(us, Ordering::Relaxed);
-        self.op_create_snapshot_count.fetch_add(1, Ordering::Relaxed);
+        self.op_create_snapshot_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_create_snapshot_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a `list_data_files` operation latency in microseconds.
     pub fn observe_list_data_files_us(&self, us: u64) {
-        self.op_list_data_files_us_total.fetch_add(us, Ordering::Relaxed);
-        self.op_list_data_files_count.fetch_add(1, Ordering::Relaxed);
+        self.op_list_data_files_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_list_data_files_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a `describe_table` operation latency in microseconds.
     pub fn observe_describe_table_us(&self, us: u64) {
-        self.op_describe_table_us_total.fetch_add(us, Ordering::Relaxed);
+        self.op_describe_table_us_total
+            .fetch_add(us, Ordering::Relaxed);
         self.op_describe_table_count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a `commit_transaction` operation latency in microseconds.
     pub fn observe_commit_transaction_us(&self, us: u64) {
-        self.op_commit_transaction_us_total.fetch_add(us, Ordering::Relaxed);
-        self.op_commit_transaction_count.fetch_add(1, Ordering::Relaxed);
+        self.op_commit_transaction_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.op_commit_transaction_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     // ── v0.39.0: PG-wire helpers ─────────────────────────────────────────────
@@ -210,15 +217,22 @@ impl CatalogMetrics {
     /// Record a completed PG-wire query with latency in microseconds.
     pub fn record_pgwire_query(&self, duration_us: u64) {
         self.pgwire_queries_total.fetch_add(1, Ordering::Relaxed);
-        self.pgwire_query_duration_us_total.fetch_add(duration_us, Ordering::Relaxed);
+        self.pgwire_query_duration_us_total
+            .fetch_add(duration_us, Ordering::Relaxed);
     }
 
     /// Record a PG-wire error with SQLSTATE code.
     pub fn record_pgwire_error(&self, sqlstate: &str) {
         self.pgwire_errors_total.fetch_add(1, Ordering::Relaxed);
         match sqlstate {
-            "40001" => { self.pgwire_errors_40001_total.fetch_add(1, Ordering::Relaxed); }
-            "25006" => { self.pgwire_errors_25006_total.fetch_add(1, Ordering::Relaxed); }
+            "40001" => {
+                self.pgwire_errors_40001_total
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            "25006" => {
+                self.pgwire_errors_25006_total
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             _ => {}
         }
     }
@@ -227,17 +241,20 @@ impl CatalogMetrics {
 
     /// Update the retain-from snapshot gauge.
     pub fn set_gc_retain_from_snapshot(&self, snapshot_id: u64) {
-        self.gc_retain_from_snapshot.store(snapshot_id, Ordering::Relaxed);
+        self.gc_retain_from_snapshot
+            .store(snapshot_id, Ordering::Relaxed);
     }
 
     /// Record bytes deleted by an excision run.
     pub fn add_excision_bytes_deleted(&self, bytes: u64) {
-        self.excision_bytes_deleted_total.fetch_add(bytes, Ordering::Relaxed);
+        self.excision_bytes_deleted_total
+            .fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// Record rows deleted by an excision run.
     pub fn add_excision_rows_deleted(&self, rows: u64) {
-        self.excision_rows_deleted_total.fetch_add(rows, Ordering::Relaxed);
+        self.excision_rows_deleted_total
+            .fetch_add(rows, Ordering::Relaxed);
     }
 
     // ── v0.39.0: SlateDB stubs ───────────────────────────────────────────────
@@ -422,17 +439,13 @@ impl CatalogMetrics {
         ));
 
         // ── v0.39.0: GC / excision ────────────────────────────────────────────
-        out.push_str(
-            "# HELP rocklake_gc_retain_from_snapshot Retain-from snapshot floor.\n",
-        );
+        out.push_str("# HELP rocklake_gc_retain_from_snapshot Retain-from snapshot floor.\n");
         out.push_str("# TYPE rocklake_gc_retain_from_snapshot gauge\n");
         out.push_str(&format!(
             "rocklake_gc_retain_from_snapshot {}\n",
             self.gc_retain_from_snapshot.load(Ordering::Relaxed)
         ));
-        out.push_str(
-            "# HELP rocklake_excision_bytes_deleted_total Bytes deleted by excision.\n",
-        );
+        out.push_str("# HELP rocklake_excision_bytes_deleted_total Bytes deleted by excision.\n");
         out.push_str("# TYPE rocklake_excision_bytes_deleted_total counter\n");
         out.push_str(&format!(
             "rocklake_excision_bytes_deleted_total {}\n",
@@ -446,17 +459,13 @@ impl CatalogMetrics {
             "rocklake_slatedb_sst_count {}\n",
             self.slatedb_sst_count.load(Ordering::Relaxed)
         ));
-        out.push_str(
-            "# HELP rocklake_slatedb_compaction_lag_ms Estimated compaction lag (ms).\n",
-        );
+        out.push_str("# HELP rocklake_slatedb_compaction_lag_ms Estimated compaction lag (ms).\n");
         out.push_str("# TYPE rocklake_slatedb_compaction_lag_ms gauge\n");
         out.push_str(&format!(
             "rocklake_slatedb_compaction_lag_ms {}\n",
             self.slatedb_compaction_lag_ms.load(Ordering::Relaxed)
         ));
-        out.push_str(
-            "# HELP rocklake_slatedb_memtable_bytes Estimated memtable size (bytes).\n",
-        );
+        out.push_str("# HELP rocklake_slatedb_memtable_bytes Estimated memtable size (bytes).\n");
         out.push_str("# TYPE rocklake_slatedb_memtable_bytes gauge\n");
         out.push_str(&format!(
             "rocklake_slatedb_memtable_bytes {}\n",

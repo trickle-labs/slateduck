@@ -420,13 +420,13 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
             // v0.39.0: --metrics-addr is a convenient alias for --metrics-bind.
             "--metrics-addr" => {
                 i += 1;
-                let bind_str = args.get(i).ok_or("--metrics-addr requires a <host:port> value")?;
+                let bind_str = args
+                    .get(i)
+                    .ok_or("--metrics-addr requires a <host:port> value")?;
                 let port: u16 = bind_str
                     .rsplit_once(':')
                     .ok_or("--metrics-addr must be in <host:port> format")
-                    .and_then(|(_, p)| {
-                        p.parse().map_err(|_| "--metrics-addr port is invalid")
-                    })?;
+                    .and_then(|(_, p)| p.parse().map_err(|_| "--metrics-addr port is invalid"))?;
                 metrics_port = Some(port);
             }
             "--help" | "-h" => {
@@ -1296,8 +1296,8 @@ async fn cmd_export_catalog(args: &[String]) -> Result<(), Box<dyn std::error::E
 ///   rocklake diagnose --catalog s3://bucket/catalog/ --json
 ///   rocklake diagnose --catalog ./my-catalog --data-root ./data/
 async fn cmd_diagnose(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let catalog_url = extract_string_arg(args, "--catalog")
-        .ok_or("--catalog <path> is required for diagnose")?;
+    let catalog_url =
+        extract_string_arg(args, "--catalog").ok_or("--catalog <path> is required for diagnose")?;
     let json_output = args.iter().any(|a| a == "--json");
     let data_root = extract_string_arg(args, "--data-root");
 

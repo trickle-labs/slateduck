@@ -11,8 +11,8 @@
 
 use std::sync::Arc;
 
-use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
+use object_store::ObjectStore;
 use slatedb::Db;
 
 use rocklake_core::keys;
@@ -99,13 +99,11 @@ pub async fn diagnose_catalog(
     let info = inspect_snapshot(db).await?;
 
     // 2. Secondary index consistency check.
-    let (secondary_entries, secondary_gaps) =
-        check_secondary_index(db, &mut findings).await?;
+    let (secondary_entries, secondary_gaps) = check_secondary_index(db, &mut findings).await?;
 
     // 3. Snapshot gap detection.
     let snapshot_gaps =
-        detect_snapshot_gaps(db, info.retain_from, info.latest_snapshot_id, &mut findings)
-            .await?;
+        detect_snapshot_gaps(db, info.retain_from, info.latest_snapshot_id, &mut findings).await?;
 
     // 4. Orphan file detection.
     let orphan_files = if let Some((store, data_root)) = object_store {
@@ -115,15 +113,9 @@ pub async fn diagnose_catalog(
     };
 
     // 5. Compute overall status.
-    let overall_status = if findings
-        .iter()
-        .any(|f| f.severity == FindingSeverity::P0)
-    {
+    let overall_status = if findings.iter().any(|f| f.severity == FindingSeverity::P0) {
         "critical".to_string()
-    } else if findings
-        .iter()
-        .any(|f| f.severity == FindingSeverity::P1)
-    {
+    } else if findings.iter().any(|f| f.severity == FindingSeverity::P1) {
         "degraded".to_string()
     } else {
         "ok".to_string()
@@ -280,10 +272,7 @@ async fn detect_orphan_files(
     let root_path = ObjectPath::from(data_root);
     let mut orphans = Vec::new();
 
-    let list_result = store
-        .list(Some(&root_path))
-        .try_collect::<Vec<_>>()
-        .await;
+    let list_result = store.list(Some(&root_path)).try_collect::<Vec<_>>().await;
 
     match list_result {
         Ok(objects) => {
@@ -334,7 +323,10 @@ pub fn format_report_text(report: &DiagnoseReport) -> String {
     out.push_str(&format!("Retain-from:         {}\n", report.retain_from));
     out.push_str(&format!("Schemas:             {}\n", report.schema_count));
     out.push_str(&format!("Tables:              {}\n", report.table_count));
-    out.push_str(&format!("Data files:          {}\n", report.data_file_count));
+    out.push_str(&format!(
+        "Data files:          {}\n",
+        report.data_file_count
+    ));
     out.push_str(&format!(
         "2nd-index checked:   {} ({} gaps)\n",
         report.secondary_index_entries_checked, report.secondary_index_gaps

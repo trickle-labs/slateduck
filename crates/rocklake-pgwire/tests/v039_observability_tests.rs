@@ -10,14 +10,14 @@
 
 use std::sync::Arc;
 
-use tempfile::TempDir;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
+use tempfile::TempDir;
 
 use rocklake_catalog::metrics::CatalogMetrics;
-use rocklake_catalog::{CatalogStore, OpenOptions};
 use rocklake_catalog::{diagnose_catalog, format_report_text, DiagnoseReport};
 use rocklake_catalog::{sweep_orphans, SweepOrphansConfig};
+use rocklake_catalog::{CatalogStore, OpenOptions};
 use rocklake_pgwire::telemetry::TelemetryConfig;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ fn test_metrics_render_includes_v039_fields() {
 
     // Record some v0.39.0 observations.
     m.observe_create_snapshot_us(1_500_000); // 1.5 s
-    m.observe_list_data_files_us(200_000);   // 0.2 s
+    m.observe_list_data_files_us(200_000); // 0.2 s
     m.observe_describe_table_us(50_000);
     m.observe_commit_transaction_us(3_000_000);
     m.record_pgwire_query(100_000);
@@ -79,7 +79,10 @@ fn test_metrics_render_includes_v039_fields() {
     );
 
     // PG-wire metrics.
-    assert!(rendered.contains("rocklake_pgwire_queries_total 1"), "missing pgwire_queries_total");
+    assert!(
+        rendered.contains("rocklake_pgwire_queries_total 1"),
+        "missing pgwire_queries_total"
+    );
     assert!(
         rendered.contains("rocklake_pgwire_errors_total{sqlstate=\"40001\"} 1"),
         "missing pgwire 40001 counter"
@@ -100,8 +103,14 @@ fn test_metrics_render_includes_v039_fields() {
     );
 
     // SlateDB stubs.
-    assert!(rendered.contains("rocklake_slatedb_sst_count 7"), "missing sst_count");
-    assert!(rendered.contains("rocklake_slatedb_compaction_lag_ms 120"), "missing compaction_lag");
+    assert!(
+        rendered.contains("rocklake_slatedb_sst_count 7"),
+        "missing sst_count"
+    );
+    assert!(
+        rendered.contains("rocklake_slatedb_compaction_lag_ms 120"),
+        "missing compaction_lag"
+    );
     assert!(
         rendered.contains("rocklake_slatedb_memtable_bytes 1048576"),
         "missing memtable_bytes"
@@ -194,7 +203,10 @@ async fn test_diagnose_text_format() {
     db.close().await.unwrap();
 
     let text = format_report_text(&report);
-    assert!(text.contains("=== RockLake Catalog Diagnostics ==="), "missing header");
+    assert!(
+        text.contains("=== RockLake Catalog Diagnostics ==="),
+        "missing header"
+    );
     assert!(text.contains("Overall status:"), "missing status line");
     assert!(text.contains("Format version:"), "missing format version");
     assert!(text.contains("Latest snapshot:"), "missing snapshot");
@@ -229,7 +241,9 @@ async fn test_sweep_orphans_empty_catalog_no_orphans() {
 
     let path = ObjectPath::from(dir.path().to_str().unwrap());
     let os: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new());
-    let db = slatedb::Db::open(path, os.clone()).await.expect("open slatedb");
+    let db = slatedb::Db::open(path, os.clone())
+        .await
+        .expect("open slatedb");
 
     let config = SweepOrphansConfig {
         grace_period_hours: 0, // sweep everything immediately
@@ -262,7 +276,9 @@ async fn test_sweep_orphans_dry_run_does_not_delete() {
 
     let path = ObjectPath::from(dir.path().to_str().unwrap());
     let os: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new());
-    let db = slatedb::Db::open(path, os.clone()).await.expect("open slatedb");
+    let db = slatedb::Db::open(path, os.clone())
+        .await
+        .expect("open slatedb");
 
     let config = SweepOrphansConfig {
         grace_period_hours: 0,
@@ -275,7 +291,10 @@ async fn test_sweep_orphans_dry_run_does_not_delete() {
 
     // The orphan file should be reported but NOT deleted.
     assert!(
-        result.orphan_files.iter().any(|f| f.ends_with("orphan_file.parquet")),
+        result
+            .orphan_files
+            .iter()
+            .any(|f| f.ends_with("orphan_file.parquet")),
         "Orphan file should be reported; got {:?}",
         result.orphan_files
     );
@@ -296,11 +315,13 @@ async fn test_sweep_orphans_apply_deletes_orphan() {
 
     let path = ObjectPath::from(dir.path().to_str().unwrap());
     let os: Arc<dyn object_store::ObjectStore> = Arc::new(LocalFileSystem::new());
-    let db = slatedb::Db::open(path, os.clone()).await.expect("open slatedb");
+    let db = slatedb::Db::open(path, os.clone())
+        .await
+        .expect("open slatedb");
 
     let config = SweepOrphansConfig {
         grace_period_hours: 0, // no grace, delete now
-        apply: true,            // APPLY mode
+        apply: true,           // APPLY mode
         data_root: dir.path().to_str().unwrap().to_string(),
     };
 
@@ -356,7 +377,10 @@ async fn test_metrics_server_responds_ok() {
     let mut resp = String::new();
     stream.read_to_string(&mut resp).await.unwrap();
 
-    assert!(resp.starts_with("HTTP/1.1 200"), "expected 200, got:\n{resp}");
+    assert!(
+        resp.starts_with("HTTP/1.1 200"),
+        "expected 200, got:\n{resp}"
+    );
     assert!(
         resp.contains("text/plain"),
         "expected text/plain content-type"
@@ -398,5 +422,8 @@ async fn test_metrics_server_404_on_unknown_path() {
     let mut resp = String::new();
     stream.read_to_string(&mut resp).await.unwrap();
 
-    assert!(resp.starts_with("HTTP/1.1 404"), "expected 404, got:\n{resp}");
+    assert!(
+        resp.starts_with("HTTP/1.1 404"),
+        "expected 404, got:\n{resp}"
+    );
 }

@@ -8,9 +8,8 @@ pub mod cdc;
 pub mod checkpoint;
 pub mod cleanup;
 pub mod corpus;
-pub mod diagnose;
-pub mod sweep;
 pub mod cost;
+pub mod diagnose;
 pub mod encryption;
 pub mod error;
 pub mod excise;
@@ -30,6 +29,7 @@ pub mod reader;
 pub mod repair;
 pub mod store;
 pub mod streaming;
+pub mod sweep;
 pub mod verify;
 pub mod wal;
 pub mod warmup;
@@ -40,6 +40,9 @@ pub use cache::{cache_utilization, CacheStats};
 pub use cdc::{CdcChangeKind, CdcEvent, CdcSnapshot, CdcTailer, WebhookPayload};
 pub use corpus::{corpus_diff, corpus_validate, parse_corpus, CorpusRecord, ValidateResult};
 pub use cost::{tune_for_cost_target, ApiCostReport, CostMode};
+pub use diagnose::{
+    diagnose_catalog, format_report_text, DiagnoseReport, DiagnosticFinding, FindingSeverity,
+};
 pub use encryption::{EncryptionConfig, EncryptionError};
 pub use error::{CatalogError, CatalogResult};
 pub use extension::{
@@ -54,7 +57,6 @@ pub use performance::{BenchmarkReport, HotKeyState, SlateDbTuning};
 pub use reader::{CatalogReader, SnapshotDiff};
 pub use store::{CatalogStore, OpenOptions};
 pub use streaming::{measure_ingest_throughput, IngestRecord, IngestResult, RockLakeSink};
-pub use diagnose::{diagnose_catalog, format_report_text, DiagnoseReport, DiagnosticFinding, FindingSeverity};
 pub use sweep::{sweep_orphans, SweepOrphansConfig, SweepResult};
 pub use warmup::{publish_writer_endpoint, read_writer_endpoint, warmup_cache, WarmupResult};
 pub use writer::{

@@ -13,8 +13,8 @@
 
 use std::sync::Arc;
 
-use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
+use object_store::ObjectStore;
 use slatedb::Db;
 
 use crate::cleanup::orphaned_file_sweep;
