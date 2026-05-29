@@ -4890,3 +4890,4 @@ Some acceptance criteria cannot run in normal CI: 24 h soaks, 1 TB inputs, and T
 
 **Choose RockLake when:** you are serverless or spot-based and cannot afford a persistent database server; you want a lakehouse with zero external infrastructure; you need cheap point-in-time catalog snapshots; your workload is write-heavy rather than read-heavy; or you are already in the SlateDB ecosystem.
 
+# v0.39.0
