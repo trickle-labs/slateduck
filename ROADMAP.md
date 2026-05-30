@@ -101,6 +101,10 @@ binding on every roadmap release below.
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Complete |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Complete |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Complete |
+| **v0.46.0 — Code Hardening & Developer Experience** | Eliminate all production `unwrap()` panics; structured SlateDB error variants; `CatalogClient` RwLock refactor; Node.js `u64` ID fix; multi-URI `CatalogClientBuilder`; CLI migration to `clap`; Docker one-liner; docs alignment (sqlite-vfs removal, K8s image tags) | Planning |
+| **v0.47.0 — Read-Only Catalog Access & Connection Management** | RFC-01: `CatalogStore::open_readonly()` skipping epoch CAS; `ReadOnlyCatalog` struct with `refresh()`; `CatalogClientBuilder::build_readonly()`; connection pooling and graceful drain; reader-mode K8s manifests; DataFusion `AsyncBridge` backpressure fix; 16-pod reader fleet startup benchmark on real S3 | Planning |
+| **v0.48.0 — Paginated Scans, Streaming & Observability Depth** | RFC-03: `list_data_files_paged()` with continuation token; `stream_data_files()` async Stream; PG-wire incremental `DataRow` streaming; proper histogram metrics via `prometheus` crate; per-query trace correlation and `trace_id` propagation; slow-query log; memory pressure and RSS metrics; SF100 catalog benchmark suite | Planning |
+| **v0.49.0 — Tiered NVMe Cache & Multi-Node Production Validation** | RFC-02: `TieredCache` L1/L2/L3 with local SSD spill; `--cache-dir` and `--cache-max-gb` CLI flags; L2 pre-population on cold start; wire up `slatedb_sst_count`/`slatedb_compaction_lag_ms` to real SlateDB stats; real 24h multi-node soak on AWS/GCP (not `InMemory`); GHCR container image with versioned tags; pod disruption budget + HPA documentation; v1.0 gating checklist completion | Planning |
 | **v0.70.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
 | **v1.0 — General Availability** | All v0.45.0 readiness gates green; TPC-H @ SF10/SF100 benchmarks; S3 Express acceptance; real-world validation | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, additional performance optimizations | Future |
@@ -118,6 +122,13 @@ Detailed sequence for v0.36–v0.45:
 * v0.43: Scale testing, soak & serverless readers (Tier 7: 24h soak, TPC-H SF10)
 * v0.44: JVM bindings (Java/Kotlin via JNI, Maven artifact)
 * v0.45: GA readiness gate (dogfood, docs pass, v1.0 release prep)
+
+Detailed sequence for v0.46–v0.49 (post-Assessment-2 hardening):
+
+* v0.46: Code hardening + DX (panic elimination, error types, Node.js IDs, CLI, Docker, docs)
+* v0.47: Read-only catalog path (RFC-01) + connection pooling + reader scale-out validation
+* v0.48: Paginated scans (RFC-03) + streaming wire protocol + proper histogram metrics + SF100 benchmarks
+* v0.49: Tiered NVMe cache (RFC-02) + real multi-node soak + GHCR images + v1.0 gating checklist
 
 ---
 
@@ -4503,6 +4514,237 @@ Enforce final certification requirements before v1.0:
 - [x] Release workflow verified with RC tag
 - [x] `CHANGELOG.md` complete through v0.45.0
 - [x] v1.0.0 tag ready to cut
+
+---
+
+## v0.46.0 — Code Hardening & Developer Experience
+
+> Eliminate every production panic path, modernise the CLI, fix the Node.js ID truncation bug, extend `CatalogClientBuilder` to cloud URIs, and align all documentation with the current workspace structure. This release resolves every Quick Win and code-quality finding from Assessment 2 before the strategic infrastructure work begins.
+
+### Panic Elimination
+
+- [ ] `writer/stats.rs:164-165`: Replace `split_once('.').unwrap()` in `compare_decimal_abs` with a fallback that returns `Ordering::Equal` when either side lacks a decimal point; add regression test for integer-formatted decimal stats (`"42"` vs `"42.5"`).
+- [ ] `writer/mod.rs`: Replace `SystemTime::now().duration_since(UNIX_EPOCH).unwrap()` with `.unwrap_or_default()`.
+- [ ] Audit all remaining `unwrap()` calls in `rocklake-catalog/src/` and `rocklake-pgwire/src/` (excluding `#[cfg(test)]` blocks and doc-test examples); eliminate or document every non-trivially-infallible one; CI `grep` gate added to prevent regressions.
+
+### Structured SlateDB Error Types
+
+- [ ] Add structured variants to `CatalogError`: `TransactionConflict`, `ObjectStoreTransient`, `ObjectStorePermanent`, `Corruption`; map SlateDB error kinds to these variants instead of `.to_string()`.
+- [ ] Update all call sites that currently catch `CatalogError::SlateDb(String)` to pattern-match on the new variants.
+- [ ] Add retry helper `with_transient_retry(n, async_fn)` that retries only on `ObjectStoreTransient`; use in GC and rebuild.
+- [ ] Update `FaultInjector` to use per-test instance pattern instead of global static, enabling safe parallel test isolation.
+
+### `CatalogClient` Concurrency Refactor
+
+- [ ] Replace `Mutex<Option<CatalogStore>>` with `RwLock<CatalogStore>` so concurrent read operations no longer serialize; replace `Option` wrapping with a consumed-on-close pattern using `Arc::try_unwrap`.
+- [ ] Add `CatalogClient::read(&self, async_fn)` and `CatalogClient::write(&self, async_fn)` ergonomic helpers.
+- [ ] Benchmark `list_schemas` under 16-concurrent-reader pressure to confirm contention reduction.
+
+### Node.js Binding ID Fix
+
+- [ ] Change all `u32` ID fields in `bindings/nodejs/src/lib.rs` (`snapshot_id`, `schema_id`, `table_id`, `data_file_id`, `row_count`, `file_size_bytes`) to `i64` exposed as JavaScript `BigInt` via napi-rs `BigInt` type; update TypeScript declarations in `index.d.ts`.
+- [ ] Add Node.js test asserting round-trip fidelity for IDs > `u32::MAX`.
+
+### Multi-URI `CatalogClientBuilder`
+
+- [ ] Parse URI scheme in `CatalogClientBuilder::build()`: `file://` → `LocalFileSystem`; `s3://` → `AmazonS3Builder`; `gs://` → `GoogleCloudStorageBuilder`; `az://` / `abfs://` → `MicrosoftAzureBuilder`; unknown scheme returns `ClientError::Config`.
+- [ ] Thread optional credential environment variables through the builder (standard `AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_*`).
+- [ ] Add integration tests for each scheme using object-store in-memory mock.
+- [ ] Update `rocklake-client` documentation and quickstart examples.
+
+### CLI Migration to `clap`
+
+- [ ] Replace hand-rolled `&args[n]` parsing in `crates/rocklake-pgwire/src/main.rs` with `clap` derive macros.
+- [ ] Each subcommand (`serve`, `gc`, `excise`, `checkpoint`, `export`, `import`, `diagnose`, etc.) gets its own `clap` struct with typed fields, `--help` output, and `about` doc-strings.
+- [ ] Generate shell completion scripts (`bash`, `zsh`, `fish`) via `clap_complete`; publish to `docs/reference/shell-completions.md`.
+- [ ] Add a CI test that runs `rocklake --help` and each subcommand `--help` and asserts zero exit code.
+
+### Docker & Documentation Alignment
+
+- [ ] Add a `Dockerfile` (multi-stage: `rust:1.93` builder + `debian:bookworm-slim` runtime) to the repository root; publish image to `ghcr.io/trickle-labs/rocklake:{version}` via release workflow.
+- [ ] Add `docker run` one-liner to `README.md` Getting Started section.
+- [ ] Update `CONTRIBUTING.md`: remove all references to `rocklake-sqlite-vfs`; align crate list with current workspace members; add `rocklake-testkit` entry.
+- [ ] Update `docs/deployment/kubernetes.md`: replace hardcoded `ghcr.io/rocklake/rocklake:0.8.0` image tag with `{latest}` placeholder and instruction to pin to a specific release tag.
+- [ ] Update `docs/architecture/crate-structure.md` to list 8 crates (add `rocklake-testkit`).
+
+### Deliverables
+
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes with zero `unwrap()` in non-test production code
+- [ ] `grep -r 'unwrap()' crates/rocklake-{catalog,pgwire,core,client,ffi}/src/` CI gate added
+- [ ] Node.js `u32` → `BigInt` migration complete with regression test
+- [ ] `CatalogClientBuilder` supports `s3://`, `gs://`, `az://` URIs
+- [ ] All `clap` subcommand `--help` tests pass
+- [ ] Dockerfile builds and image pushes via release workflow
+- [ ] `CONTRIBUTING.md` and architecture docs current
+
+---
+
+## v0.47.0 — Read-Only Catalog Access & Connection Management
+
+> Implement RFC-01 from Assessment 2: a dedicated read-only catalog access path that eliminates writer epoch CAS contention for reader fleets. Add connection pooling and graceful drain to the PG-wire server. Validate true horizontal reader scale-out on real object storage with a 16-pod fleet.
+
+### RFC-01: `open_readonly` Path
+
+- [ ] Add `CatalogStore::open_readonly(opts: OpenOptions) -> CatalogResult<ReadOnlyCatalog>` that opens SlateDB without acquiring or incrementing the writer epoch key.
+- [ ] Implement `ReadOnlyCatalog` struct: holds a `Db` handle, a `current_snapshot_id`, and a `retain_from` floor; exposes `reader() -> CatalogReader` and `async fn refresh() -> CatalogResult<SnapshotId>` (re-reads the hot-key to advance to the latest snapshot without writer coordination).
+- [ ] Add `CatalogClientBuilder::build_readonly()` that calls `open_readonly`; expose in all language bindings (`Python`, `Go`, `Node.js`, `Java`).
+- [ ] Verify that opening 16 simultaneous `ReadOnlyCatalog` instances against the same S3 prefix produces zero CAS transaction conflicts in the SlateDB write log.
+- [ ] Add `ReadOnlyCatalog` to `rocklake-ffi` as `rocklake_open_readonly()` C function; update `rocklake.h`.
+- [ ] Document read-only mode in `docs/concepts/read-scale-out.md`.
+
+### Connection Pooling & Graceful Drain
+
+- [ ] Add an idle-connection pool to `crates/rocklake-pgwire/src/server.rs`: reuse established TCP connections for subsequent queries from the same DuckDB session; configurable `--idle-connection-timeout` (default: 60s).
+- [ ] Implement graceful shutdown drain: on `SIGTERM`, stop accepting new connections, wait for all active sessions to complete their current query (up to `--drain-timeout`, default 30s), then exit cleanly.
+- [ ] Add `active_sessions` and `idle_sessions` Prometheus gauge metrics.
+- [ ] Add integration test: send `SIGTERM` mid-query; assert in-flight query completes and response is delivered before process exits.
+
+### DataFusion Async Bridge Backpressure
+
+- [ ] Increase `sync_channel` capacity in `AsyncBridge` from 64 to a configurable `--datafusion-bridge-queue-depth` (default: 256); add a `datafusion_bridge_queue_depth` gauge metric.
+- [ ] Add a test that fires 128 concurrent DataFusion catalog queries and asserts none block beyond the bridge queue depth.
+
+### Reader-Mode K8s Manifests
+
+- [ ] Add a `rocklake-reader` Deployment manifest to `docs/deployment/kubernetes.md` with `replicas: N` (HPA-managed), using a `--read-only` flag that internally calls `open_readonly`.
+- [ ] Add `--read-only` flag to `rocklake serve` CLI; wire to `open_readonly`.
+- [ ] Document writer-vs-reader service routing pattern (single writer Service + N-replica reader Service behind a load balancer).
+- [ ] Add Pod Disruption Budget manifest for the reader Deployment.
+
+### 16-Pod Reader Fleet Benchmark
+
+- [ ] Run a benchmark: start 1 writer pod + 16 reader pods against a real S3 bucket (not `InMemory`); measure startup time from pod launch to first successful `list_data_files` response.
+- [ ] Assert: all 16 reader pods complete startup in under 5 seconds total (no CAS contention serialisation).
+- [ ] Record results in `benchmarks/v047-reader-fleet.json`; add to CI regression suite.
+
+### Deliverables
+
+- [ ] `CatalogStore::open_readonly()` implemented and unit-tested
+- [ ] `ReadOnlyCatalog::refresh()` tested with concurrent writer advancing snapshot
+- [ ] All 4 language bindings expose `build_readonly()` / `rocklake_open_readonly()`
+- [ ] `--read-only` flag wired to `open_readonly` in `rocklake serve`
+- [ ] 16-pod startup benchmark green on real S3; results in `benchmarks/`
+- [ ] Connection pooling and graceful drain integration tests pass
+- [ ] K8s reader manifests and HPA documentation complete
+
+---
+
+## v0.48.0 — Paginated Scans, Streaming & Observability Depth
+
+> Implement RFC-03 from Assessment 2: paginated prefix scans with streaming async iterators, replacing all `Vec`-collecting catalog reads with constant-memory paths. Upgrade the PG-wire executor to stream `DataRow` messages incrementally. Replace hand-rolled histogram counters with real `prometheus` histograms, add per-query trace correlation, slow-query log, and memory pressure metrics. Extend benchmarks to TPC-H SF100.
+
+### RFC-03: Paginated Prefix Scans
+
+- [ ] Add `ScanPage<T>` struct with `items: Vec<T>`, `continuation_token: Option<Vec<u8>>`, `has_more: bool` to `rocklake-catalog`.
+- [ ] Implement `CatalogReader::list_data_files_paged(table_id, page_size, continuation) -> CatalogResult<ScanPage<DataFileRow>>` using SlateDB prefix scan with cursor resume.
+- [ ] Implement `CatalogReader::stream_data_files(table_id) -> impl Stream<Item = CatalogResult<DataFileRow>>` as an auto-paginating async stream backed by the paged API.
+- [ ] Apply the same pagination pattern to: `list_schemas_paged`, `list_tables_paged`, `list_snapshots_paged`, `list_delete_files_paged`.
+- [ ] Expose paged APIs in `rocklake-client` (`CatalogClient::stream_data_files`), language bindings, and C FFI (`rocklake_stream_data_files` returning an iterator handle).
+- [ ] Add a correctness test: paginate a 100K-file catalog in pages of 1000; assert all files are returned, no duplicates, no gaps.
+- [ ] Add a memory test: stream a 1M-file catalog with a 128 MiB RSS limit; assert no OOM.
+
+### PG-Wire Incremental Streaming
+
+- [ ] Refactor the PG-wire executor for `SELECT * FROM ducklake_data_file` and `SELECT * FROM ducklake_snapshot_changes` to use `stream_data_files` / `stream_snapshots`; send `DataRow` messages as the stream yields rather than buffering the full result set.
+- [ ] Add a PG-wire integration test: execute a large catalog scan over a connection with a slow client receiver; assert the server RSS stays below 2× the page buffer size.
+- [ ] Benchmark: measure p99 TTFB (time to first `DataRow`) for a 100K-file scan before and after streaming; assert ≥50% improvement.
+
+### Proper Prometheus Histograms
+
+- [ ] Replace `AtomicU64` histogram stubs in `CatalogMetrics` with `prometheus::Histogram` using buckets tuned to the observed latency distributions from `benchmarks/v0.42-catalog-bench.json` (e.g., boundaries at 10µs, 50µs, 200µs, 1ms, 5ms, 20ms, 100ms, 500ms, 2s).
+- [ ] Expose `rocklake_op_duration_seconds{op="..."}` histogram via the `/metrics` endpoint.
+- [ ] Add `prometheus` crate to workspace dependencies; replace the metrics module with a registry backed by a `prometheus::Registry`.
+- [ ] Verify `/metrics` output is scrapable by Prometheus 2.x; add a CI test using `promtool check metrics`.
+
+### Per-Query Trace Correlation
+
+- [ ] Assign a `trace_id` (UUID v4) to each PG-wire session on connection; propagate it as a tracing span attribute through all catalog operations triggered by that session.
+- [ ] Log `trace_id` in all error and slow-query log lines.
+- [ ] Expose `X-RockLake-Trace-Id` in future HTTP endpoints (reserved for v0.50+).
+- [ ] Add an integration test: execute two concurrent queries; assert each produces a distinct `trace_id` in the structured log.
+
+### Slow-Query Log
+
+- [ ] Add `--slow-query-threshold-ms` CLI flag (default: 1000ms); emit a structured `WARN` log line for any query exceeding the threshold, including SQL text (truncated to 512 chars), `trace_id`, duration, and row count.
+- [ ] Add a test that deliberately runs a large scan and asserts the slow-query log line appears.
+
+### Memory Pressure Metrics
+
+- [ ] Add `rocklake_process_rss_bytes` gauge metric (read from `/proc/self/status` on Linux, `proc_info` on macOS).
+- [ ] Add `rocklake_cache_bytes_used` and `rocklake_cache_capacity_bytes` gauges from `CacheCounters`.
+- [ ] Add a K8s alerting rule example to `docs/operations/monitoring.md`: alert when `rocklake_process_rss_bytes > 0.85 * container_memory_limit_bytes`.
+
+### SF100 Benchmark Suite
+
+- [ ] Extend `crates/rocklake-catalog/benches/` with a `tpch_sf100.rs` benchmark: 10M data files, 100 schemas, 1000 tables; measure `list_data_files_paged`, `get_current_snapshot`, and `describe_table` at this scale.
+- [ ] Record results in `benchmarks/v048-sf100-catalog.json`; add regression CI gate (±15% threshold).
+- [ ] Assert paged scan of 10M files completes in under 60 seconds with RSS below 512 MiB.
+
+### Deliverables
+
+- [ ] `list_data_files_paged` + `stream_data_files` implemented and tested up to 1M files
+- [ ] PG-wire executor streams `DataRow` incrementally for large result sets
+- [ ] All `CatalogMetrics` histograms backed by `prometheus::Histogram`; `promtool check metrics` CI gate passes
+- [ ] Per-query `trace_id` propagation through all catalog ops
+- [ ] Slow-query log functional with default 1s threshold
+- [ ] RSS and cache pressure gauges in `/metrics`
+- [ ] SF100 benchmark suite in CI with regression gate
+
+---
+
+## v0.49.0 — Tiered NVMe Cache, Multi-Node Production Validation & v1.0 Gate
+
+> Implement RFC-02 from Assessment 2: a two-tier (in-memory L1 + local SSD L2) persistent block cache that survives pod restarts and eliminates cold-start re-reads from S3. Validate the full system on real AWS/GCP infrastructure with a 24-hour multi-node soak. Publish the official container image to GHCR. Complete the v1.0 gating checklist.
+
+### RFC-02: Tiered Storage Cache
+
+- [ ] Create a new `TieredCacheObjectStore` wrapper in `rocklake-catalog` (or a dedicated `rocklake-cache` module) that implements `object_store::ObjectStore` and transparently caches fetched objects to a local directory.
+- [ ] Cache keys: content-addressed by `{bucket}/{key}` SHA-256 digest; immutable SST files are never invalidated (matching SlateDB's immutable SST semantics).
+- [ ] Implement LRU eviction: when the cache directory size exceeds `--cache-max-gb`, evict least-recently-read objects until below 80% of the limit.
+- [ ] On `CatalogStore::open()` / `open_readonly()`, if `--cache-dir` is set, wrap the provided `ObjectStore` with `TieredCacheObjectStore` before passing to SlateDB.
+- [ ] On startup, walk the cache directory and pre-populate L1 (SlateDB block cache) with hot keys from the most recent snapshot.
+- [ ] Add `rocklake_cache_l2_hits_total`, `rocklake_cache_l2_misses_total`, and `rocklake_cache_l2_bytes_used` Prometheus counters.
+- [ ] Add `--cache-dir` and `--cache-max-gb` CLI flags (default: no L2 cache); document in `docs/operations/caching.md`.
+
+### SlateDB Internals Metrics Wire-Up
+
+- [ ] Investigate SlateDB 0.13 public API for SST file count, compaction lag, and memtable size statistics; wire `slatedb_sst_count`, `slatedb_compaction_lag_ms`, and `slatedb_memtable_bytes` gauges to real values if the API is available; add a note in `metrics.rs` documenting the SlateDB upstream issue if not yet exposed.
+
+### Real 24-Hour Multi-Node Soak
+
+- [ ] Run the full 24h soak test from v0.43 on **real AWS S3 Standard** (not `InMemory` object store): 1 writer pod + 8 reader pods on EKS; continuous ingest at 100 inserts/min; fault injection (random pod kill) every 15 minutes.
+- [ ] Assert: zero data loss, zero silent wrong results, writer epoch advances monotonically, reader fleet recovers within 30 seconds of each kill.
+- [ ] Run the same test on **real GCS** to verify multi-cloud correctness.
+- [ ] Record soak results in `benchmarks/v049-soak-aws.json` and `benchmarks/v049-soak-gcs.json`.
+
+### GHCR Container Image
+
+- [ ] Finalise `Dockerfile` from v0.46.0; add `HEALTHCHECK` (`rocklake diagnose --quick`), minimal image labels (`org.opencontainers.image.*`).
+- [ ] Update `release.yml` GitHub Actions workflow to build and push `ghcr.io/trickle-labs/rocklake:{version}` and `ghcr.io/trickle-labs/rocklake:latest` on every version tag.
+- [ ] Update all documentation (`README.md`, `docs/deployment/kubernetes.md`, `docs/getting-started/quickstart.md`) to reference the GHCR image.
+- [ ] Add a nightly CI job that pulls `ghcr.io/trickle-labs/rocklake:latest` and runs the smoke-test suite against it.
+
+### v1.0 Gating Checklist
+
+- [ ] RFC-01 validated: 16-pod reader fleet starts in under 5 seconds on real S3 (from v0.47.0 benchmark).
+- [ ] RFC-02 validated: cold-start latency with `--cache-dir` ≤ 100ms p99 on NVMe-equipped nodes.
+- [ ] RFC-03 validated: 10M-file catalog paged scan completes in under 60s with RSS < 512 MiB.
+- [ ] All production `unwrap()` calls eliminated (CI gate green from v0.46.0).
+- [ ] `compare_decimal_abs` panic fix tested with integer-formatted decimal stats.
+- [ ] GHCR image published and referenced in all quickstart documentation.
+- [ ] Real multi-node 24h soak completed on AWS + GCS without data loss.
+- [ ] `CONTRIBUTING.md` and `docs/architecture/` fully aligned with workspace.
+- [ ] All v1.0 benchmark targets met: TPC-H SF10 `list_data_files` p99 ≤ 50ms, cold start ≤ 2s.
+- [ ] External developer deployment verification repeated post-v0.46–v0.49 changes.
+
+### Deliverables
+
+- [ ] `TieredCacheObjectStore` implemented with L2 LRU eviction and Prometheus metrics
+- [ ] `--cache-dir` / `--cache-max-gb` flags live and documented
+- [ ] 24h multi-node soak results published for AWS and GCS
+- [ ] GHCR image built and pushed by release workflow; quickstart updated
+- [ ] v1.0 gating checklist 100% complete
+- [ ] `benchmarks/v049-soak-aws.json` and `benchmarks/v049-soak-gcs.json` committed
 
 ---
 
