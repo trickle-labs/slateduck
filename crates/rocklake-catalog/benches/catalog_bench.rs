@@ -92,7 +92,10 @@ fn setup_catalog_n_cols_n_files(
 
 /// Convenience: build catalog with 1 column and `n_files` data files plus
 /// per-file column stats for pruning tests.
-fn setup_catalog_with_stats(rt: &Runtime, n_files: usize) -> (CatalogStore, TempDir, u64, u64, u64, CommitResult) {
+fn setup_catalog_with_stats(
+    rt: &Runtime,
+    n_files: usize,
+) -> (CatalogStore, TempDir, u64, u64, u64, CommitResult) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_str().unwrap().to_string();
     let store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&path).unwrap());
@@ -196,8 +199,7 @@ fn bench_list_data_files(c: &mut Criterion) {
     let mut group = c.benchmark_group("list_data_files");
 
     for &n in &[100usize, 10_000, 100_000] {
-        let (catalog, _dir, _, table_id, snap) =
-            setup_catalog_n_cols_n_files(&rt, 1, n);
+        let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, 1, n);
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             b.iter(|| {
@@ -220,8 +222,7 @@ fn bench_describe_table(c: &mut Criterion) {
     let mut group = c.benchmark_group("describe_table");
 
     for &n_cols in &[1usize, 50, 100, 500] {
-        let (catalog, _dir, _, table_id, snap) =
-            setup_catalog_n_cols_n_files(&rt, n_cols, 10);
+        let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, n_cols, 10);
 
         group.bench_with_input(BenchmarkId::from_parameter(n_cols), &n_cols, |b, _| {
             b.iter(|| {
@@ -246,8 +247,7 @@ fn bench_create_snapshot(c: &mut Criterion) {
     for &n_additions in &[1usize, 10, 100, 1_000] {
         let dir = TempDir::new().unwrap();
         let path = dir.path().to_str().unwrap().to_string();
-        let store =
-            Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&path).unwrap());
+        let store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&path).unwrap());
         let opts = OpenOptions {
             object_store: store,
             path: ObjectPath::from("catalog"),
@@ -258,9 +258,7 @@ fn bench_create_snapshot(c: &mut Criterion) {
         let schema_id = {
             let mut writer = catalog.begin_write();
             let sid = rt.block_on(writer.create_schema("main")).unwrap();
-            let tid = rt
-                .block_on(writer.create_table(sid, "t", None))
-                .unwrap();
+            let tid = rt.block_on(writer.create_table(sid, "t", None)).unwrap();
             let _ = rt.block_on(writer.create_snapshot(None, None)).unwrap();
             let _ = tid;
             sid
@@ -303,8 +301,7 @@ fn bench_create_snapshot(c: &mut Criterion) {
 
 fn bench_prune_files_100k(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, col_id, snap) =
-        setup_catalog_with_stats(&rt, 100_000);
+    let (catalog, _dir, _, table_id, col_id, snap) = setup_catalog_with_stats(&rt, 100_000);
 
     let col_type = DuckLakeType::Integer {
         signed: true,
@@ -330,8 +327,7 @@ fn bench_prune_files_100k(c: &mut Criterion) {
 
 fn bench_concurrent_readers(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, snap) =
-        setup_catalog_n_cols_n_files(&rt, 10, 1_000);
+    let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, 10, 1_000);
     let catalog = Arc::new(catalog);
 
     let mut group = c.benchmark_group("concurrent_readers");
@@ -366,7 +362,9 @@ fn bench_concurrent_readers(c: &mut Criterion) {
     // SAFETY: Arc has exactly one strong reference at this point (p=16 group
     // finished). Use try_unwrap to avoid a potential deadlock.
     match Arc::try_unwrap(catalog) {
-        Ok(c) => { rt.block_on(c.close()).unwrap(); }
+        Ok(c) => {
+            rt.block_on(c.close()).unwrap();
+        }
         Err(_) => { /* other refs still alive — just drop */ }
     }
 }
@@ -375,8 +373,7 @@ fn bench_concurrent_readers(c: &mut Criterion) {
 
 fn bench_list_data_files_legacy(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, snap) =
-        setup_catalog_n_cols_n_files(&rt, 1, 100);
+    let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, 1, 100);
 
     c.bench_function("list_data_files_100", |b| {
         b.iter(|| {
@@ -392,8 +389,7 @@ fn bench_list_data_files_legacy(c: &mut Criterion) {
 
 fn bench_prune_files_legacy(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, col_id, snap) =
-        setup_catalog_with_stats(&rt, 100);
+    let (catalog, _dir, _, table_id, col_id, snap) = setup_catalog_with_stats(&rt, 100);
 
     let col_type = DuckLakeType::Integer {
         signed: true,
@@ -417,8 +413,7 @@ fn bench_prune_files_legacy(c: &mut Criterion) {
 
 fn bench_list_data_files_10k(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, snap) =
-        setup_catalog_n_cols_n_files(&rt, 1, 10_000);
+    let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, 1, 10_000);
 
     c.bench_function("list_data_files_10k", |b| {
         b.iter(|| {
@@ -434,8 +429,7 @@ fn bench_list_data_files_10k(c: &mut Criterion) {
 
 fn bench_list_data_files_100k(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let (catalog, _dir, _, table_id, snap) =
-        setup_catalog_n_cols_n_files(&rt, 1, 100_000);
+    let (catalog, _dir, _, table_id, snap) = setup_catalog_n_cols_n_files(&rt, 1, 100_000);
 
     c.bench_function("list_data_files_100k", |b| {
         b.iter(|| {

@@ -25,13 +25,24 @@ fn workspace_root() -> PathBuf {
 #[test]
 fn benchmark_json_deliverable_valid() {
     let path = workspace_root().join("benchmarks/v0.42-catalog-bench.json");
-    assert!(path.exists(), "benchmarks/v0.42-catalog-bench.json must exist");
+    assert!(
+        path.exists(),
+        "benchmarks/v0.42-catalog-bench.json must exist"
+    );
 
     let data: serde_json::Value =
         serde_json::from_reader(std::fs::File::open(&path).unwrap()).unwrap();
 
-    for key in &["benchmark", "version", "measurements", "regression_thresholds"] {
-        assert!(data.get(key).is_some(), "v0.42-catalog-bench.json must have key '{key}'");
+    for key in &[
+        "benchmark",
+        "version",
+        "measurements",
+        "regression_thresholds",
+    ] {
+        assert!(
+            data.get(key).is_some(),
+            "v0.42-catalog-bench.json must have key '{key}'"
+        );
     }
 
     let version = data["version"].as_str().unwrap_or("");
@@ -53,7 +64,10 @@ fn benchmark_json_deliverable_valid() {
         "prune_files_100k",
         "concurrent_readers_16",
     ] {
-        assert!(measurements.contains_key(*key), "measurements must contain '{key}'");
+        assert!(
+            measurements.contains_key(*key),
+            "measurements must contain '{key}'"
+        );
     }
 
     let thresholds = data["regression_thresholds"].as_object().unwrap();
@@ -66,7 +80,10 @@ fn benchmark_json_deliverable_valid() {
         "create_snapshot_100_files",
         "prune_files_100k",
     ] {
-        assert!(thresholds.contains_key(*key), "regression_thresholds must contain '{key}'");
+        assert!(
+            thresholds.contains_key(*key),
+            "regression_thresholds must contain '{key}'"
+        );
     }
 }
 
@@ -78,7 +95,9 @@ fn baseline_json_thresholds_consistent() {
     let data: serde_json::Value =
         serde_json::from_reader(std::fs::File::open(&path).unwrap()).unwrap();
 
-    let results = data["results"].as_object().expect("'results' must be an object");
+    let results = data["results"]
+        .as_object()
+        .expect("'results' must be an object");
     let thresholds = data["regression_thresholds"]
         .as_object()
         .expect("'regression_thresholds' must be an object");
@@ -106,28 +125,52 @@ fn baseline_json_thresholds_consistent() {
 #[test]
 fn update_benchmark_script_exists() {
     let path = workspace_root().join("scripts/update_benchmark_baseline.py");
-    assert!(path.exists(), "scripts/update_benchmark_baseline.py must exist");
+    assert!(
+        path.exists(),
+        "scripts/update_benchmark_baseline.py must exist"
+    );
 
     let content = std::fs::read_to_string(&path).unwrap();
-    assert!(content.contains("--justification"), "script must require --justification argument");
-    assert!(content.contains("REGRESSION_ALLOWANCE"), "script must define REGRESSION_ALLOWANCE");
-    assert!(content.contains("baseline.json"), "script must write to baseline.json");
+    assert!(
+        content.contains("--justification"),
+        "script must require --justification argument"
+    );
+    assert!(
+        content.contains("REGRESSION_ALLOWANCE"),
+        "script must define REGRESSION_ALLOWANCE"
+    );
+    assert!(
+        content.contains("baseline.json"),
+        "script must write to baseline.json"
+    );
 }
 
 #[test]
 fn s3_express_validation_doc_present() {
     let path = workspace_root().join("docs/performance/s3-express-validation.md");
-    assert!(path.exists(), "docs/performance/s3-express-validation.md must exist");
+    assert!(
+        path.exists(),
+        "docs/performance/s3-express-validation.md must exist"
+    );
 
     let content = std::fs::read_to_string(&path).unwrap();
-    assert!(content.contains("acceptance gate"), "doc must describe the acceptance gate");
-    assert!(content.contains("ACCEPTED"), "doc must record the acceptance decision");
+    assert!(
+        content.contains("acceptance gate"),
+        "doc must describe the acceptance gate"
+    );
+    assert!(
+        content.contains("ACCEPTED"),
+        "doc must record the acceptance decision"
+    );
 }
 
 #[test]
 fn cost_analysis_doc_has_cost_per_operation_table() {
     let path = workspace_root().join("docs/performance/cost-analysis.md");
-    assert!(path.exists(), "docs/performance/cost-analysis.md must exist");
+    assert!(
+        path.exists(),
+        "docs/performance/cost-analysis.md must exist"
+    );
 
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(
