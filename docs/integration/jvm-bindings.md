@@ -370,7 +370,7 @@ If you already have a compiled native library, skip the Cargo build step:
 
 ## See Also
 
-- [C ABI Reference](../reference/c-abi.md)
+- [C API Reference](../reference/c-api.md)
 - [Spark Integration Guide](https://github.com/trickle-labs/rocklake/tree/main/bindings/java/examples/SparkCatalogReader.java)
 - [Flink Integration Guide](https://github.com/trickle-labs/rocklake/tree/main/bindings/java/examples/FlinkCatalogSource.java)
 - [Python Bindings](https://github.com/trickle-labs/rocklake/tree/main/bindings/python)
