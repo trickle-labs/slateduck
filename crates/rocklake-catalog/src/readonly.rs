@@ -17,20 +17,20 @@
 //! # Example
 //!
 //! ```no_run
-//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 //! use std::sync::Arc;
 //! use object_store::local::LocalFileSystem;
 //! use object_store::path::Path as ObjectPath;
 //! use rocklake_catalog::{OpenOptions, ReadOnlyCatalog};
 //!
-//! let dir = tempfile::tempdir().unwrap();
-//! let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+//! let dir = tempfile::tempdir().expect("tempdir");
+//! let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path()).expect("store"));
 //! let mut cat = ReadOnlyCatalog::open(OpenOptions {
 //!     object_store: store,
 //!     path: ObjectPath::from(""),
 //!     encryption: None,
-//! }).await.unwrap();
-//! let snapshot_id = cat.refresh().await.unwrap();
+//! }).await.expect("open");
+//! let snapshot_id = cat.refresh().await.expect("refresh");
 //! let reader = cat.reader();
 //! # });
 //! ```

@@ -11,18 +11,18 @@
 //! # Quick start
 //!
 //! ```no_run
-//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 //! use rocklake_client::{CatalogClient, CatalogClientBuilder};
 //!
 //! let client = CatalogClientBuilder::new("file:///tmp/my-catalog")
 //!     .build()
 //!     .await
-//!     .unwrap();
+//!     .expect("build");
 //!
-//! let snapshot = client.snapshot_id().await.unwrap();
+//! let snapshot = client.snapshot_id().await.expect("snapshot_id");
 //! println!("current snapshot: {snapshot}");
 //!
-//! let schemas = client.list_schemas(snapshot).await.unwrap();
+//! let schemas = client.list_schemas(snapshot).await.expect("list_schemas");
 //! println!("schemas: {schemas:?}");
 //!
 //! client.close().await;
@@ -123,13 +123,13 @@ pub struct Column {
 /// # Examples
 ///
 /// ```no_run
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 /// use rocklake_client::CatalogClientBuilder;
 ///
 /// let client = CatalogClientBuilder::new("file:///tmp/demo")
 ///     .build()
 ///     .await
-///     .unwrap();
+///     .expect("build");
 /// client.close().await;
 /// # });
 /// ```
@@ -176,13 +176,13 @@ impl CatalogClientBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
     ///
     /// let client = CatalogClientBuilder::new("file:///tmp/demo")
     ///     .build_readonly()
     ///     .await
-    ///     .unwrap();
+    ///     .expect("build_readonly");
     /// let snapshot_id = client.current_snapshot_id();
     /// client.close().await;
     /// # });
@@ -308,10 +308,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let snap = client.snapshot_id().await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let snap = client.snapshot_id().await.expect("snapshot_id");
     /// assert_eq!(snap, 0); // fresh catalog
     /// client.close().await;
     /// # });
@@ -331,10 +331,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let schemas = client.list_schemas(0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let schemas = client.list_schemas(0).await.expect("list_schemas");
     /// assert!(schemas.is_empty());
     /// client.close().await;
     /// # });
@@ -358,10 +358,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let tables = client.list_tables(1, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let tables = client.list_tables(1, 0).await.expect("list_tables");
     /// assert!(tables.is_empty());
     /// client.close().await;
     /// # });
@@ -388,10 +388,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let cols = client.get_table(999, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let cols = client.get_table(999, 0).await.expect("get_table");
     /// assert!(cols.is_none());
     /// client.close().await;
     /// # });
@@ -424,10 +424,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let files = client.list_data_files(1, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let files = client.list_data_files(1, 0).await.expect("list_data_files");
     /// assert!(files.is_empty());
     /// client.close().await;
     /// # });
@@ -478,15 +478,15 @@ impl CatalogClient {
 /// # Examples
 ///
 /// ```no_run
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 /// use rocklake_client::CatalogClientBuilder;
 ///
 /// let mut client = CatalogClientBuilder::new("file:///tmp/demo")
 ///     .build_readonly()
 ///     .await
-///     .unwrap();
+///     .expect("build_readonly");
 /// let snapshot_id = client.current_snapshot_id();
-/// let new_snap = client.refresh().await.unwrap();
+/// let new_snap = client.refresh().await.expect("refresh");
 /// client.close().await;
 /// # });
 /// ```
@@ -569,8 +569,8 @@ impl ReadOnlyClient {
 /// ```no_run
 /// use rocklake_client::CatalogClientSync;
 ///
-/// let client = CatalogClientSync::open("file:///tmp/demo").unwrap();
-/// let snap = client.snapshot_id().unwrap();
+/// let client = CatalogClientSync::open("file:///tmp/demo").expect("open");
+/// let snap = client.snapshot_id().expect("snapshot_id");
 /// assert_eq!(snap, 0);
 /// client.close();
 /// ```
