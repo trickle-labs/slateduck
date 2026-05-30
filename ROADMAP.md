@@ -101,7 +101,7 @@ binding on every roadmap release below.
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Complete |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Complete |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Complete |
-| **v0.50.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
+| **v0.70.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
 | **v1.0 — General Availability** | All v0.45.0 readiness gates green; TPC-H @ SF10/SF100 benchmarks; S3 Express acceptance; real-world validation | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, additional performance optimizations | Future |
 | **v2.x — General Fact Store** | Non-DuckLake schemas on the same immutable substrate; alternative query interfaces; multi-writer exploration | Exploration |
@@ -3786,7 +3786,7 @@ Focused regression tests cover known SQL shapes. A corpus-based suite is needed 
 - [x] Split out the CSV/full-table migration as a future planned feature with a clearly marked "not yet implemented" notice.
 
 #### Native Extension Disclosure
-- [x] Update the usage comment block in `extension/src/rocklake_extension.cpp` to say "ABI smoke wrapper only; `ATTACH` registration is pending v0.50.0."
+- [x] Update the usage comment block in `extension/src/rocklake_extension.cpp` to say "ABI smoke wrapper only; `ATTACH` registration is pending v0.70.0."
 - [x] Remove or annotate the `ATTACH 'ducklake:slatedb:...'` example in extension docs so it is clearly marked as a planned interface.
 
 ### Definition of Done
@@ -3956,7 +3956,7 @@ There is no external C or C++ test that compiles against `rocklake.h`, which mea
 
 ## v0.35.0 — Embedded Catalog Client Library
 
-> Generalize `rocklake-ffi` from a DuckDB-specific C ABI into a universal embedded library that any language ecosystem can bind to. DuckDB is a first-class consumer, but the library must be usable by Python notebooks, Go microservices, Node.js serverless functions, and JVM-based engines (Spark, Trino) without any PG-wire sidecar. The `rocklake-ffi` C ABI is already 90% there; the remaining work is documentation, naming neutrality, idiomatic language bindings, and a higher-level Rust client crate. The stable `rocklake.h` C header produced here becomes the foundation for the native DuckDB extension in v0.50.0.
+> Generalize `rocklake-ffi` from a DuckDB-specific C ABI into a universal embedded library that any language ecosystem can bind to. DuckDB is a first-class consumer, but the library must be usable by Python notebooks, Go microservices, Node.js serverless functions, and JVM-based engines (Spark, Trino) without any PG-wire sidecar. The `rocklake-ffi` C ABI is already 90% there; the remaining work is documentation, naming neutrality, idiomatic language bindings, and a higher-level Rust client crate. The stable `rocklake.h` C header produced here becomes the foundation for the native DuckDB extension in v0.70.0.
 
 ### Motivation
 
@@ -3971,7 +3971,7 @@ The current `rocklake-ffi` crate was designed alongside the DuckDB extension and
 
 - [x] Rename `ABI_VERSION` to `ROCKLAKE_ABI_VERSION` and update the constant comment to remove the DuckDB-extension-specific framing.
 - [x] Audit all `RockLakeErrorCode` values and ensure they map to generic catalog semantics rather than DuckDB-internal concepts. Add a `ROCKLAKE_OK`, `ROCKLAKE_ERR_CONFLICT`, `ROCKLAKE_ERR_FENCED` convention that matches POSIX-style error models.
-- [x] Generate a stable C header (`include/rocklake.h`) from `cbindgen` and commit it to `crates/rocklake-ffi/include/`. This header is the contract for all language bindings and is the interface the native DuckDB extension (v0.50.0) will wrap.
+- [x] Generate a stable C header (`include/rocklake.h`) from `cbindgen` and commit it to `crates/rocklake-ffi/include/`. This header is the contract for all language bindings and is the interface the native DuckDB extension (v0.70.0) will wrap.
 - [x] Write `docs/reference/c-api.md` documenting every exported function, its ownership model, and the error code semantics.
 - [x] Add a `#[deprecated]` path for any symbol renamed during the audit to maintain backward compatibility for one release cycle.
 
@@ -4020,7 +4020,7 @@ The current `rocklake-ffi` crate was designed alongside the DuckDB extension and
 - [x] Add `docs/reference/c-api.md` with full function reference (generated from `cbindgen` output and hand-annotated).
 - [x] Add `docs/integration/client-library.md` with a quickstart for each language (Rust, Python, Go, Node.js).
 - [x] Add a `examples/` directory under each language binding with a self-contained runnable demo.
-- [x] Update `docs/getting-started/what-is-rocklake.md` to describe the embedded client library as a third deployment option alongside Strategy B (PG-wire) and the Native DuckDB Extension (v0.50.0).
+- [x] Update `docs/getting-started/what-is-rocklake.md` to describe the embedded client library as a third deployment option alongside Strategy B (PG-wire) and the Native DuckDB Extension (v0.70.0).
 - [x] Update the glossary: rename "Strategy C" to "Native DuckDB Extension" and add a new "Embedded Client Library" entry for the generic path.
 
 ### Definition of Done
@@ -4532,7 +4532,7 @@ Before scheduling any implementation work, audit DuckDB 1.5.x for the required e
 
 - [ ] File a DuckDB upstream issue requesting the extension catalog API.
 - [ ] Document the blocker and the workaround (PG-wire sidecar or custom DuckDB build).
-- [ ] Defer v0.50.0 pending upstream acceptance.
+- [ ] Defer v0.70.0 pending upstream acceptance.
 
 ---
 

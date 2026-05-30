@@ -169,7 +169,7 @@ RockLake is an opinionated piece of software. It makes strong bets and does not 
 | **v0.35.0** | Embedded catalog client library — universal C ABI, `rocklake-client`, Python/Go/Node.js bindings | **Current** |
 | v0.36–v0.38 | Foundation: SQL client testing, engine integration, release certification | Planning |
 | v0.39–v0.45 | Production hardening: observability, migration tooling, fault injection, benchmarks, scale, JVM bindings, GA readiness | Planning |
-| v0.50.0 | Native DuckDB extension (blocked on upstream DuckDB extension catalog API) | Exploration |
+| v0.70.0 | Native DuckDB extension (blocked on upstream DuckDB extension catalog API) | Exploration |
 | v1.0 | General Availability — TPC-H benchmarks, S3 Express validation, dogfood deployment complete | Planning |
 
 See [ROADMAP.md](ROADMAP.md) for full milestone details.
