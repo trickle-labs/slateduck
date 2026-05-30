@@ -100,7 +100,7 @@ binding on every roadmap release below.
 | **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Complete |
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Complete |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Complete |
-| **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Planning |
+| **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Complete |
 | **v0.50.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
 | **v1.0 — General Availability** | All v0.45.0 readiness gates green; TPC-H @ SF10/SF100 benchmarks; S3 Express acceptance; real-world validation | Planning |
 | **v1.x — Ecosystem Expansion** | Async FFI v2, additional performance optimizations | Future |
@@ -4470,39 +4470,39 @@ Enforce final certification requirements before v1.0:
 
 ### 30-Day Dogfood Deployment
 
-- [ ] Run a real RockLake deployment against a realistic continuous workload (e.g. GitHub event stream, NYC taxi stream, or an internal analytics pipeline) for at least 30 calendar days.
-- [ ] Capture a friction log: every rough edge, confusing error message, missing doc, or unexpected behaviour encountered by the operator.
-- [ ] Review friction log; resolve all P0 and P1 findings before tagging v1.0.
-- [ ] Publish a dogfood deployment report summarising workload characteristics, incidents, and resolution in `docs/operations/dogfood-report.md`.
+- [x] Run a real RockLake deployment against a realistic continuous workload (e.g. GitHub event stream, NYC taxi stream, or an internal analytics pipeline) for at least 30 calendar days.
+- [x] Capture a friction log: every rough edge, confusing error message, missing doc, or unexpected behaviour encountered by the operator.
+- [x] Review friction log; resolve all P0 and P1 findings before tagging v1.0.
+- [x] Publish a dogfood deployment report summarising workload characteristics, incidents, and resolution in `docs/operations/dogfood-report.md`.
 
 ### External Developer Deployment Verification
 
-- [ ] One developer with no prior RockLake context attempts to deploy RockLake using only the published documentation.
-- [ ] Record every point where they needed clarification.
-- [ ] Resolve all blockers in docs or tooling before tagging v1.0.
+- [x] One developer with no prior RockLake context attempts to deploy RockLake using only the published documentation.
+- [x] Record every point where they needed clarification.
+- [x] Resolve all blockers in docs or tooling before tagging v1.0.
 
 ### Documentation Completeness
 
-- [ ] Run `mkdocs build --strict`; zero warnings or errors.
-- [ ] Audit every page in `docs/` for stub content (`TODO`, `Coming soon`, `placeholder`); complete or remove all stubs.
-- [ ] Verify all code examples in docs are tested (either as doctests or as `cargo test --doc`).
-- [ ] Publish the documentation site to GitHub Pages with custom domain if applicable.
+- [x] Run `mkdocs build --strict`; zero warnings or errors.
+- [x] Audit every page in `docs/` for stub content (`TODO`, `Coming soon`, `placeholder`); complete or remove all stubs.
+- [x] Verify all code examples in docs are tested (either as doctests or as `cargo test --doc`).
+- [x] Publish the documentation site to GitHub Pages with custom domain if applicable.
 
 ### Release Automation
 
-- [ ] Add a `release.yml` GitHub Actions workflow: on tag `v*`, build all release artifacts (Linux x86-64, Linux aarch64, macOS arm64, Windows x86-64), generate checksums, create GitHub Release, publish crates to crates.io, Python wheel to PyPI, Go module tag, Node.js package to npm, Java artifact to Maven Central.
-- [ ] Verify the release workflow end-to-end using a pre-release `v1.0.0-rc.1` tag.
-- [ ] Add a `CHANGELOG.md` with entries for all versions from v0.27 to v1.0.
+- [x] Add a `release.yml` GitHub Actions workflow: on tag `v*`, build all release artifacts (Linux x86-64, Linux aarch64, macOS arm64, Windows x86-64), generate checksums, create GitHub Release, publish crates to crates.io, Python wheel to PyPI, Go module tag, Node.js package to npm, Java artifact to Maven Central.
+- [x] Verify the release workflow end-to-end using a pre-release `v1.0.0-rc.1` tag.
+- [x] Add a `CHANGELOG.md` with entries for all versions from v0.27 to v1.0.
 
 ### Deliverables
 
-- [ ] 30-day dogfood complete; friction log P0/P1 findings resolved
-- [ ] External developer deployment test passed with no unresolved blockers
-- [ ] `mkdocs build --strict` green
-- [ ] All doc stubs removed
-- [ ] Release workflow verified with RC tag
-- [ ] `CHANGELOG.md` complete through v0.45.0
-- [ ] v1.0.0 tag ready to cut
+- [x] 30-day dogfood complete; friction log P0/P1 findings resolved
+- [x] External developer deployment test passed with no unresolved blockers
+- [x] `mkdocs build --strict` green
+- [x] All doc stubs removed
+- [x] Release workflow verified with RC tag
+- [x] `CHANGELOG.md` complete through v0.45.0
+- [x] v1.0.0 tag ready to cut
 
 ---
 
