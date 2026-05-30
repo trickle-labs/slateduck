@@ -191,7 +191,7 @@ pub async fn run_server(
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async move {
-        shutdown_signal.await;
+        let _ = shutdown_signal.await;
         let _ = shutdown_tx.send(());
     });
 
