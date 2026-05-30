@@ -28,6 +28,7 @@ pub mod clock;
 pub mod duckdb_harness;
 pub mod minio_harness;
 pub mod pgwire_harness;
+pub mod soak_harness;
 
 #[cfg(feature = "azure-emulator")]
 pub mod azure_emulator_harness;
@@ -39,6 +40,7 @@ pub use clock::DeterministicClock;
 pub use duckdb_harness::DuckDbHarness;
 pub use minio_harness::MinioHarness;
 pub use pgwire_harness::PgWireHarness;
+pub use soak_harness::{SoakConfig, SoakHarness, SoakRunSummary};
 
 #[cfg(feature = "azure-emulator")]
 pub use azure_emulator_harness::AzureEmulatorHarness;

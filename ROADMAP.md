@@ -98,7 +98,7 @@ binding on every roadmap release below.
 | **v0.40.0 — Fault Injection & Security Testing** | Tier 6 fault injection suite (`fail` crate, toxiproxy, kill-9 recovery); Tier 8 security (IAM credential isolation, SQL injection guards, TLS audit) | Complete |
 | **v0.41.0 — Migration Tooling & DuckLake Forward Compatibility** | `rocklake migrate-from-ducklake` (PostgreSQL & SQLite sources); MVCC-correct export/import; DuckLake v1.1 forward-compatibility gate | Complete |
 | **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Complete |
-| **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Planning |
+| **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Complete |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Planning |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Planning |
 | **v0.50.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
@@ -4322,40 +4322,40 @@ The `fail` crate is already used; this milestone wires it comprehensively into p
 
 ### Tier 7 — Scale & Soak Testing
 
-- [ ] Set up a dedicated EC2 `c6i.4xlarge` GitHub Actions runner configuration for scale tests (annotated as `self-hosted, scale-test`).
-- [ ] Implement a 24-hour soak test (`tests/soak/soak_24h.rs`): continuously write and read 100k-row snapshots; assert catalog consistency, secondary index integrity, and zero-panic at the end.
-- [ ] Run TPC-H SF10 catalog workload: 10M data files, 100 concurrent readers, 10 concurrent writers; measure p50/p95/p99 and verify linear reader scaling.
-- [ ] Add a `rocklake-testkit` `SoakHarness` that manages soak process lifecycle and captures metrics over the run.
-- [ ] Wire into CI as a pre-release manual-trigger job `scale-soak` with results stored as artifacts.
+- [x] Set up a dedicated EC2 `c6i.4xlarge` GitHub Actions runner configuration for scale tests (annotated as `self-hosted, scale-test`).
+- [x] Implement a 24-hour soak test (`tests/soak/soak_24h.rs`): continuously write and read 100k-row snapshots; assert catalog consistency, secondary index integrity, and zero-panic at the end.
+- [x] Run TPC-H SF10 catalog workload: 10M data files, 100 concurrent readers, 10 concurrent writers; measure p50/p95/p99 and verify linear reader scaling.
+- [x] Add a `rocklake-testkit` `SoakHarness` that manages soak process lifecycle and captures metrics over the run.
+- [x] Wire into CI as a pre-release manual-trigger job `scale-soak` with results stored as artifacts.
 
 ### Checkpoint-Pinned Reader API
 
-- [ ] Implement `rocklake checkpoint pin --name <name> --snapshot-id <N>` which creates a named SlateDB checkpoint pinned at a specific `dl_snapshot_id`.
-- [ ] Implement `rocklake checkpoint unpin --name <name>`.
-- [ ] Implement `rocklake checkpoint list` showing all pinned checkpoints with their snapshot IDs and creation timestamps.
-- [ ] Checkpoint pins are stored as infrastructure keys under `0xFF | "checkpoint-pin" | name`; they survive process restart.
-- [ ] Add integration test: pin a checkpoint, write 100 more snapshots, open a read-only `rocklake-client` against the pinned checkpoint, verify it sees exactly the pinned snapshot and cannot write.
+- [x] Implement `rocklake checkpoint pin --name <name> --snapshot-id <N>` which creates a named SlateDB checkpoint pinned at a specific `dl_snapshot_id`.
+- [x] Implement `rocklake checkpoint unpin --name <name>`.
+- [x] Implement `rocklake checkpoint list` showing all pinned checkpoints with their snapshot IDs and creation timestamps.
+- [x] Checkpoint pins are stored as infrastructure keys under `0xFF | "checkpoint-pin" | name`; they survive process restart.
+- [x] Add integration test: pin a checkpoint, write 100 more snapshots, open a read-only `rocklake-client` against the pinned checkpoint, verify it sees exactly the pinned snapshot and cannot write.
 
 ### Lambda Reader Pattern
 
-- [ ] Add `crates/rocklake-client/examples/lambda_reader.rs`: an AWS Lambda handler stub (using `lambda_runtime` or similar) that opens a `DbReader` against a named checkpoint and returns `list_data_files()` as JSON. No `Db` writer handle opened.
-- [ ] Document IAM policy for Lambda catalog-prefix read-only access in `docs/integration/lambda-reader.md`.
-- [ ] Add integration test: spin up the Lambda pattern as a subprocess; verify it returns correct results and cannot write.
-- [ ] Document cold-start latency with S3 Express checkpoint caching in `/tmp`.
+- [x] Add `crates/rocklake-client/examples/lambda_reader.rs`: an AWS Lambda handler stub (using `lambda_runtime` or similar) that opens a `DbReader` against a named checkpoint and returns `list_data_files()` as JSON. No `Db` writer handle opened.
+- [x] Document IAM policy for Lambda catalog-prefix read-only access in `docs/integration/lambda-reader.md`.
+- [x] Add integration test: spin up the Lambda pattern as a subprocess; verify it returns correct results and cannot write.
+- [x] Document cold-start latency with S3 Express checkpoint caching in `/tmp`.
 
 ### CDN Cache Contract
 
-- [ ] Document the cache contract: catalog-data keys are immutable by design; any HTTP GET for a catalog prefix key can be safely cached using the SlateDB checkpoint generation as the cache-control key.
-- [ ] Add `docs/integration/cdn-caching.md` with example CloudFront distribution configuration and Lambda@Edge origin logic.
-- [ ] Add a test that verifies catalog-data keys never change value once written (immutability property across 1000 random writes).
+- [x] Document the cache contract: catalog-data keys are immutable by design; any HTTP GET for a catalog prefix key can be safely cached using the SlateDB checkpoint generation as the cache-control key.
+- [x] Add `docs/integration/cdn-caching.md` with example CloudFront distribution configuration and Lambda@Edge origin logic.
+- [x] Add a test that verifies catalog-data keys never change value once written (immutability property across 1000 random writes).
 
 ### Deliverables
 
-- [ ] 24-hour soak test green (no panics, no catalog corruption, no secondary index gaps)
-- [ ] TPC-H SF10 results published as a CI artifact
-- [ ] `checkpoint pin/unpin/list` CLI implemented and integration-tested
-- [ ] Lambda reader example implemented and documented
-- [ ] `docs/integration/lambda-reader.md` and `docs/integration/cdn-caching.md` written
+- [x] 24-hour soak test green (no panics, no catalog corruption, no secondary index gaps)
+- [x] TPC-H SF10 results published as a CI artifact
+- [x] `checkpoint pin/unpin/list` CLI implemented and integration-tested
+- [x] Lambda reader example implemented and documented
+- [x] `docs/integration/lambda-reader.md` and `docs/integration/cdn-caching.md` written
 
 ---
 ## v0.44.0 — JVM Bindings

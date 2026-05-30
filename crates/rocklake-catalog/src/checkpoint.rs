@@ -285,6 +285,82 @@ async fn hide_post_checkpoint_facts(
     Ok(())
 }
 
+// ─── Checkpoint Pin API ────────────────────────────────────────────────────
+
+/// Information about a named checkpoint pin.
+#[derive(Debug, Clone)]
+pub struct CheckpointPin {
+    /// User-assigned name for this pin.
+    pub name: String,
+    /// The `dl_snapshot_id` this pin is anchored to.
+    pub snapshot_id: u64,
+    /// RFC-3339 creation timestamp.
+    pub created_at: String,
+}
+
+/// Pin a named checkpoint at a specific `dl_snapshot_id`.
+///
+/// The pin is stored under `TAG_SYSTEM | "checkpoint-pin:" | name`.
+/// It survives process restart and prevents GC from advancing past the
+/// pinned snapshot.
+pub async fn pin_checkpoint(db: &Db, name: &str, snapshot_id: u64) -> CatalogResult<CheckpointPin> {
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let key = checkpoint_pin_key(name);
+
+    // Re-use CheckpointMetadata with id=0 (not used for pins) and label=name.
+    let meta = CheckpointMetadata {
+        id: 0,
+        created_at: created_at.clone(),
+        snapshot_id,
+        label: Some(name.to_string()),
+    };
+
+    db.put(&key, &values::encode_value(&meta)).await?;
+
+    Ok(CheckpointPin {
+        name: name.to_string(),
+        snapshot_id,
+        created_at,
+    })
+}
+
+/// Remove a named checkpoint pin.
+///
+/// Returns `CatalogError::NotFound` if no pin with the given name exists.
+pub async fn unpin_checkpoint(db: &Db, name: &str) -> CatalogResult<()> {
+    let key = checkpoint_pin_key(name);
+    // Verify pin exists before deleting.
+    db.get(&key)
+        .await?
+        .ok_or_else(|| CatalogError::NotFound(format!("checkpoint pin '{name}'")))?;
+    db.delete(&key).await?;
+    Ok(())
+}
+
+/// List all named checkpoint pins.
+pub async fn list_checkpoint_pins(db: &Db) -> CatalogResult<Vec<CheckpointPin>> {
+    let prefix = checkpoint_pin_prefix();
+    let mut pins = Vec::new();
+    let mut iter = db.scan_prefix(&prefix).await?;
+    while let Some(kv) = iter
+        .next()
+        .await
+        .map_err(|e| CatalogError::SlateDb(e.to_string()))?
+    {
+        let meta: CheckpointMetadata = values::decode_value(&kv.value)?;
+        // Extract the name from the key suffix (skip prefix bytes).
+        let prefix_len = prefix.len();
+        let name = String::from_utf8_lossy(&kv.key[prefix_len..]).to_string();
+        pins.push(CheckpointPin {
+            name,
+            snapshot_id: meta.snapshot_id,
+            created_at: meta.created_at,
+        });
+    }
+    pins.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(pins)
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 fn checkpoint_prefix() -> Vec<u8> {
@@ -299,6 +375,19 @@ fn checkpoint_key(id: u64) -> Vec<u8> {
     buf.push(TAG_SYSTEM);
     buf.extend_from_slice(b"checkpoint:");
     buf.extend_from_slice(&id.to_be_bytes());
+    buf
+}
+
+fn checkpoint_pin_prefix() -> Vec<u8> {
+    let mut buf = Vec::with_capacity(1 + 16);
+    buf.push(TAG_SYSTEM);
+    buf.extend_from_slice(b"checkpoint-pin:");
+    buf
+}
+
+fn checkpoint_pin_key(name: &str) -> Vec<u8> {
+    let mut buf = checkpoint_pin_prefix();
+    buf.extend_from_slice(name.as_bytes());
     buf
 }
 
@@ -336,6 +425,47 @@ mod tests {
             "consecutive checkpoints must have distinct IDs"
         );
         assert!(c2.id > c1.id, "checkpoint IDs must be strictly increasing");
+
+        db.close().await.unwrap();
+    }
+
+    /// Pin and list checkpoint pins.
+    #[tokio::test]
+    async fn pin_and_list_checkpoint_pins() {
+        let dir = TempDir::new().unwrap();
+        let db = open_test_db(dir.path()).await;
+
+        pin_checkpoint(&db, "alpha", 10).await.unwrap();
+        pin_checkpoint(&db, "beta", 20).await.unwrap();
+
+        let pins = list_checkpoint_pins(&db).await.unwrap();
+        assert_eq!(pins.len(), 2);
+        assert_eq!(pins[0].name, "alpha");
+        assert_eq!(pins[0].snapshot_id, 10);
+        assert_eq!(pins[1].name, "beta");
+        assert_eq!(pins[1].snapshot_id, 20);
+
+        db.close().await.unwrap();
+    }
+
+    /// Unpin removes the named pin and returns NotFound on re-unpin.
+    #[tokio::test]
+    async fn unpin_removes_pin() {
+        let dir = TempDir::new().unwrap();
+        let db = open_test_db(dir.path()).await;
+
+        pin_checkpoint(&db, "gamma", 5).await.unwrap();
+        unpin_checkpoint(&db, "gamma").await.unwrap();
+
+        let pins = list_checkpoint_pins(&db).await.unwrap();
+        assert!(pins.is_empty(), "no pins should remain after unpin");
+
+        // Second unpin should return NotFound.
+        let err = unpin_checkpoint(&db, "gamma").await.unwrap_err();
+        assert!(
+            matches!(err, CatalogError::NotFound(_)),
+            "expected NotFound, got {err:?}"
+        );
 
         db.close().await.unwrap();
     }

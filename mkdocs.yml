@@ -197,6 +197,8 @@ nav:
     - DataFusion: integration/datafusion.md
     - Native Extension: integration/native-extension.md
     - Custom Clients: integration/custom-clients.md
+    - Lambda Reader: integration/lambda-reader.md
+    - CDN Caching: integration/cdn-caching.md
   - Design Decisions:
     - design-decisions/index.md
     - Why SlateDB?: design-decisions/why-slatedb.md

@@ -366,6 +366,66 @@ jobs:
             --dry-run | grep -q "DRY RUN"
           echo "OK: update_benchmark_baseline.py dry-run succeeded"
 
+  # ── v0.43.0: Scale Testing, Soak & Serverless Readers ────────────────────────
+
+  # v0.43.0: Scale & soak integration tests.
+  # Runs the SoakHarness smoke test (50 cycles), checkpoint pin/unpin/list,
+  # Lambda reader pattern, and CDN cache immutability assertion.
+  # The full 24h soak is available via the `scale-soak` manual-trigger job below.
+  scale-tests-v043:
+    name: Scale & Soak Tests (v0.43.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.43.0 scale & soak integration tests
+        run: cargo test -p rocklake-catalog --test v043_scale_tests -- --test-threads=1 --nocapture
+
+  # v0.43.0: rocklake-client tests (includes lambda_reader example compile check).
+  rocklake-client-v043:
+    name: rocklake-client + Lambda Reader (v0.43.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test rocklake-client (all tests)
+        run: cargo test -p rocklake-client -- --test-threads=1
+
+      - name: Build lambda_reader example (compile check)
+        run: cargo build --example lambda_reader -p rocklake-client
+
+  # v0.43.0: Full soak test — manual trigger only on self-hosted EC2 runner.
+  # Set ROCKLAKE_SOAK_CYCLES to a large number (e.g., 8640000 for 24h at
+  # ~10ms/cycle) to run a true long-duration soak.  Results are stored as
+  # CI artifacts.
+  scale-soak:
+    name: 24h Scale Soak (manual trigger)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run soak test
+        env:
+          ROCKLAKE_SOAK_CYCLES: "1000"
+        run: |
+          cargo test -p rocklake-catalog --test v043_scale_tests \
+            soak_harness_smoke -- --test-threads=1 --nocapture
+
+      - name: Upload soak results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-results
+          path: target/soak-results/
+          if-no-files-found: ignore
+
   # v0.35.0: cbindgen header generation — verify the generated header matches
   # the committed crates/rocklake-ffi/include/rocklake.h.
   cbindgen-header:
@@ -672,6 +732,8 @@ jobs:
       - ducklake-compat-v041
       - bench-v042
       - benchmark-regression
+      - scale-tests-v043
+      - rocklake-client-v043
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
