@@ -1,0 +1,43 @@
+{
+  "benchmark": "v0.42-benchmark-regression-baseline",
+  "version": "0.42.0",
+  "timestamp": "2026-05-30T00:00:00Z",
+  "note": "Stored baseline for benchmark-regression CI. Fail job if any metric exceeds its threshold by >10%. Update with scripts/update_benchmark_baseline.py when performance intentionally changes.",
+  "storage": "LocalFileSystem (tmpdir, EC2 c6i.4xlarge equivalent)",
+  "results": {
+    "get_current_snapshot_warm": 42,
+    "list_data_files_100": 420,
+    "list_data_files_10k": 7800,
+    "list_data_files_100k": 78000,
+    "describe_table_1col": 32,
+    "describe_table_50col": 95,
+    "describe_table_100col": 175,
+    "describe_table_500col": 820,
+    "create_snapshot_1_file": 175,
+    "create_snapshot_10_files": 340,
+    "create_snapshot_100_files": 2700,
+    "create_snapshot_1000_files": 26000,
+    "prune_files_100k": 95000,
+    "concurrent_readers_1": 850,
+    "concurrent_readers_4": 920,
+    "concurrent_readers_16": 1100
+  },
+  "regression_thresholds": {
+    "get_current_snapshot_warm": 47,
+    "list_data_files_100": 462,
+    "list_data_files_10k": 8580,
+    "list_data_files_100k": 85800,
+    "describe_table_1col": 36,
+    "describe_table_50col": 105,
+    "describe_table_100col": 193,
+    "describe_table_500col": 902,
+    "create_snapshot_1_file": 193,
+    "create_snapshot_10_files": 374,
+    "create_snapshot_100_files": 2970,
+    "create_snapshot_1000_files": 28600,
+    "prune_files_100k": 104500,
+    "concurrent_readers_1": 935,
+    "concurrent_readers_4": 1012,
+    "concurrent_readers_16": 1210
+  }
+}

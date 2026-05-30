@@ -97,7 +97,7 @@ binding on every roadmap release below.
 | **v0.39.0 — Observability & Operational Tooling** | Prometheus `/metrics` endpoint; OpenTelemetry tracing; `rocklake diagnose` CLI; orphan file sweep with configurable grace period | Complete |
 | **v0.40.0 — Fault Injection & Security Testing** | Tier 6 fault injection suite (`fail` crate, toxiproxy, kill-9 recovery); Tier 8 security (IAM credential isolation, SQL injection guards, TLS audit) | Complete |
 | **v0.41.0 — Migration Tooling & DuckLake Forward Compatibility** | `rocklake migrate-from-ducklake` (PostgreSQL & SQLite sources); MVCC-correct export/import; DuckLake v1.1 forward-compatibility gate | Complete |
-| **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Planning |
+| **v0.42.0 — Performance Benchmarks & Cost Analysis** | TPC-H catalog benchmark suite; S3 Express optimization; cost-per-operation tooling; benchmark regression CI (Tiers 9 & 10) | Complete |
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Planning |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Planning |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Planning |
@@ -4277,43 +4277,43 @@ The `fail` crate is already used; this milestone wires it comprehensively into p
 
 ### TPC-H Catalog Benchmark Suite
 
-- [ ] Implement a standalone benchmark binary under `benches/catalog_bench.rs` (using `criterion`) covering:
+- [x] Implement a standalone benchmark binary under `benches/catalog_bench.rs` (using `criterion`) covering:
   - `get_current_snapshot()` — cold-process and warm-cache
   - `list_data_files(table)` at 10⁴, 10⁵, 10⁶ file counts
   - `describe_table` at 50, 100, 500 columns
   - `create_snapshot` at 1, 10, 100, 1 000 file additions
   - `prune_files` with a single typed column predicate at 10⁵ files
   - Concurrent reader throughput at 1, 4, 16 `DbReader` processes
-- [ ] Run all benchmarks on: LocalFS, MinIO (same host), S3 Standard (same region), S3 Express One Zone.
-- [ ] Compare against PostgreSQL-backed DuckLake on RDS (same AZ) and SQLite-backed DuckLake.
-- [ ] Publish p50/p95/p99/p99.9 for every combination in `benchmarks/v0.42-catalog-bench.json`.
-- [ ] Results must be reproducible within ±10% across three independent runs on the same hardware.
+- [x] Run all benchmarks on: LocalFS, MinIO (same host), S3 Standard (same region), S3 Express One Zone.
+- [x] Compare against PostgreSQL-backed DuckLake on RDS (same AZ) and SQLite-backed DuckLake.
+- [x] Publish p50/p95/p99/p99.9 for every combination in `benchmarks/v0.42-catalog-bench.json`.
+- [x] Results must be reproducible within ±10% across three independent runs on the same hardware.
 
 ### S3 Express Optimization
 
-- [ ] Profile `get_current_snapshot()` and `list_data_files()` on S3 Express; identify dominant API call costs.
-- [ ] Evaluate and implement SlateDB tuning for S3 Express: manifest pre-fetch, SST size tuning, batch-read coalescing.
-- [ ] **S3 Express acceptance gate**: if `get_current_snapshot()` on S3 Express is within 2× of PostgreSQL p99, declare S3 Express the recommended production tier; document in `docs/performance/s3-express-validation.md`.
-- [ ] If common operations exceed 3× PostgreSQL p99, document the gap and a v0.43+ optimization plan.
+- [x] Profile `get_current_snapshot()` and `list_data_files()` on S3 Express; identify dominant API call costs.
+- [x] Evaluate and implement SlateDB tuning for S3 Express: manifest pre-fetch, SST size tuning, batch-read coalescing.
+- [x] **S3 Express acceptance gate**: if `get_current_snapshot()` on S3 Express is within 2× of PostgreSQL p99, declare S3 Express the recommended production tier; document in `docs/performance/s3-express-validation.md`.
+- [x] If common operations exceed 3× PostgreSQL p99, document the gap and a v0.43+ optimization plan.
 
 ### Cost-per-Operation Analysis
 
-- [ ] Instrument S3 API call counts per catalog operation using `object_store` request counting.
-- [ ] Publish cost-per-operation estimates (at $0.023/GB-month S3 Standard, $0.0045 per 1k PUT, $0.00035 per 1k GET) for the common operation families.
-- [ ] Add a `docs/performance/cost-analysis.md` page with cost crossover comparison vs. RDS PostgreSQL.
+- [x] Instrument S3 API call counts per catalog operation using `object_store` request counting.
+- [x] Publish cost-per-operation estimates (at $0.023/GB-month S3 Standard, $0.0045 per 1k PUT, $0.00035 per 1k GET) for the common operation families.
+- [x] Add a `docs/performance/cost-analysis.md` page with cost crossover comparison vs. RDS PostgreSQL.
 
 ### Benchmark Regression CI (Tiers 9 & 10)
 
-- [ ] Add a weekly scheduled CI job `benchmark-regression` that runs the catalog benchmark suite on a consistent EC2 instance type and compares results against a stored baseline (`benchmarks/baseline.json`).
-- [ ] Fail the job if any operation regresses > 10% vs. the baseline.
-- [ ] Add a `scripts/update_benchmark_baseline.py` script for intentional baseline updates with a required justification comment.
+- [x] Add a weekly scheduled CI job `benchmark-regression` that runs the catalog benchmark suite on a consistent EC2 instance type and compares results against a stored baseline (`benchmarks/baseline.json`).
+- [x] Fail the job if any operation regresses > 10% vs. the baseline.
+- [x] Add a `scripts/update_benchmark_baseline.py` script for intentional baseline updates with a required justification comment.
 
 ### Deliverables
 
-- [ ] `benchmarks/v0.42-catalog-bench.json` published
-- [ ] S3 Express acceptance decision documented in `docs/performance/s3-express-validation.md`
-- [ ] Cost analysis in `docs/performance/cost-analysis.md`
-- [ ] Benchmark regression CI job stable and documented
+- [x] `benchmarks/v0.42-catalog-bench.json` published
+- [x] S3 Express acceptance decision documented in `docs/performance/s3-express-validation.md`
+- [x] Cost analysis in `docs/performance/cost-analysis.md`
+- [x] Benchmark regression CI job stable and documented
 
 ---
 ## v0.43.0 — Scale Testing, Soak & Serverless Readers
