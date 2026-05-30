@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/v0.39.0-observability-operational-tooling', 'feat/v0.40.0-fault-injection-security-testing']
+    branches: [main, 'feat/v0.39.0-observability-operational-tooling', 'feat/v0.40.0-fault-injection-security-testing', 'feat/v0.41.0-migration-tooling-ducklake-compat']
   pull_request:
     branches: [main]
 
@@ -554,6 +554,30 @@ jobs:
   # v0.38.0: Release-blocking gates — validates that all required pre-release
   # conditions are met: manifest validator green, mkdocs build strict, golden
   # fixtures committed.
+  # v0.41.0: Migration Tooling & DuckLake Forward Compatibility tests.
+  migration-v041:
+    name: Migration Tooling Tests (v0.41.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.41.0 migration tests
+        run: cargo test -p rocklake-catalog --test v041_migration_tests -- --test-threads=1
+
+  # v0.41.0: DuckLake Forward Compatibility tests (PG-Wire layer).
+  ducklake-compat-v041:
+    name: DuckLake Forward Compatibility Tests (v0.41.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.41.0 DuckLake compat tests
+        run: cargo test -p rocklake-pgwire --test v041_ducklake_compat_tests -- --test-threads=1
+
   release-gates:
     name: Release-Blocking Gates
     runs-on: ubuntu-latest
@@ -567,6 +591,8 @@ jobs:
       - observability
       - fault-injection-v040
       - security-v040
+      - migration-v041
+      - ducklake-compat-v041
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

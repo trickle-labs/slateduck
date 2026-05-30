@@ -56,6 +56,10 @@ pub enum CatalogError {
     InvalidInput(String),
     #[error("generation mismatch: expected {expected}, actual {actual} (CAS conflict)")]
     GenerationMismatch { expected: u64, actual: u64 },
+    #[error("unsupported DuckLake catalog version {version}: {message} (SQLSTATE 0A000)")]
+    UnsupportedDuckLakeVersion { version: u64, message: String },
+    #[error("migration source error: {0}")]
+    MigrationSource(String),
 }
 
 impl From<slatedb::Error> for CatalogError {

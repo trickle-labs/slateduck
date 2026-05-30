@@ -280,6 +280,7 @@ pub async fn export_catalog<W: Write>(
                     "file_size_bytes": row.file_size_bytes,
                     "snapshot_id": row.snapshot_id,
                     "begin_snapshot": begin,
+                    "end_snapshot": row.end_snapshot,
                 }),
             };
             serde_json::to_writer(&mut *writer, &exported)
@@ -1073,14 +1074,17 @@ pub async fn import_catalog<R: BufRead>(db: &Db, reader: R) -> CatalogResult<Imp
                     partial_max: d["partial_max"].as_str().map(|s| s.to_string()),
                 };
                 let encoded = values::encode_value(&row);
-                // Primary key.
-                let key = keys::key_data_file(table_id, data_file_id);
-                db.put(&key, &encoded).await?;
-                // Secondary index (TAG_DATA_FILE_BY_SNAPSHOT) required by
-                // list_data_files() so that readers see the file after import.
+                // Write primary key and secondary index atomically so a
+                // crash between the two puts cannot leave list_data_files()
+                // seeing a missing secondary entry.
+                let mut batch = WriteBatch::new();
+                batch.put(keys::key_data_file(table_id, data_file_id), encoded.clone());
                 let idx_begin = begin_snapshot.unwrap_or(0);
-                let idx_key = keys::key_data_file_by_snapshot(table_id, idx_begin, data_file_id);
-                db.put(&idx_key, &encoded).await?;
+                batch.put(
+                    keys::key_data_file_by_snapshot(table_id, idx_begin, data_file_id),
+                    encoded,
+                );
+                db.write(batch).await?;
                 rows_imported += 1;
             }
             "ducklake_delete_file" => {

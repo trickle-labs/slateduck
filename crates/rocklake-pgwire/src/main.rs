@@ -83,7 +83,7 @@ Commands:
   migrate [--dry-run|--apply]    Migrate catalog to new format version
   corpus diff|validate           Wire-corpus diff and validation
   tune [--target-cost-usd N]     Output recommended settings
-  migrate-from-ducklake          Migrate from an external DuckLake catalog
+  migrate-from-ducklake          Migrate from DuckLake (sqlite: or NDJSON) to RockLake
   export-catalog                 Export all 32 DuckLake catalog tables to NDJSON
   diagnose                       Structured catalog health report (v0.39.0)
   sweep-orphans                  Identify / delete orphan Parquet files (v0.39.0)
@@ -1220,32 +1220,85 @@ fn resolve_catalog_with_opts(
 /// Import an existing DuckLake catalog into RockLake.
 ///
 /// The source can be:
-///   - An NDJSON dump produced by `export-catalog` from a DuckLake deployment.
+///   - A SQLite DuckLake catalog:  `--source sqlite:/path/to/catalog.db`
+///   - An NDJSON dump (legacy):    `--source /path/to/dump.ndjson`
+///
+/// Use `--accept-version V1_1_DEV_1` to allow migration from a DuckLake v1.1
+/// pre-release catalog (catalog_version 8).  By default only v1.0 (version 7)
+/// is accepted.
+///
+/// Use `--dry-run` to inspect the migration plan without writing anything.
 ///
 /// Example:
+///   rocklake migrate-from-ducklake --source sqlite:./duck.db --catalog ./my-catalog
 ///   rocklake migrate-from-ducklake --source dump.ndjson --catalog ./my-catalog
 async fn cmd_migrate_from_ducklake(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let source = extract_string_arg(args, "--source")
-        .ok_or("--source <file> is required for migrate-from-ducklake")?;
+        .ok_or("--source <file|sqlite:path> is required for migrate-from-ducklake")?;
     let catalog_url = extract_string_arg(args, "--catalog")
         .ok_or("--catalog <path> is required for migrate-from-ducklake")?;
+    let dry_run = args.iter().any(|a| a == "--dry-run");
 
-    println!("migrate-from-ducklake: source={source}, catalog={catalog_url}");
+    // Collect all --accept-version tokens.
+    let mut accept_versions: Vec<String> = Vec::new();
+    {
+        let mut i = 0;
+        while i < args.len() {
+            if args[i] == "--accept-version" {
+                if let Some(v) = args.get(i + 1) {
+                    accept_versions.push(v.clone());
+                }
+            }
+            i += 1;
+        }
+    }
+    let accept_refs: Vec<&str> = accept_versions.iter().map(|s| s.as_str()).collect();
+
+    println!("migrate-from-ducklake: source={source}, catalog={catalog_url}, dry_run={dry_run}");
 
     // Open the destination RockLake catalog.
     let (catalog_path, object_store) = resolve_catalog(&catalog_url)?;
     let db = slatedb::Db::open(catalog_path, object_store).await?;
 
-    // Import the source NDJSON dump into the destination catalog.
-    let file = std::fs::File::open(&source).map_err(|e| format!("Cannot open source file: {e}"))?;
-    let reader = std::io::BufReader::new(file);
+    if let Some(sqlite_path) = source.strip_prefix("sqlite:") {
+        // ── SQLite DuckLake source ──────────────────────────────────────────
+        let mut src =
+            rocklake_catalog::migrate_from_ducklake::SqliteDuckLakeSource::open(sqlite_path, None)?;
+        let report = rocklake_catalog::migrate_from_ducklake::migrate_from_source(
+            &mut src,
+            &db,
+            &accept_refs,
+            dry_run,
+        )
+        .await?;
 
-    let result = rocklake_catalog::export::import_catalog(&db, reader).await?;
+        println!(
+            "Migration {}:",
+            if dry_run { "dry-run" } else { "complete" }
+        );
+        println!(
+            "  Source catalog version: {}",
+            report.source_catalog_version
+        );
+        println!("  Data files:      {}", report.data_file_count);
+        println!("  Total migrated:  {}", report.total_migrated());
+        println!("  Total skipped:   {}", report.total_skipped());
+        if !dry_run {
+            println!("  Catalog written to: {catalog_url}");
+        }
+    } else {
+        // ── NDJSON dump source (legacy) ─────────────────────────────────────
+        let file =
+            std::fs::File::open(&source).map_err(|e| format!("Cannot open source file: {e}"))?;
+        let reader = std::io::BufReader::new(file);
 
-    println!("Migration complete:");
-    println!("  Rows imported:   {}", result.rows_imported);
-    println!("  Tables imported: {}", result.tables_imported);
-    println!("  Catalog written to: {catalog_url}");
+        let result = rocklake_catalog::export::import_catalog(&db, reader).await?;
+
+        println!("Migration complete (NDJSON source):");
+        println!("  Rows imported:   {}", result.rows_imported);
+        println!("  Tables imported: {}", result.tables_imported);
+        println!("  Catalog written to: {catalog_url}");
+    }
 
     db.close().await?;
     Ok(())

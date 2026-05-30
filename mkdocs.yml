@@ -175,12 +175,14 @@ nav:
     - operations/index.md
     - CLI Reference: operations/cli-reference.md
     - Backup & Restore: operations/backup-restore.md
+    - DuckLake Version Upgrade: operations/ducklake-version-upgrade.md
     - Excision: operations/excision.md
     - Export: operations/export.md
     - Garbage Collection: operations/garbage-collection.md
     - Health Checks: operations/health-checks.md
     - Inspect: operations/inspect.md
     - Logging: operations/logging.md
+    - Migration from DuckLake: operations/migration-from-ducklake.md
     - Monitoring: operations/monitoring.md
     - Failover: operations/failover.md
     - Security: operations/security.md

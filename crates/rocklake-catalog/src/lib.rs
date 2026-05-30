@@ -24,6 +24,7 @@ pub mod lease;
 pub mod manifest;
 pub mod metrics;
 pub mod migrate;
+pub mod migrate_from_ducklake;
 pub mod partition;
 pub mod performance;
 pub mod reader;
