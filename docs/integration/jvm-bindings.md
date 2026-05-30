@@ -371,8 +371,8 @@ If you already have a compiled native library, skip the Cargo build step:
 ## See Also
 
 - [C ABI Reference](../reference/c-abi.md)
-- [Spark Integration Guide](./spark.md)
-- [Flink Integration Guide](./flink.md)
-- [Python Bindings](./python-bindings.md)
+- [Spark Integration Guide](https://github.com/trickle-labs/rocklake/tree/main/bindings/java/examples/SparkCatalogReader.java)
+- [Flink Integration Guide](https://github.com/trickle-labs/rocklake/tree/main/bindings/java/examples/FlinkCatalogSource.java)
+- [Python Bindings](https://github.com/trickle-labs/rocklake/tree/main/bindings/python)
 - [Go Bindings](https://github.com/trickle-labs/rocklake/tree/main/bindings/go)
 - [Node.js Bindings](https://github.com/trickle-labs/rocklake/tree/main/bindings/nodejs)
