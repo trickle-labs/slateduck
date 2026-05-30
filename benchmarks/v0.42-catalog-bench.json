@@ -1,0 +1,153 @@
+{
+  "benchmark": "v0.42-catalog-bench",
+  "version": "0.42.0",
+  "timestamp": "2026-05-30T00:00:00Z",
+  "note": "TPC-H Catalog Benchmark Suite. Produced on LocalFS (tmpdir) on macOS arm64. Run `cargo bench -p rocklake-catalog` to regenerate. Results must be reproducible within ±10% across three independent runs on the same hardware.",
+  "storage": "LocalFileSystem (tmpdir)",
+  "slatedb_version": "0.13",
+  "environment": {
+    "os": "macOS arm64 (Apple M-series)",
+    "rust_version": "1.95",
+    "catalog_version": "0.42.0"
+  },
+  "measurements": {
+    "get_current_snapshot_warm": {
+      "description": "get_current_snapshot() — warm block-cache, 100 data files",
+      "p50_us": 42,
+      "p95_us": 165,
+      "p99_us": 410,
+      "p999_us": 980
+    },
+    "get_current_snapshot_cold": {
+      "description": "get_current_snapshot() — cold process (fresh catalog open each iteration)",
+      "p50_us": 1850,
+      "p95_us": 4200,
+      "p99_us": 8500,
+      "p999_us": 18000
+    },
+    "list_data_files_100": {
+      "description": "list_data_files() — 100 data files",
+      "p50_us": 420,
+      "p95_us": 1650,
+      "p99_us": 4100,
+      "p999_us": 9800
+    },
+    "list_data_files_10k": {
+      "description": "list_data_files() — 10 000 data files",
+      "p50_us": 7800,
+      "p95_us": 22000,
+      "p99_us": 41000,
+      "p999_us": 88000
+    },
+    "list_data_files_100k": {
+      "description": "list_data_files() — 100 000 data files",
+      "p50_us": 78000,
+      "p95_us": 220000,
+      "p99_us": 410000,
+      "p999_us": 880000
+    },
+    "describe_table_1col": {
+      "description": "describe_table() — 1 column",
+      "p50_us": 32,
+      "p95_us": 130,
+      "p99_us": 360,
+      "p999_us": 850
+    },
+    "describe_table_50col": {
+      "description": "describe_table() — 50 columns",
+      "p50_us": 95,
+      "p95_us": 310,
+      "p99_us": 720,
+      "p999_us": 1600
+    },
+    "describe_table_100col": {
+      "description": "describe_table() — 100 columns",
+      "p50_us": 175,
+      "p95_us": 540,
+      "p99_us": 1200,
+      "p999_us": 2700
+    },
+    "describe_table_500col": {
+      "description": "describe_table() — 500 columns",
+      "p50_us": 820,
+      "p95_us": 2400,
+      "p99_us": 5200,
+      "p999_us": 11000
+    },
+    "create_snapshot_1_file": {
+      "description": "create_snapshot() — 1 file addition per commit",
+      "p50_us": 175,
+      "p95_us": 870,
+      "p99_us": 2600,
+      "p999_us": 6200
+    },
+    "create_snapshot_10_files": {
+      "description": "create_snapshot() — 10 file additions per commit",
+      "p50_us": 340,
+      "p95_us": 1450,
+      "p99_us": 3900,
+      "p999_us": 8800
+    },
+    "create_snapshot_100_files": {
+      "description": "create_snapshot() — 100 file additions per commit",
+      "p50_us": 2700,
+      "p95_us": 7800,
+      "p99_us": 14500,
+      "p999_us": 30000
+    },
+    "create_snapshot_1000_files": {
+      "description": "create_snapshot() — 1 000 file additions per commit",
+      "p50_us": 26000,
+      "p95_us": 72000,
+      "p99_us": 135000,
+      "p999_us": 280000
+    },
+    "prune_files_100k": {
+      "description": "prune_files() — single INTEGER column predicate, 100 000 files",
+      "p50_us": 95000,
+      "p95_us": 260000,
+      "p99_us": 480000,
+      "p999_us": 950000
+    },
+    "concurrent_readers_1": {
+      "description": "Concurrent reader throughput — 1 task, list_data_files(1000 files)",
+      "p50_us": 850,
+      "p95_us": 2200,
+      "p99_us": 4800,
+      "p999_us": 10500
+    },
+    "concurrent_readers_4": {
+      "description": "Concurrent reader throughput — 4 tasks, list_data_files(1000 files)",
+      "p50_us": 920,
+      "p95_us": 2500,
+      "p99_us": 5500,
+      "p999_us": 12000
+    },
+    "concurrent_readers_16": {
+      "description": "Concurrent reader throughput — 16 tasks, list_data_files(1000 files)",
+      "p50_us": 1100,
+      "p95_us": 3200,
+      "p99_us": 7200,
+      "p999_us": 16000
+    }
+  },
+  "s3_express_projection": {
+    "note": "S3 Express One Zone estimates derived from scaling LocalFS measurements by 4× to account for object-store network latency on same-AZ AWS EC2. Full validation requires AWS environment; see docs/performance/s3-express-validation.md.",
+    "get_current_snapshot_warm_p99_us_estimate": 1640,
+    "list_data_files_10k_p99_us_estimate": 164000,
+    "postgres_p99_equivalent_us": 3200,
+    "acceptance_gate_ratio": "S3 Express p99 / Postgres p99",
+    "acceptance_gate_limit": 2.0,
+    "estimated_ratio": 0.51,
+    "verdict": "S3 Express is projected within 2× of PostgreSQL p99 — provisionally ACCEPTED as recommended production tier. Validate on real AWS hardware before GA."
+  },
+  "regression_thresholds": {
+    "get_current_snapshot_warm": 840,
+    "list_data_files_100": 8200,
+    "list_data_files_10k": 82000,
+    "describe_table_100col": 2400,
+    "create_snapshot_1_file": 5200,
+    "create_snapshot_100_files": 29000,
+    "prune_files_100k": 960000
+  }
+}

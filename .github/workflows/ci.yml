@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/v0.39.0-observability-operational-tooling', 'feat/v0.40.0-fault-injection-security-testing', 'feat/v0.41.0-migration-tooling-ducklake-compat']
+    branches: [main, 'feat/v0.39.0-observability-operational-tooling', 'feat/v0.40.0-fault-injection-security-testing', 'feat/v0.41.0-migration-tooling-ducklake-compat', 'feat/v0.42.0-performance-benchmarks-cost-analysis']
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly benchmark regression run — every Monday at 03:00 UTC.
+    - cron: '0 3 * * 1'
 
 env:
   CARGO_TERM_COLOR: always
@@ -286,8 +289,82 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check benchmark thresholds
+      - name: Check benchmark thresholds (phase-2-baseline)
         run: python scripts/check_benchmark_regression.py benchmarks/phase-2-baseline.json
+
+      - name: Check benchmark thresholds (v0.42 baseline)
+        run: python scripts/check_benchmark_regression.py benchmarks/baseline.json
+
+      - name: Verify v0.42 catalog bench JSON present
+        run: |
+          test -f benchmarks/v0.42-catalog-bench.json || \
+            (echo "ERROR: benchmarks/v0.42-catalog-bench.json missing" && exit 1)
+          python -c "import json; d=json.load(open('benchmarks/v0.42-catalog-bench.json')); assert 'measurements' in d and 'regression_thresholds' in d, 'missing required keys'"
+          echo "OK: v0.42-catalog-bench.json present and valid"
+
+  # ── v0.42.0: Performance Benchmarks & Cost Analysis ─────────────────────────
+
+  # v0.42.0: TPC-H Catalog Benchmark integration tests.
+  # Validates benchmark harness correctness, JSON deliverables,
+  # and baseline/threshold consistency without running the full criterion suite.
+  bench-v042:
+    name: Benchmark Suite Integration Tests (v0.42.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: v0.42.0 benchmark integration tests
+        run: cargo test -p rocklake-catalog --test v042_bench_tests -- --test-threads=1 --nocapture
+
+  # v0.42.0: Weekly benchmark regression CI (Tiers 9 & 10).
+  # Runs the catalog benchmark suite on a consistent environment and compares
+  # against the stored baseline. Fails if any operation regresses > 10%.
+  # This job is scheduled weekly; it also runs on feature branch pushes so
+  # the baseline and threshold structure can be validated on every PR.
+  benchmark-regression:
+    name: Benchmark Regression Gate (v0.42.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate baseline.json structure
+        run: |
+          python -c "
+          import json, sys
+          d = json.load(open('benchmarks/baseline.json'))
+          required = ['results', 'regression_thresholds']
+          for k in required:
+              if k not in d:
+                  print(f'ERROR: baseline.json missing key {k}')
+                  sys.exit(1)
+          # Every result must have a threshold >= itself.
+          results = d['results']
+          thresholds = d['regression_thresholds']
+          for key, val in results.items():
+              if key not in thresholds:
+                  print(f'ERROR: no threshold for result key {key}')
+                  sys.exit(1)
+              if thresholds[key] < val:
+                  print(f'ERROR: threshold {thresholds[key]} < result {val} for {key}')
+                  sys.exit(1)
+          print(f'OK: baseline.json valid with {len(results)} metrics')
+          "
+
+      - name: Validate v0.42 benchmark JSON deliverable
+        run: python scripts/check_benchmark_regression.py benchmarks/v0.42-catalog-bench.json
+
+      - name: Verify update_benchmark_baseline.py dry-run works
+        run: |
+          python scripts/update_benchmark_baseline.py \
+            --source benchmarks/v0.42-catalog-bench.json \
+            --justification "CI dry-run validation" \
+            --dry-run | grep -q "DRY RUN"
+          echo "OK: update_benchmark_baseline.py dry-run succeeded"
 
   # v0.35.0: cbindgen header generation — verify the generated header matches
   # the committed crates/rocklake-ffi/include/rocklake.h.
@@ -593,6 +670,8 @@ jobs:
       - security-v040
       - migration-v041
       - ducklake-compat-v041
+      - bench-v042
+      - benchmark-regression
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

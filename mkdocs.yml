@@ -216,6 +216,7 @@ nav:
     - When to Use RockLake: performance/when-to-use.md
     - vs. Alternatives: performance/vs-alternatives.md
     - Cost Analysis: performance/cost-analysis.md
+    - S3 Express Validation: performance/s3-express-validation.md
     - SlateDB Tuning: performance/slatedb-tuning.md
     - Zone-Map Readiness: performance/pruning.md
   - Internals:
