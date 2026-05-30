@@ -180,6 +180,18 @@ pub struct ServeArgs {
     /// OTLP HTTP endpoint for OpenTelemetry tracing.
     #[arg(long, env = "ROCKLAKE_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
+
+    /// Close idle connections after this many seconds (default: 60).
+    #[arg(long, default_value = "60")]
+    pub idle_connection_timeout: u64,
+
+    /// Maximum seconds to wait for in-flight queries during SIGTERM drain (default: 30).
+    #[arg(long, default_value = "30")]
+    pub drain_timeout: u64,
+
+    /// Capacity of the DataFusion AsyncBridge channel (default: 256).
+    #[arg(long, default_value = "256")]
+    pub datafusion_bridge_queue_depth: usize,
 }
 
 // ─── gc ────────────────────────────────────────────────────────────────────

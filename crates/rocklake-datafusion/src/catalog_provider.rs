@@ -41,11 +41,20 @@ impl AsyncBridge {
     /// worker thread.  Both operations are now fallible and return
     /// `DataFusionError` on failure instead of panicking.
     fn new() -> Result<Arc<Self>, DataFusionError> {
+        Self::with_queue_depth(256)
+    }
+
+    /// Construct the bridge with a configurable channel capacity.
+    ///
+    /// `queue_depth` is the number of tasks that can be queued before
+    /// `run_sync()` blocks the caller.  The default (used by `new()`) is 256.
+    /// Increase this value if you observe backpressure under high concurrency.
+    fn with_queue_depth(queue_depth: usize) -> Result<Arc<Self>, DataFusionError> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
-        let (sender, receiver) = std::sync::mpsc::sync_channel::<AsyncTask>(64);
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<AsyncTask>(queue_depth);
         std::thread::Builder::new()
             .name("rocklake-df-bridge".to_string())
             .spawn(move || {
@@ -142,10 +151,22 @@ impl RockLakeCatalogProvider {
         store: CatalogStore,
         snapshot_id: Option<SnapshotId>,
     ) -> Result<Self, DataFusionError> {
+        Self::new_with_queue_depth(store, snapshot_id, 256)
+    }
+
+    /// Create a new provider with a configurable AsyncBridge channel capacity.
+    ///
+    /// `queue_depth` controls how many concurrent DataFusion queries can be
+    /// queued before callers block.  The default (`new()`) is 256.
+    pub fn new_with_queue_depth(
+        store: CatalogStore,
+        snapshot_id: Option<SnapshotId>,
+        queue_depth: usize,
+    ) -> Result<Self, DataFusionError> {
         Ok(Self {
             store: Arc::new(RwLock::new(store)),
             snapshot_id,
-            bridge: AsyncBridge::new()?,
+            bridge: AsyncBridge::with_queue_depth(queue_depth)?,
             data_root: None,
         })
     }

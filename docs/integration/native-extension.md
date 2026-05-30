@@ -94,10 +94,10 @@ Place the library in DuckDB's extension directory for automatic discovery:
 
 ```bash
 # Default extension directory
-~/.duckdb/extensions/v1.3.0/linux_amd64/
+~/.duckdb/extensions/v1.5.2/linux_amd64/
 
 # Copy the extension
-cp target/release/librocklake_ffi.so ~/.duckdb/extensions/v1.3.0/linux_amd64/rocklake.duckdb_extension
+cp target/release/librocklake_ffi.so ~/.duckdb/extensions/v1.5.2/linux_amd64/rocklake.duckdb_extension
 ```
 
 Then in DuckDB:
@@ -318,7 +318,7 @@ Recompile against the correct DuckDB version:
 
 ```bash
 # Specify DuckDB version explicitly
-DUCKDB_VERSION=1.1.0 cargo build --release -p rocklake-ffi
+DUCKDB_VERSION=1.5.2 cargo build --release -p rocklake-ffi
 ```
 
 ### "Cannot open catalog: writer conflict"

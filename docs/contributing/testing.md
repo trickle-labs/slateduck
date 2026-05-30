@@ -168,14 +168,14 @@ Located in `tests/golden/`. These verify that RockLake's SQL classifier recogniz
 ```rust
 #[test]
 fn test_corpus_create_schema() {
-    let sql = include_str!("../fixtures/wire-corpus/duckdb-1.2.0/create-schema.sql");
+    let sql = include_str!("../fixtures/wire-corpus/duckdb-1.5.2/create-schema.sql");
     let result = classify_statement(sql).unwrap();
     assert_eq!(result.kind, StatementKind::CreateSchema);
 }
 
 #[test]
 fn test_corpus_create_table_with_columns() {
-    let sql = include_str!("../fixtures/wire-corpus/duckdb-1.2.0/create-table.sql");
+    let sql = include_str!("../fixtures/wire-corpus/duckdb-1.5.2/create-table.sql");
     let result = classify_statement(sql).unwrap();
     assert_eq!(result.kind, StatementKind::CreateTable);
     assert_eq!(result.table_name, Some("users".to_string()));
@@ -186,13 +186,13 @@ The wire corpus is organized by DuckDB version:
 
 ```
 tests/fixtures/wire-corpus/
-├── duckdb-1.2.0/
+├── duckdb-1.5.2/
 │   ├── create-schema.sql
 │   ├── create-table.sql
 │   ├── drop-table.sql
 │   ├── insert-data-file.sql
 │   └── ...
-├── duckdb-1.3.0/
+├── duckdb-1.5.3/
 │   ├── create-schema.sql
 │   └── ...
 └── README.md

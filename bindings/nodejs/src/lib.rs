@@ -85,6 +85,17 @@ impl Catalog {
         Ok(Self { inner: Some(inner) })
     }
 
+    /// Open a catalog in read-only mode (no writer epoch acquired).
+    ///
+    /// Use this for stateless reader replicas and analytics sidecars. Multiple
+    /// simultaneous calls produce zero CAS write conflicts.
+    #[napi(factory)]
+    pub fn open_readonly(uri: String) -> napi::Result<Self> {
+        let inner = CatalogClientSync::open_readonly(&uri)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        Ok(Self { inner: Some(inner) })
+    }
+
     /// Return the current snapshot ID as a `BigInt`.
     #[napi]
     pub fn snapshot_id(&self) -> napi::Result<i64> {

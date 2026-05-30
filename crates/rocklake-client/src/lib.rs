@@ -11,18 +11,18 @@
 //! # Quick start
 //!
 //! ```no_run
-//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 //! use rocklake_client::{CatalogClient, CatalogClientBuilder};
 //!
 //! let client = CatalogClientBuilder::new("file:///tmp/my-catalog")
 //!     .build()
 //!     .await
-//!     .unwrap();
+//!     .expect("build");
 //!
-//! let snapshot = client.snapshot_id().await.unwrap();
+//! let snapshot = client.snapshot_id().await.expect("snapshot_id");
 //! println!("current snapshot: {snapshot}");
 //!
-//! let schemas = client.list_schemas(snapshot).await.unwrap();
+//! let schemas = client.list_schemas(snapshot).await.expect("list_schemas");
 //! println!("schemas: {schemas:?}");
 //!
 //! client.close().await;
@@ -123,13 +123,13 @@ pub struct Column {
 /// # Examples
 ///
 /// ```no_run
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
 /// use rocklake_client::CatalogClientBuilder;
 ///
 /// let client = CatalogClientBuilder::new("file:///tmp/demo")
 ///     .build()
 ///     .await
-///     .unwrap();
+///     .expect("build");
 /// client.close().await;
 /// # });
 /// ```
@@ -164,6 +164,41 @@ impl CatalogClientBuilder {
         let store = CatalogStore::open(opts).await?;
         Ok(CatalogClient {
             store: Arc::new(tokio::sync::RwLock::new(Some(store))),
+        })
+    }
+
+    /// Build and open a **read-only** [`ReadOnlyClient`].
+    ///
+    /// Unlike [`build()`](Self::build), this does **not** acquire or increment
+    /// the writer epoch.  Many simultaneous `build_readonly()` calls against the
+    /// same catalog path produce zero CAS transaction conflicts.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
+    /// use rocklake_client::CatalogClientBuilder;
+    ///
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo")
+    ///     .build_readonly()
+    ///     .await
+    ///     .expect("build_readonly");
+    /// let snapshot_id = client.current_snapshot_id();
+    /// client.close().await;
+    /// # });
+    /// ```
+    pub async fn build_readonly(self) -> ClientResult<ReadOnlyClient> {
+        let object_store = build_object_store(&self.uri)?;
+
+        let opts = OpenOptions {
+            object_store,
+            path: ObjectPath::from("catalog"),
+            encryption: None,
+        };
+
+        let cat = rocklake_catalog::ReadOnlyCatalog::open(opts).await?;
+        Ok(ReadOnlyClient {
+            inner: tokio::sync::Mutex::new(cat),
         })
     }
 }
@@ -273,10 +308,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let snap = client.snapshot_id().await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let snap = client.snapshot_id().await.expect("snapshot_id");
     /// assert_eq!(snap, 0); // fresh catalog
     /// client.close().await;
     /// # });
@@ -296,10 +331,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let schemas = client.list_schemas(0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let schemas = client.list_schemas(0).await.expect("list_schemas");
     /// assert!(schemas.is_empty());
     /// client.close().await;
     /// # });
@@ -323,10 +358,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let tables = client.list_tables(1, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let tables = client.list_tables(1, 0).await.expect("list_tables");
     /// assert!(tables.is_empty());
     /// client.close().await;
     /// # });
@@ -353,10 +388,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let cols = client.get_table(999, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let cols = client.get_table(999, 0).await.expect("get_table");
     /// assert!(cols.is_none());
     /// client.close().await;
     /// # });
@@ -389,10 +424,10 @@ impl CatalogClient {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
     /// use rocklake_client::CatalogClientBuilder;
-    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.unwrap();
-    /// let files = client.list_data_files(1, 0).await.unwrap();
+    /// let client = CatalogClientBuilder::new("file:///tmp/demo").build().await.expect("build");
+    /// let files = client.list_data_files(1, 0).await.expect("list_data_files");
     /// assert!(files.is_empty());
     /// client.close().await;
     /// # });
@@ -432,6 +467,94 @@ impl CatalogClient {
     }
 }
 
+// ─── ReadOnlyClient ────────────────────────────────────────────────────────
+
+/// Read-only client for the RockLake catalog.
+///
+/// Opened via [`CatalogClientBuilder::build_readonly()`].  Does **not**
+/// acquire a writer epoch — many instances may be opened concurrently
+/// against the same catalog prefix with zero coordination overhead.
+///
+/// # Examples
+///
+/// ```no_run
+/// # tokio::runtime::Runtime::new().expect("runtime").block_on(async {
+/// use rocklake_client::CatalogClientBuilder;
+///
+/// let mut client = CatalogClientBuilder::new("file:///tmp/demo")
+///     .build_readonly()
+///     .await
+///     .expect("build_readonly");
+/// let snapshot_id = client.current_snapshot_id();
+/// let new_snap = client.refresh().await.expect("refresh");
+/// client.close().await;
+/// # });
+/// ```
+pub struct ReadOnlyClient {
+    inner: tokio::sync::Mutex<rocklake_catalog::ReadOnlyCatalog>,
+}
+
+impl std::fmt::Debug for ReadOnlyClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadOnlyClient").finish_non_exhaustive()
+    }
+}
+
+impl ReadOnlyClient {
+    /// Return the snapshot ID observed at the last `refresh()` (or `open()`).
+    pub fn current_snapshot_id(&self) -> Option<SnapshotId> {
+        // Try to acquire the mutex without blocking; if locked we return None.
+        // In practise callers hold no concurrent mutable reference.
+        self.inner.try_lock().ok().map(|g| g.current_snapshot_id())
+    }
+
+    /// Advance to the latest committed snapshot without writer coordination.
+    ///
+    /// Re-reads the snapshot counter and the GC retain-from key from SlateDB.
+    /// Returns the newly observed snapshot ID.
+    pub async fn refresh(&self) -> ClientResult<SnapshotId> {
+        let mut guard = self.inner.lock().await;
+        Ok(guard.refresh().await?)
+    }
+
+    /// List schemas visible at the current snapshot.
+    pub async fn list_schemas(&self) -> ClientResult<Vec<Schema>> {
+        let guard = self.inner.lock().await;
+        let reader = guard.reader()?;
+        Ok(reader
+            .list_schemas()
+            .await?
+            .into_iter()
+            .map(|r| Schema {
+                schema_id: r.schema_id,
+                schema_name: r.schema_name,
+            })
+            .collect())
+    }
+
+    /// List tables in a schema, visible at the current snapshot.
+    pub async fn list_tables(&self, schema_id: u64) -> ClientResult<Vec<Table>> {
+        let guard = self.inner.lock().await;
+        let reader = guard.reader()?;
+        Ok(reader
+            .list_tables(schema_id)
+            .await?
+            .into_iter()
+            .map(|r| Table {
+                table_id: r.table_id,
+                schema_id: r.schema_id,
+                table_name: r.table_name,
+            })
+            .collect())
+    }
+
+    /// Close the catalog and release all resources.
+    pub async fn close(self) {
+        let guard = self.inner.into_inner();
+        let _ = guard.close().await;
+    }
+}
+
 // ─── CatalogClientSync ─────────────────────────────────────────────────────
 
 /// Synchronous (blocking) wrapper around [`CatalogClient`].
@@ -446,8 +569,8 @@ impl CatalogClient {
 /// ```no_run
 /// use rocklake_client::CatalogClientSync;
 ///
-/// let client = CatalogClientSync::open("file:///tmp/demo").unwrap();
-/// let snap = client.snapshot_id().unwrap();
+/// let client = CatalogClientSync::open("file:///tmp/demo").expect("open");
+/// let snap = client.snapshot_id().expect("snapshot_id");
 /// assert_eq!(snap, 0);
 /// client.close();
 /// ```
@@ -462,6 +585,30 @@ impl CatalogClientSync {
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| ClientError::Config(format!("failed to create Tokio runtime: {e}")))?;
         let inner = runtime.block_on(CatalogClientBuilder::new(uri).build())?;
+        Ok(Self { runtime, inner })
+    }
+
+    /// Open a catalog in read-only mode (no writer epoch acquired).
+    ///
+    /// Use this for stateless reader replicas and analytics sidecars. Multiple
+    /// simultaneous calls produce zero CAS write conflicts.
+    pub fn open_readonly(uri: impl Into<String>) -> ClientResult<Self> {
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| ClientError::Config(format!("failed to create Tokio runtime: {e}")))?;
+        // build_readonly returns a ReadOnlyClient; wrap it in a CatalogClient
+        // via the underlying open_without_epoch path so we keep the same sync API.
+        let uri_str = uri.into();
+        let os = build_object_store(&uri_str)?;
+        let opts = OpenOptions {
+            object_store: os,
+            path: ObjectPath::from("catalog"),
+            encryption: None,
+        };
+        let object_store =
+            runtime.block_on(rocklake_catalog::CatalogStore::open_without_epoch(opts))?;
+        let inner = CatalogClient {
+            store: std::sync::Arc::new(tokio::sync::RwLock::new(Some(object_store))),
+        };
         Ok(Self { runtime, inner })
     }
 

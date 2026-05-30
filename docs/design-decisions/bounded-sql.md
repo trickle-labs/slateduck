@@ -215,7 +215,7 @@ This is essentially a hand-coded parser that recognizes specific sentence struct
 
 ## Historical Validation
 
-After 8 months of development and testing against multiple DuckDB versions (1.1.x, 1.2.x, 1.3.x), the bounded SQL approach has never been the bottleneck for adding new functionality. Every feature request has been implementable by adding 1–3 new patterns to the dispatcher. The maintenance burden is exactly as predicted: small, discrete, and proportional to ducklake's evolution.
+After 8 months of development and testing against multiple DuckDB versions (1.5.x), the bounded SQL approach has never been the bottleneck for adding new functionality. Every feature request has been implementable by adding 1–3 new patterns to the dispatcher. The maintenance burden is exactly as predicted: small, discrete, and proportional to ducklake's evolution.
 
 ## Further Reading
 

@@ -102,10 +102,8 @@ RockLake stores column types as strings matching DuckDB's type system:
 
 | DuckDB Version | ducklake Version | RockLake Compatibility | Notes |
 |----------------|-----------------|------------------------|-------|
-| 1.3.x | 0.1.1+ | ✅ Full | Latest, recommended |
-| 1.2.x | 0.1.0 | ✅ Full | First stable ducklake |
-| 1.1.x | (pre-release) | ⚠️ Partial | Older SQL patterns, mostly works |
-| < 1.1 | N/A | ❌ Not supported | No ducklake extension |
+| 1.5.x | 1.0 | ✅ Full | Minimum required version |
+| < 1.5.2 | N/A | ❌ Not supported | DuckLake 1.0 requires DuckDB 1.5.2+ |
 
 ### Version Detection
 
@@ -117,12 +115,12 @@ Compatibility is verified through a **wire corpus** — a collection of recorded
 
 ```
 tests/golden/wire-corpus/
-├── duckdb-1.2.0/
+├── duckdb-1.5.2/
 │   ├── create-schema.pgwire
 │   ├── create-table.pgwire
 │   ├── insert-file.pgwire
 │   └── ...
-├── duckdb-1.3.0/
+├── duckdb-1.5.3/
 │   ├── create-schema.pgwire
 │   ├── create-table.pgwire
 │   └── ...

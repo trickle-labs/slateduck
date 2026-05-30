@@ -157,6 +157,20 @@ impl RockLakeCatalog {
         Ok(Self { inner: Some(inner) })
     }
 
+    /// Open a catalog in read-only mode (no writer epoch acquired).
+    ///
+    /// Use this for stateless reader replicas and analytics sidecars.
+    /// Many simultaneous ``open_readonly`` calls against the same catalog
+    /// path produce zero write conflicts.
+    ///
+    /// :param uri: Catalog URI. Local paths and ``file://`` URIs are supported.
+    /// :raises RuntimeError: if the catalog cannot be opened.
+    #[staticmethod]
+    pub fn open_readonly(uri: &str) -> PyResult<Self> {
+        let inner = CatalogClientSync::open_readonly(uri).map_err(to_py)?;
+        Ok(Self { inner: Some(inner) })
+    }
+
     /// Return the current snapshot ID (0 = empty catalog).
     pub fn snapshot_id(&self) -> PyResult<u64> {
         self.client()?.snapshot_id().map_err(to_py)

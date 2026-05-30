@@ -371,6 +371,86 @@ pub extern "C" fn rocklake_open(
     }
 }
 
+/// Open a catalog in **read-only** mode: no writer epoch is acquired.
+///
+/// This function is equivalent to `rocklake_open` but skips the CAS writer-epoch
+/// acquisition, which means many reader instances can be opened concurrently
+/// against the same catalog prefix with zero write conflicts.
+///
+/// Returns a catalog handle on success, null on failure. The handle must be
+/// closed with `rocklake_close`.
+#[no_mangle]
+pub extern "C" fn rocklake_open_readonly(
+    uri: *const c_char,
+    err: *mut RockLakeError,
+) -> *mut RockLakeCatalog {
+    if uri.is_null() {
+        write_error(
+            err,
+            RockLakeError {
+                code: RockLakeErrorCode::InvalidHandle as i32,
+                message: to_c_string("uri must not be null").into_raw(),
+            },
+        );
+        return ptr::null_mut();
+    }
+
+    let uri_str = match unsafe { CStr::from_ptr(uri) }.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            write_error(
+                err,
+                RockLakeError::from_catalog_error(rocklake_catalog::CatalogError::NotInitialized),
+            );
+            return ptr::null_mut();
+        }
+    };
+
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => Arc::new(rt),
+        Err(e) => {
+            write_error(
+                err,
+                RockLakeError {
+                    code: RockLakeErrorCode::Internal as i32,
+                    message: to_c_string(&format!("failed to create runtime: {e}")).into_raw(),
+                },
+            );
+            return ptr::null_mut();
+        }
+    };
+
+    let result = runtime.block_on(async {
+        let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(
+            LocalFileSystem::new_with_prefix(uri_str)
+                .map_err(|e| rocklake_catalog::CatalogError::SlateDb(e.to_string()))?,
+        );
+
+        let opts = OpenOptions {
+            object_store,
+            path: ObjectPath::from("catalog"),
+            encryption: None,
+        };
+
+        CatalogStore::open_without_epoch(opts).await
+    });
+
+    match result {
+        Ok(store) => {
+            write_error(err, RockLakeError::ok());
+            Box::into_raw(Box::new(RockLakeCatalog {
+                magic: CATALOG_MAGIC,
+                store,
+                runtime,
+            }))
+        }
+        Err(e) => {
+            write_error(err, RockLakeError::from_catalog_error(e));
+            ptr::null_mut()
+        }
+    }
+}
+
 /// Close and free a catalog handle. Safe to call with null or already-closed handles.
 #[no_mangle]
 pub extern "C" fn rocklake_close(catalog: *mut RockLakeCatalog) {

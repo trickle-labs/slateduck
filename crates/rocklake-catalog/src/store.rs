@@ -273,6 +273,61 @@ impl CatalogStore {
         Ok(())
     }
 
+    /// Open a catalog store **without** acquiring the writer epoch.
+    ///
+    /// This is the correct path for read-only sidecar replicas.  Skipping the
+    /// CAS epoch means any number of reader pods can open the same catalog
+    /// prefix concurrently with zero write conflicts.
+    ///
+    /// The returned `CatalogStore` has `writer_epoch = 0`.  Attempting to call
+    /// `begin_write()` / `commit_writer()` on it will succeed at the in-process
+    /// level, but the SQL handler is expected to reject writes based on the
+    /// serving mode set by `cmd_serve`.
+    ///
+    /// Prefer [`crate::readonly::ReadOnlyCatalog`] for true read-only access
+    /// (no write path at all).  This method exists so the PG-Wire server can
+    /// reuse the existing `Arc<Mutex<CatalogStore>>` infrastructure while still
+    /// avoiding the epoch contention.
+    pub async fn open_without_epoch(opts: OpenOptions) -> CatalogResult<Self> {
+        let object_store_ref = Arc::clone(&opts.object_store);
+        let db = if let Some(ref enc) = opts.encryption {
+            let transformer = Arc::new(AesGcmTransformer::new(enc));
+            Db::builder(opts.path, opts.object_store)
+                .with_block_transformer(transformer)
+                .build()
+                .await?
+        } else {
+            Db::open(opts.path, opts.object_store).await?
+        };
+
+        crate::key_migration::migrate_key_encoding_if_needed(&db).await?;
+        let counters = init::initialize_catalog(&db).await?;
+        let schema_version = Self::load_schema_version(&db, &counters).await;
+        let retain_from_initial = crate::gc::read_retain_from(&db).await.unwrap_or(0);
+
+        Ok(Self {
+            db,
+            counters,
+            writer_epoch: 0, // no epoch acquired — reader pod
+            writer_nonce: "reader".to_string(),
+            schema_version,
+            retain_from_cache: Arc::new(AtomicU64::new(retain_from_initial)),
+            object_store: object_store_ref,
+        })
+    }
+
+    /// Open a **read-only** catalog: no writer epoch is acquired or incremented.
+    ///
+    /// Convenience wrapper for [`ReadOnlyCatalog::open()`].  Multiple
+    /// simultaneous calls with the same `opts` produce zero CAS conflicts.
+    ///
+    /// See [`crate::readonly::ReadOnlyCatalog`] for the full API.
+    pub async fn open_readonly(
+        opts: OpenOptions,
+    ) -> CatalogResult<crate::readonly::ReadOnlyCatalog> {
+        crate::readonly::ReadOnlyCatalog::open(opts).await
+    }
+
     /// Get the underlying database reference (for verification/testing).
     pub fn db(&self) -> &Db {
         &self.db

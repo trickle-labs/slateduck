@@ -87,7 +87,7 @@ Update `CHANGELOG.md` with all changes since the last release. Group changes by 
 - Wire protocol crash on oversized query strings (#131)
 
 ### Changed
-- Minimum DuckDB version is now 1.2.0 (#125)
+- Minimum DuckDB version is now 1.5.2 (#125)
 - Default retention increased from 50 to 100 snapshots (#136)
 
 ### Performance

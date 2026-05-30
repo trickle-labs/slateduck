@@ -45,6 +45,33 @@ public class RockLakeCatalog implements AutoCloseable {
     }
 
     /**
+     * Opens a RockLake catalog in read-only mode (no writer epoch acquired).
+     *
+     * Use this for stateless reader replicas and analytics sidecars.
+     * Many simultaneous {@code openReadOnly} calls against the same catalog
+     * path produce zero CAS write conflicts.
+     *
+     * @param path the catalog path
+     * @return a RockLakeCatalog in read-only mode
+     * @throws RockLakeException if opening fails
+     */
+    public static RockLakeCatalog openReadOnly(String path) throws RockLakeException {
+        if (path == null || path.isEmpty()) {
+            throw new IllegalArgumentException("path cannot be null or empty");
+        }
+        RockLakeCatalog cat = new RockLakeCatalog();
+        cat.path = path;
+        cat.handle = RockLakeNative.openCatalogReadOnly(path);
+        return cat;
+    }
+
+    /** Private no-arg constructor used by openReadOnly. */
+    private RockLakeCatalog() {
+        this.path = "";
+        this.handle = 0;
+    }
+
+    /**
      * Gets the current snapshot ID.
      * 
      * @return the snapshot ID

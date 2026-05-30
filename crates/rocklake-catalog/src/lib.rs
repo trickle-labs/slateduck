@@ -28,6 +28,7 @@ pub mod migrate_from_ducklake;
 pub mod partition;
 pub mod performance;
 pub mod reader;
+pub mod readonly;
 pub mod repair;
 pub mod store;
 pub mod streaming;
@@ -57,6 +58,7 @@ pub use migrate::{migrate_apply, migrate_dry_run, MigrateDryRunResult, MigrateRe
 pub use partition::{CatalogRegistry, DatasetEntry, PartitionedWriter};
 pub use performance::{BenchmarkReport, HotKeyState, SlateDbTuning};
 pub use reader::{CatalogReader, SnapshotDiff};
+pub use readonly::ReadOnlyCatalog;
 pub use store::{CatalogStore, OpenOptions};
 pub use streaming::{measure_ingest_throughput, IngestRecord, IngestResult, RockLakeSink};
 pub use sweep::{sweep_orphans, SweepOrphansConfig, SweepResult};

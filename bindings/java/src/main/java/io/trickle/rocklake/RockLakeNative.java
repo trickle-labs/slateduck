@@ -115,6 +115,12 @@ class RockLakeNative {
     native static long openCatalog(String path, Map<String, String> options) throws RockLakeException;
 
     /**
+     * Native: opens a catalog in read-only mode (no writer epoch acquired).
+     * Corresponds to rocklake_open_readonly in rocklake.h.
+     */
+    native static long openCatalogReadOnly(String path) throws RockLakeException;
+
+    /**
      * Native: gets the current snapshot ID.
      * Corresponds to rocklake_get_snapshot in rocklake.h.
      */

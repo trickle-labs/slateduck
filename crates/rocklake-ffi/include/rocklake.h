@@ -223,6 +223,23 @@ typedef struct {
 rocklake_catalog_t *rocklake_open(const char *uri, rocklake_error_t *err);
 
 /**
+ * Open a catalog in **read-only** mode: no writer epoch is acquired.
+ *
+ * Identical to `rocklake_open()` except that the CAS writer-epoch key is not
+ * incremented.  Many simultaneous `rocklake_open_readonly()` calls against the
+ * same catalog prefix produce zero write conflicts — use this function for
+ * stateless reader replicas, analytics sidecars, and horizontal fan-out pods.
+ *
+ * Thread-safety: safe to call concurrently; each call returns an independent
+ *   handle backed by its own Tokio runtime.
+ * Nullability: `uri` must be non-NULL. `err` may be NULL.
+ * Ownership: on success returns a heap-allocated handle the caller must
+ *   close with `rocklake_close()`. Returns NULL on failure.
+ * Free: `rocklake_close()` for the handle; `rocklake_error_free(err)`.
+ */
+rocklake_catalog_t *rocklake_open_readonly(const char *uri, rocklake_error_t *err);
+
+/**
  * Close and free a catalog handle.
  *
  * Thread-safety: must not be called while any other thread uses this handle.

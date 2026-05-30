@@ -127,6 +127,15 @@ async fn dispatch_clap(cli: cli::Cli) -> Result<(), Box<dyn std::error::Error>> 
             if let Some(o) = a.otlp_endpoint {
                 synthetic.extend(["--otlp-endpoint".to_string(), o]);
             }
+            synthetic.extend([
+                "--idle-connection-timeout".to_string(),
+                a.idle_connection_timeout.to_string(),
+            ]);
+            synthetic.extend(["--drain-timeout".to_string(), a.drain_timeout.to_string()]);
+            synthetic.extend([
+                "--datafusion-bridge-queue-depth".to_string(),
+                a.datafusion_bridge_queue_depth.to_string(),
+            ]);
             cmd_serve(&synthetic).await?;
         }
         Commands::Gc(sub) => {
@@ -503,15 +512,26 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| format!("--encryption-key: {e}"))?,
     };
 
-    let store = CatalogStore::open(opts)
-        .await
-        .map_err(|e| format!("Failed to open catalog: {e}"))?;
+    let store = if config.mode == "reader" {
+        // Read-only mode: skip the writer-epoch CAS so that any number of
+        // reader replicas can open the same catalog concurrently without
+        // contending on the epoch key.
+        tracing::info!("Opening catalog in read-only mode (no writer epoch)");
+        CatalogStore::open_without_epoch(opts)
+            .await
+            .map_err(|e| format!("Failed to open catalog (read-only): {e}"))?
+    } else {
+        CatalogStore::open(opts)
+            .await
+            .map_err(|e| format!("Failed to open catalog: {e}"))?
+    };
 
     tracing::info!("Catalog opened successfully");
     tracing::info!(
-        "Serving mode: {}, cost mode: {:?}",
+        "Serving mode: {}, cost mode: {:?}, datafusion bridge queue depth: {}",
         config.mode,
-        config.cost_mode
+        config.cost_mode,
+        config.datafusion_bridge_queue_depth,
     );
 
     let catalog = Arc::new(Mutex::new(store));
@@ -556,6 +576,10 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             scram_sha256: false,
         },
         extension_schemas: config.extension_schemas.clone(),
+        idle_connection_timeout: std::time::Duration::from_secs(
+            config.idle_connection_timeout_secs,
+        ),
+        drain_timeout: std::time::Duration::from_secs(config.drain_timeout_secs),
     };
 
     // If --datafusion-pg-wire <port> is set, also start a second listener on
@@ -572,6 +596,8 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             tls: rocklake_pgwire::server::TlsConfig::default(),
             auth: rocklake_pgwire::server::AuthConfig::default(),
             extension_schemas: config.extension_schemas,
+            idle_connection_timeout: server_config.idle_connection_timeout,
+            drain_timeout: server_config.drain_timeout,
         };
         let df_catalog = catalog.clone();
         tokio::spawn(async move {
@@ -617,6 +643,12 @@ struct ServeConfig {
     /// Optional OTLP HTTP endpoint for OpenTelemetry tracing (e.g. "http://jaeger:4318").
     /// When not set, no spans are exported. Document: docs/operations/monitoring.md.
     otlp_endpoint: Option<String>,
+    /// Duration in seconds after which an idle connection is closed (default: 60).
+    idle_connection_timeout_secs: u64,
+    /// Grace period in seconds for in-flight queries on SIGTERM drain (default: 30).
+    drain_timeout_secs: u64,
+    /// Capacity of the DataFusion AsyncBridge channel (default: 256).
+    datafusion_bridge_queue_depth: usize,
 }
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
@@ -654,6 +686,9 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                 .collect()
         })
         .unwrap_or_else(|| vec!["public".to_string(), "pgtrickle".to_string()]);
+    let mut idle_connection_timeout_secs: u64 = 60;
+    let mut drain_timeout_secs: u64 = 30;
+    let mut datafusion_bridge_queue_depth: usize = 256;
 
     let mut i = 2;
     while i < args.len() {
@@ -813,6 +848,31 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
                     .and_then(|(_, p)| p.parse().map_err(|_| "--metrics-addr port is invalid"))?;
                 metrics_port = Some(port);
             }
+            // v0.47.0: connection management.
+            "--idle-connection-timeout" => {
+                i += 1;
+                idle_connection_timeout_secs = args
+                    .get(i)
+                    .ok_or("--idle-connection-timeout requires a value")?
+                    .parse()
+                    .map_err(|e| format!("invalid --idle-connection-timeout: {e}"))?;
+            }
+            "--drain-timeout" => {
+                i += 1;
+                drain_timeout_secs = args
+                    .get(i)
+                    .ok_or("--drain-timeout requires a value")?
+                    .parse()
+                    .map_err(|e| format!("invalid --drain-timeout: {e}"))?;
+            }
+            "--datafusion-bridge-queue-depth" => {
+                i += 1;
+                datafusion_bridge_queue_depth = args
+                    .get(i)
+                    .ok_or("--datafusion-bridge-queue-depth requires a value")?
+                    .parse()
+                    .map_err(|e| format!("invalid --datafusion-bridge-queue-depth: {e}"))?;
+            }
             "--help" | "-h" => {
                 eprintln!(
                     "Usage: rocklake serve --catalog <path> \
@@ -875,6 +935,9 @@ fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
         datafusion_pg_wire_port,
         extension_schemas,
         otlp_endpoint,
+        idle_connection_timeout_secs,
+        drain_timeout_secs,
+        datafusion_bridge_queue_depth,
     })
 }
 

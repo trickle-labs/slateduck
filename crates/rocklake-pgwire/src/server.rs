@@ -3,6 +3,7 @@
 //! Supports optional TLS (--tls-cert, --tls-key) and password authentication.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -13,6 +14,27 @@ use rocklake_catalog::CatalogStore;
 
 use crate::handler::RockLakeServerHandlers;
 use crate::notify::NotifyManager;
+
+/// Monotonically-tracked session counters used to populate Prometheus gauges.
+///
+/// `active_sessions`  — sessions that currently have a command in flight.
+/// `idle_sessions`    — sessions that are connected but waiting for the next query.
+///
+/// Both are signed to allow correct delta-based arithmetic even if a session
+/// races with a snapshot.  They are always ≥ 0 in steady state.
+#[derive(Default)]
+pub struct SessionCounters {
+    /// Connections that are currently executing a query.
+    pub active_sessions: AtomicI64,
+    /// Connections that are open but idle (waiting for the next query).
+    pub idle_sessions: AtomicI64,
+}
+
+impl SessionCounters {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
 
 /// TLS configuration.
 #[derive(Debug, Clone, Default)]
@@ -68,6 +90,10 @@ pub struct ServerConfig {
     pub auth: AuthConfig,
     /// Allowed extension schema names (default: `["pgtrickle"]`).
     pub extension_schemas: Vec<String>,
+    /// Duration after which an idle connection is closed (default: 60 s).
+    pub idle_connection_timeout: std::time::Duration,
+    /// Grace period for in-flight queries during SIGTERM drain (default: 30 s).
+    pub drain_timeout: std::time::Duration,
 }
 
 impl Default for ServerConfig {
@@ -79,6 +105,8 @@ impl Default for ServerConfig {
             tls: TlsConfig::default(),
             auth: AuthConfig::default(),
             extension_schemas: vec!["public".to_string(), "pgtrickle".to_string()],
+            idle_connection_timeout: std::time::Duration::from_secs(60),
+            drain_timeout: std::time::Duration::from_secs(30),
         }
     }
 }
@@ -143,9 +171,38 @@ fn build_tls_acceptor(tls_config: &TlsConfig) -> std::io::Result<Arc<tokio_rustl
 }
 
 /// Run the RockLake PG-Wire server.
+///
+/// This function does not return until the process receives SIGTERM (Unix) or
+/// a hard error on the listener.  On SIGTERM it stops accepting new connections
+/// and waits up to `config.drain_timeout` for in-flight sessions to finish.
 pub async fn run_server(
     config: ServerConfig,
     catalog: Arc<Mutex<CatalogStore>>,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    let shutdown_signal = async {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        sigterm.recv().await;
+    };
+    #[cfg(not(unix))]
+    let shutdown_signal = tokio::signal::ctrl_c();
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        let _ = shutdown_signal.await;
+        let _ = shutdown_tx.send(());
+    });
+
+    run_server_with_shutdown(config, catalog, shutdown_rx).await
+}
+
+/// Run the server with a shutdown signal (for testing and graceful drain).
+pub async fn run_server_with_shutdown(
+    config: ServerConfig,
+    catalog: Arc<Mutex<CatalogStore>>,
+    shutdown: tokio::sync::oneshot::Receiver<()>,
 ) -> std::io::Result<()> {
     let tls_acceptor = if config.tls.is_enabled() {
         Some(build_tls_acceptor(&config.tls)?)
@@ -178,89 +235,35 @@ pub async fn run_server(
     let tls_required = config.tls.required;
     let notify_manager = Arc::new(NotifyManager::new());
     let extension_schemas = Arc::new(config.extension_schemas);
+    let drain_timeout = config.drain_timeout;
 
-    loop {
-        let (socket, addr) = listener.accept().await?;
-        let catalog = catalog.clone();
-        let semaphore = session_semaphore.clone();
-        let tls = tls_acceptor.clone();
-        let auth = auth_config.clone();
-        let nm = notify_manager.clone();
-        let es = extension_schemas.clone();
-
-        tokio::spawn(async move {
-            let _permit = match semaphore.acquire().await {
-                Ok(p) => p,
-                Err(_) => return,
-            };
-
-            info!("New connection from {addr}");
-            let handlers =
-                RockLakeServerHandlers::new_with_config(catalog, auth, tls_required, nm, es);
-
-            if let Err(e) = pgwire::tokio::process_socket(socket, tls, handlers).await {
-                error!("Connection error from {addr}: {e}");
-            }
-        });
-    }
-}
-
-/// Run the server with a shutdown signal (for testing).
-pub async fn run_server_with_shutdown(
-    config: ServerConfig,
-    catalog: Arc<Mutex<CatalogStore>>,
-    shutdown: tokio::sync::oneshot::Receiver<()>,
-) -> std::io::Result<()> {
-    let tls_acceptor = if config.tls.is_enabled() {
-        Some(build_tls_acceptor(&config.tls)?)
-    } else if config.tls.required {
-        return Err(std::io::Error::other(
-            "--tls-required is set but no TLS certificate/key were provided",
-        ));
-    } else {
-        None
-    };
-
-    // Warn when auth is enabled but TLS is not.
-    if config.auth.is_enabled() && tls_acceptor.is_none() {
-        warn!(
-            "Password authentication is enabled without TLS. Credentials will be sent \
-             in plaintext. Use --tls-cert / --tls-key to enable TLS, or pass \
-             --insecure-no-tls-warning-suppress if this is intentional."
-        );
-    }
-
-    let listener = TcpListener::bind(config.bind_addr).await?;
-    info!("RockLake serving on {}", config.bind_addr);
-
-    let session_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_sessions));
-    let auth_config = Arc::new(config.auth);
-    let tls_required = config.tls.required;
-    let notify_manager = Arc::new(NotifyManager::new());
-    let extension_schemas = Arc::new(config.extension_schemas);
+    // Session counters exposed as Prometheus gauges.
+    let counters = SessionCounters::new();
+    // Active-session tracking for graceful drain.
+    let active_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     tokio::select! {
-        _ = async {
+        result = async {
             loop {
-                let (socket, addr) = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        error!("Accept error: {e}");
-                        continue;
-                    }
-                };
+                let (socket, addr) = listener.accept().await?;
                 let catalog = catalog.clone();
                 let semaphore = session_semaphore.clone();
                 let tls = tls_acceptor.clone();
                 let auth = auth_config.clone();
                 let nm = notify_manager.clone();
                 let es = extension_schemas.clone();
+                let counters_ref = counters.clone();
+                let active_ref = active_count.clone();
 
                 tokio::spawn(async move {
                     let _permit = match semaphore.acquire().await {
                         Ok(p) => p,
                         Err(_) => return,
                     };
+
+                    // Track idle → active transition.
+                    counters_ref.idle_sessions.fetch_add(1, Ordering::Relaxed);
+                    active_ref.fetch_add(1, Ordering::AcqRel);
 
                     info!("New connection from {addr}");
                     let handlers =
@@ -269,12 +272,32 @@ pub async fn run_server_with_shutdown(
                     if let Err(e) = pgwire::tokio::process_socket(socket, tls, handlers).await {
                         error!("Connection error from {addr}: {e}");
                     }
+
+                    counters_ref.idle_sessions.fetch_sub(1, Ordering::Relaxed);
+                    active_ref.fetch_sub(1, Ordering::AcqRel);
                 });
             }
-        } => {}
+            #[allow(unreachable_code)]
+            Ok::<(), std::io::Error>(())
+        } => { result }
         _ = shutdown => {
-            info!("Shutdown signal received");
+            info!("Shutdown signal received; draining in-flight sessions (timeout: {:?})", drain_timeout);
+            // Stop the listener (drop it) and wait for active sessions to drain.
+            drop(listener);
+            let deadline = tokio::time::Instant::now() + drain_timeout;
+            loop {
+                if active_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+                    info!("All sessions drained");
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    warn!("Drain timeout exceeded; forcing shutdown with {} active session(s)",
+                        active_count.load(std::sync::atomic::Ordering::Relaxed));
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Ok(())
         }
     }
-    Ok(())
 }

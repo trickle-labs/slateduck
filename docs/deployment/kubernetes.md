@@ -711,3 +711,140 @@ strategy:
 - **[High Availability](high-availability.md)** — Failover strategies for uptime SLAs
 - **[Multi-Region](multi-region.md)** — Cross-region reader distribution
 - **[Configuration](configuration.md)** — Full configuration reference
+
+---
+
+## Reader Fleet (v0.47.0+)
+
+> Read-scale-out: deploy a fleet of zero-epoch readers that can serve analytics
+> queries without interfering with the writer.
+
+### Reader Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rocklake-reader
+  labels:
+    app: rocklake
+    role: reader
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rocklake
+      role: reader
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: rocklake
+        role: reader
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: rocklake
+          image: ghcr.io/trickle/rocklake:v0.47.0
+          args:
+            - serve
+            - --catalog
+            - $(ROCKLAKE_CATALOG)
+            - --read-only
+            - --bind
+            - "0.0.0.0:5432"
+            - --metrics-port
+            - "9100"
+            - --idle-connection-timeout
+            - "60"
+            - --drain-timeout
+            - "30"
+          env:
+            - name: ROCKLAKE_CATALOG
+              valueFrom:
+                secretKeyRef:
+                  name: rocklake-config
+                  key: catalog_url
+          ports:
+            - name: pg
+              containerPort: 5432
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            tcpSocket:
+              port: pg
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: pg
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+```
+
+### HorizontalPodAutoscaler
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rocklake-reader-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rocklake-reader
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+```
+
+### PodDisruptionBudget
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rocklake-reader-pdb
+spec:
+  selector:
+    matchLabels:
+      app: rocklake
+      role: reader
+  minAvailable: 1
+```
+
+### Reader Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rocklake-reader
+spec:
+  selector:
+    app: rocklake
+    role: reader
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+  type: ClusterIP
+```

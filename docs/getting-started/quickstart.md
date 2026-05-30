@@ -32,13 +32,13 @@ You need two tools installed before you begin:
 
     Alternatively, download the pre-built `rocklake-windows-x86_64.exe` from the [releases page](https://github.com/trickle-labs/rocklake/releases) and rename it to `rocklake.exe`.
 
-**DuckDB 1.5 or later.** Download from [duckdb.org](https://duckdb.org). After installation, verify the version:
+**DuckDB 1.5.2 or later.** Download from [duckdb.org](https://duckdb.org). After installation, verify the version:
 
 ```bash
 duckdb --version
 ```
 
-You should see `v1.5.0` or later. Then install the `ducklake` extension (this only needs to happen once):
+You should see `v1.5.2` or later. Then install the `ducklake` extension (this only needs to happen once):
 
 ```bash
 duckdb -c "INSTALL ducklake;"
@@ -256,7 +256,7 @@ rm -rf /tmp/my-lakehouse
 
 **"Unsupported option pg for DuckLake".** You are using the old ATTACH syntax. Use `ATTACH 'host=127.0.0.1 port=5432' AS lakehouse (TYPE ducklake)` — the connection string goes as the first argument, not as a `PG` option.
 
-**"No function matches ducklake_snapshots()".** The `ducklake_snapshots` function requires a catalog name argument in DuckDB 1.2+. Use `ducklake_snapshots('lakehouse')`.
+**"No function matches ducklake_snapshots()".** The `ducklake_snapshots` function requires a catalog name argument. Use `ducklake_snapshots('lakehouse')`.
 
 ## Next Steps
 

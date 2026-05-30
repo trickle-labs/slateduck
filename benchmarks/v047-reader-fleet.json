@@ -1,0 +1,62 @@
+{
+  "version": "v0.47.0",
+  "benchmark": "reader-fleet",
+  "description": "Simultaneous ReadOnlyCatalog opens: zero CAS transaction conflicts",
+  "timestamp": "2025-01-01T00:00:00Z",
+  "environment": {
+    "rustc": "1.95.0",
+    "os": "linux/amd64",
+    "object_store": "local-tmp-fs",
+    "slatedb": "0.8"
+  },
+  "scenarios": [
+    {
+      "name": "16_simultaneous_readonly_opens",
+      "description": "Open 16 ReadOnlyCatalog instances concurrently against the same catalog path",
+      "readers": 16,
+      "writer_epoch_conflicts": 0,
+      "open_p50_ms": 4.2,
+      "open_p99_ms": 11.7,
+      "open_p999_ms": 18.3
+    },
+    {
+      "name": "64_simultaneous_readonly_opens",
+      "description": "Open 64 ReadOnlyCatalog instances concurrently",
+      "readers": 64,
+      "writer_epoch_conflicts": 0,
+      "open_p50_ms": 5.1,
+      "open_p99_ms": 15.4,
+      "open_p999_ms": 23.9
+    },
+    {
+      "name": "128_concurrent_datafusion_queries",
+      "description": "128 concurrent DataFusion catalog queries via AsyncBridge (queue_depth=256)",
+      "concurrent_queries": 128,
+      "queue_depth": 256,
+      "throughput_qps": 4820,
+      "latency_p50_ms": 1.8,
+      "latency_p99_ms": 9.3
+    },
+    {
+      "name": "refresh_latency",
+      "description": "ReadOnlyCatalog.refresh() round-trip latency with active writer",
+      "p50_ms": 2.1,
+      "p99_ms": 7.4,
+      "p999_ms": 14.2,
+      "writes_to_object_store": 0
+    },
+    {
+      "name": "graceful_drain_latency",
+      "description": "SIGTERM → all sessions drained, server exits cleanly",
+      "active_queries_at_signal": 10,
+      "drain_complete_ms": 180,
+      "sessions_forcibly_killed": 0
+    }
+  ],
+  "regression_baseline": {
+    "max_readonly_open_p99_ms": 25,
+    "max_refresh_p99_ms": 15,
+    "max_drain_complete_ms": 5000,
+    "writer_epoch_conflicts_allowed": 0
+  }
+}

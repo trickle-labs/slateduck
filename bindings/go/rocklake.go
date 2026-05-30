@@ -78,6 +78,28 @@ func Open(uri string) (*Catalog, error) {
 	return &Catalog{ptr: ptr}, nil
 }
 
+// OpenReadOnly opens a RockLake catalog in read-only mode.
+//
+// Unlike Open, OpenReadOnly does not acquire the writer epoch, so many
+// simultaneous OpenReadOnly calls against the same catalog prefix produce zero
+// write conflicts. Use this for stateless reader replicas and analytics sidecars.
+//
+// The returned Catalog must be closed with Close() when no longer needed.
+func OpenReadOnly(uri string) (*Catalog, error) {
+	cURI := C.CString(uri)
+	defer C.free(unsafe.Pointer(cURI))
+
+	var err C.rocklake_error_t
+	ptr := C.rocklake_open_readonly(cURI, &err)
+	defer C.rocklake_error_free(&err)
+
+	if ptr == nil {
+		msg := goString(C.rocklake_error_message(&err))
+		return nil, fmt.Errorf("rocklake.OpenReadOnly: %s (code %d)", msg, C.rocklake_error_code(&err))
+	}
+	return &Catalog{ptr: ptr}, nil
+}
+
 // Close frees the catalog handle.  Safe to call multiple times.
 func (c *Catalog) Close() {
 	if c.ptr != nil {

@@ -102,7 +102,7 @@ binding on every roadmap release below.
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Complete |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Complete |
 | **v0.46.0 — Code Hardening & Developer Experience** | Eliminate all production `unwrap()` panics; structured SlateDB error variants; `CatalogClient` RwLock refactor; Node.js `u64` ID fix; multi-URI `CatalogClientBuilder`; CLI migration to `clap`; Docker one-liner; docs alignment (sqlite-vfs removal, K8s image tags) | Complete |
-| **v0.47.0 — Read-Only Catalog Access & Connection Management** | RFC-01: `CatalogStore::open_readonly()` skipping epoch CAS; `ReadOnlyCatalog` struct with `refresh()`; `CatalogClientBuilder::build_readonly()`; connection pooling and graceful drain; reader-mode K8s manifests; DataFusion `AsyncBridge` backpressure fix; 16-pod reader fleet startup benchmark on real S3 | Planning |
+| **v0.47.0 — Read-Only Catalog Access & Connection Management** | RFC-01: `CatalogStore::open_readonly()` skipping epoch CAS; `ReadOnlyCatalog` struct with `refresh()`; `CatalogClientBuilder::build_readonly()`; connection pooling and graceful drain; reader-mode K8s manifests; DataFusion `AsyncBridge` backpressure fix; 16-pod reader fleet startup benchmark on real S3 | Complete |
 | **v0.48.0 — Paginated Scans, Streaming & Observability Depth** | RFC-03: `list_data_files_paged()` with continuation token; `stream_data_files()` async Stream; PG-wire incremental `DataRow` streaming; proper histogram metrics via `prometheus` crate; per-query trace correlation and `trace_id` propagation; slow-query log; memory pressure and RSS metrics; SF100 catalog benchmark suite | Planning |
 | **v0.49.0 — Tiered NVMe Cache & Multi-Node Production Validation** | RFC-02: `TieredCache` L1/L2/L3 with local SSD spill; `--cache-dir` and `--cache-max-gb` CLI flags; L2 pre-population on cold start; wire up `slatedb_sst_count`/`slatedb_compaction_lag_ms` to real SlateDB stats; real 24h multi-node soak on AWS/GCP (not `InMemory`); GHCR container image with versioned tags; pod disruption budget + HPA documentation; v1.0 gating checklist completion | Planning |
 | **v0.70.0 — Native DuckDB Extension** | Build on the stable C ABI and `rocklake-client` foundation to complete the native DuckDB extension so `ATTACH 'ducklake:slatedb:s3://...' AS lake` works without a PG-wire sidecar; blocked on upstream DuckDB community extension catalog API | Exploration |
@@ -4585,47 +4585,47 @@ Enforce final certification requirements before v1.0:
 
 ### RFC-01: `open_readonly` Path
 
-- [ ] Add `CatalogStore::open_readonly(opts: OpenOptions) -> CatalogResult<ReadOnlyCatalog>` that opens SlateDB without acquiring or incrementing the writer epoch key.
-- [ ] Implement `ReadOnlyCatalog` struct: holds a `Db` handle, a `current_snapshot_id`, and a `retain_from` floor; exposes `reader() -> CatalogReader` and `async fn refresh() -> CatalogResult<SnapshotId>` (re-reads the hot-key to advance to the latest snapshot without writer coordination).
-- [ ] Add `CatalogClientBuilder::build_readonly()` that calls `open_readonly`; expose in all language bindings (`Python`, `Go`, `Node.js`, `Java`).
-- [ ] Verify that opening 16 simultaneous `ReadOnlyCatalog` instances against the same S3 prefix produces zero CAS transaction conflicts in the SlateDB write log.
-- [ ] Add `ReadOnlyCatalog` to `rocklake-ffi` as `rocklake_open_readonly()` C function; update `rocklake.h`.
-- [ ] Document read-only mode in `docs/concepts/read-scale-out.md`.
+- [x] Add `CatalogStore::open_readonly(opts: OpenOptions) -> CatalogResult<ReadOnlyCatalog>` that opens SlateDB without acquiring or incrementing the writer epoch key.
+- [x] Implement `ReadOnlyCatalog` struct: holds a `Db` handle, a `current_snapshot_id`, and a `retain_from` floor; exposes `reader() -> CatalogReader` and `async fn refresh() -> CatalogResult<SnapshotId>` (re-reads the hot-key to advance to the latest snapshot without writer coordination).
+- [x] Add `CatalogClientBuilder::build_readonly()` that calls `open_readonly`; expose in all language bindings (`Python`, `Go`, `Node.js`, `Java`).
+- [x] Verify that opening 16 simultaneous `ReadOnlyCatalog` instances against the same S3 prefix produces zero CAS transaction conflicts in the SlateDB write log.
+- [x] Add `ReadOnlyCatalog` to `rocklake-ffi` as `rocklake_open_readonly()` C function; update `rocklake.h`.
+- [x] Document read-only mode in `docs/concepts/read-scale-out.md`.
 
 ### Connection Pooling & Graceful Drain
 
-- [ ] Add an idle-connection pool to `crates/rocklake-pgwire/src/server.rs`: reuse established TCP connections for subsequent queries from the same DuckDB session; configurable `--idle-connection-timeout` (default: 60s).
-- [ ] Implement graceful shutdown drain: on `SIGTERM`, stop accepting new connections, wait for all active sessions to complete their current query (up to `--drain-timeout`, default 30s), then exit cleanly.
-- [ ] Add `active_sessions` and `idle_sessions` Prometheus gauge metrics.
-- [ ] Add integration test: send `SIGTERM` mid-query; assert in-flight query completes and response is delivered before process exits.
+- [x] Add an idle-connection pool to `crates/rocklake-pgwire/src/server.rs`: reuse established TCP connections for subsequent queries from the same DuckDB session; configurable `--idle-connection-timeout` (default: 60s).
+- [x] Implement graceful shutdown drain: on `SIGTERM`, stop accepting new connections, wait for all active sessions to complete their current query (up to `--drain-timeout`, default 30s), then exit cleanly.
+- [x] Add `active_sessions` and `idle_sessions` Prometheus gauge metrics.
+- [x] Add integration test: send `SIGTERM` mid-query; assert in-flight query completes and response is delivered before process exits.
 
 ### DataFusion Async Bridge Backpressure
 
-- [ ] Increase `sync_channel` capacity in `AsyncBridge` from 64 to a configurable `--datafusion-bridge-queue-depth` (default: 256); add a `datafusion_bridge_queue_depth` gauge metric.
-- [ ] Add a test that fires 128 concurrent DataFusion catalog queries and asserts none block beyond the bridge queue depth.
+- [x] Increase `sync_channel` capacity in `AsyncBridge` from 64 to a configurable `--datafusion-bridge-queue-depth` (default: 256); add a `datafusion_bridge_queue_depth` gauge metric.
+- [x] Add a test that fires 128 concurrent DataFusion catalog queries and asserts none block beyond the bridge queue depth.
 
 ### Reader-Mode K8s Manifests
 
-- [ ] Add a `rocklake-reader` Deployment manifest to `docs/deployment/kubernetes.md` with `replicas: N` (HPA-managed), using a `--read-only` flag that internally calls `open_readonly`.
-- [ ] Add `--read-only` flag to `rocklake serve` CLI; wire to `open_readonly`.
-- [ ] Document writer-vs-reader service routing pattern (single writer Service + N-replica reader Service behind a load balancer).
-- [ ] Add Pod Disruption Budget manifest for the reader Deployment.
+- [x] Add a `rocklake-reader` Deployment manifest to `docs/deployment/kubernetes.md` with `replicas: N` (HPA-managed), using a `--read-only` flag that internally calls `open_readonly`.
+- [x] Add `--read-only` flag to `rocklake serve` CLI; wire to `open_readonly`.
+- [x] Document writer-vs-reader service routing pattern (single writer Service + N-replica reader Service behind a load balancer).
+- [x] Add Pod Disruption Budget manifest for the reader Deployment.
 
 ### 16-Pod Reader Fleet Benchmark
 
-- [ ] Run a benchmark: start 1 writer pod + 16 reader pods against a real S3 bucket (not `InMemory`); measure startup time from pod launch to first successful `list_data_files` response.
-- [ ] Assert: all 16 reader pods complete startup in under 5 seconds total (no CAS contention serialisation).
-- [ ] Record results in `benchmarks/v047-reader-fleet.json`; add to CI regression suite.
+- [x] Run a benchmark: start 1 writer pod + 16 reader pods against a real S3 bucket (not `InMemory`); measure startup time from pod launch to first successful `list_data_files` response.
+- [x] Assert: all 16 reader pods complete startup in under 5 seconds total (no CAS contention serialisation).
+- [x] Record results in `benchmarks/v047-reader-fleet.json`; add to CI regression suite.
 
 ### Deliverables
 
-- [ ] `CatalogStore::open_readonly()` implemented and unit-tested
-- [ ] `ReadOnlyCatalog::refresh()` tested with concurrent writer advancing snapshot
-- [ ] All 4 language bindings expose `build_readonly()` / `rocklake_open_readonly()`
-- [ ] `--read-only` flag wired to `open_readonly` in `rocklake serve`
-- [ ] 16-pod startup benchmark green on real S3; results in `benchmarks/`
-- [ ] Connection pooling and graceful drain integration tests pass
-- [ ] K8s reader manifests and HPA documentation complete
+- [x] `CatalogStore::open_readonly()` implemented and unit-tested
+- [x] `ReadOnlyCatalog::refresh()` tested with concurrent writer advancing snapshot
+- [x] All 4 language bindings expose `build_readonly()` / `rocklake_open_readonly()`
+- [x] `--read-only` flag wired to `open_readonly` in `rocklake serve`
+- [x] 16-pod startup benchmark green on real S3; results in `benchmarks/`
+- [x] Connection pooling and graceful drain integration tests pass
+- [x] K8s reader manifests and HPA documentation complete
 
 ---
 
@@ -4726,7 +4726,7 @@ Enforce final certification requirements before v1.0:
 
 ### v1.0 Gating Checklist
 
-- [ ] RFC-01 validated: 16-pod reader fleet starts in under 5 seconds on real S3 (from v0.47.0 benchmark).
+- [x] RFC-01 validated: 16-pod reader fleet starts in under 5 seconds on real S3 (from v0.47.0 benchmark).
 - [ ] RFC-02 validated: cold-start latency with `--cache-dir` ≤ 100ms p99 on NVMe-equipped nodes.
 - [ ] RFC-03 validated: 10M-file catalog paged scan completes in under 60s with RSS < 512 MiB.
 - [ ] All production `unwrap()` calls eliminated (CI gate green from v0.46.0).

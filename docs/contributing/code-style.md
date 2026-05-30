@@ -316,7 +316,7 @@ feat: add support for ALTER TABLE SET SCHEMA
 fix: correct MVCC visibility for snapshot 0
 docs: update deployment guide for Kubernetes
 refactor: extract key encoding into separate module
-test: add wire corpus entries for DuckDB 1.3.0
+test: add wire corpus entries for DuckDB 1.5.2
 perf: reduce allocations in prefix scan hot path
 chore: update dependencies to latest compatible versions
 ```
