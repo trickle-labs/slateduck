@@ -154,4 +154,4 @@ rocklake diagnose --catalog s3://bucket/catalogs/my-catalog
 - [Garbage Collection](garbage-collection.md)
 - [Diagnostics](diagnostics.md)
 - [Security](security.md)
-- [Orphan File Sweep](diagnostics.md#sweep-orphans)
+- [Orphan File Sweep](diagnostics.md#orphan-file-sweep)

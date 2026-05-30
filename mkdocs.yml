@@ -199,6 +199,7 @@ nav:
     - Custom Clients: integration/custom-clients.md
     - Lambda Reader: integration/lambda-reader.md
     - CDN Caching: integration/cdn-caching.md
+    - JVM Bindings: integration/jvm-bindings.md
   - Design Decisions:
     - design-decisions/index.md
     - Why SlateDB?: design-decisions/why-slatedb.md
