@@ -104,9 +104,11 @@ fn fail_point_after_parquet_write_before_register_registers() {
 
 /// Verify that `WriteFaultPoint::BetweenPrimaryAndSecondaryKeyWrite` is
 /// correctly named and registered (simulates secondary index inconsistency).
+///
+/// Uses a per-instance injector to avoid races with other global-registry tests.
 #[test]
 fn fail_point_between_primary_secondary_key_write_registers() {
-    let injector = FaultInjector::new();
+    let injector = FaultInjector::instance();
     injector.set_error(
         WriteFaultPoint::BetweenPrimaryAndSecondaryKeyWrite,
         "injected: between primary and secondary key write",
@@ -123,9 +125,11 @@ fn fail_point_between_primary_secondary_key_write_registers() {
 }
 
 /// Verify that `clear_all()` removes every active fault point.
+///
+/// Uses a per-instance injector to avoid races with other global-registry tests.
 #[test]
 fn fault_injector_clear_all_removes_all_points() {
-    let injector = FaultInjector::new();
+    let injector = FaultInjector::instance();
 
     injector.set_error(WriteFaultPoint::BeforeSlateDbCommit, "error A");
     injector.set_error(

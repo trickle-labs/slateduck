@@ -1,6 +1,6 @@
 # Crate Structure
 
-RockLake is organized as a Rust workspace with seven crates, each with a distinct responsibility and clear dependency boundaries. This structure is not merely organizational — it enforces separation of concerns at the compilation level. A crate cannot accidentally depend on another crate's internals without an explicit dependency declaration in `Cargo.toml`. If a developer tries to import the PG-Wire server's session type from within the catalog store, the code will not compile. This makes architectural violations impossible rather than merely discouraged.
+RockLake is organized as a Rust workspace with **eight crates**, each with a distinct responsibility and clear dependency boundaries. This structure is not merely organizational — it enforces separation of concerns at the compilation level. A crate cannot accidentally depend on another crate's internals without an explicit dependency declaration in `Cargo.toml`. If a developer tries to import the PG-Wire server's session type from within the catalog store, the code will not compile. This makes architectural violations impossible rather than merely discouraged.
 
 This page documents each crate's purpose, its key modules, its dependencies, and the layering rules that govern the overall workspace structure. Understanding the crate structure is essential for contributors who want to know where new code belongs, and valuable for users who want to embed specific RockLake functionality (like the catalog store) without pulling in the entire binary.
 
@@ -10,11 +10,14 @@ This page documents each crate's purpose, its key modules, its dependencies, and
 graph TD
     CORE["rocklake-core<br/><small>Types, keys, values, MVCC</small>"] --> CAT["rocklake-catalog<br/><small>Persistence, GC, export</small>"]
     CORE --> SQL["rocklake-sql<br/><small>SQL classification</small>"]
-    CORE --> FFI["rocklake-ffi<br/><small>C/C++ FFI for DuckDB</small>"]
+    CORE --> FFI["rocklake-ffi<br/><small>Universal C ABI library</small>"]
+    CORE --> TK["rocklake-testkit<br/><small>Shared test helpers</small>"]
     CAT --> PG["rocklake-pgwire<br/><small>PG wire server + CLI binary</small>"]
     CAT --> DF["rocklake-datafusion<br/><small>DataFusion integration</small>"]
     CAT --> FFI
+    CAT --> CL["rocklake-client<br/><small>Idiomatic Rust client</small>"]
     SQL --> PG
+    CL --> PG
 
     style CORE fill:#e8f5e9
     style CAT fill:#e3f2fd
@@ -22,6 +25,8 @@ graph TD
     style PG fill:#fce4ec
     style DF fill:#f3e5f5
     style FFI fill:#e0f7fa
+    style CL fill:#fff8e1
+    style TK fill:#fafafa
 ```
 
 The arrows point from dependency to dependent. `rocklake-core` is the leaf (depends on no other workspace crate). `rocklake-pgwire` is the root (produces the main binary and depends on multiple crates). No circular dependencies exist — Cargo's resolver would reject them.

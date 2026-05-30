@@ -46,7 +46,7 @@ pub use diagnose::{
     diagnose_catalog, format_report_text, DiagnoseReport, DiagnosticFinding, FindingSeverity,
 };
 pub use encryption::{EncryptionConfig, EncryptionError};
-pub use error::{CatalogError, CatalogResult};
+pub use error::{is_transient, with_transient_retry, CatalogError, CatalogResult};
 pub use extension::{
     create_extension_table, delete_extension_rows, insert_extension_row, is_registered_extension,
     resolve_extension_id, select_extension_rows, EXTENSION_PGTRICKLE,

@@ -56,7 +56,7 @@ pub async fn create_checkpoint(db: &Db, label: Option<&str>) -> CatalogResult<Ch
 
     let id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64;
     // Guard: if the wall-clock millis would collide with an existing key
     // (e.g. two checkpoints created in the same millisecond under automation),

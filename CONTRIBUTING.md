@@ -20,18 +20,26 @@ Thank you for your interest in contributing to RockLake!
 ```
 rocklake/
 ├── Cargo.toml              # Workspace root
+├── Dockerfile              # Multi-stage container image (v0.46.0)
 ├── crates/
-│   ├── rocklake-core/     # Foundational types, SlateDB integration
-│   ├── rocklake-catalog/  # DuckLake catalog operations
-│   ├── rocklake-sql/      # Bounded SQL dispatcher
-│   ├── rocklake-sqlite-vfs/ # SQLite VFS layer (future)
-│   ├── rocklake-pgwire/   # PostgreSQL wire protocol sidecar
-│   └── rocklake-ffi/      # C/C++ FFI bindings (future)
-├── docs/                   # Documentation and design artifacts
+│   ├── rocklake-core/      # Foundational types, keys, values, counters
+│   ├── rocklake-catalog/   # DuckLake catalog operations (main crate)
+│   ├── rocklake-sql/       # Bounded SQL dispatcher and virtual tables
+│   ├── rocklake-pgwire/    # PostgreSQL wire protocol sidecar (CLI binary)
+│   ├── rocklake-ffi/       # Universal C ABI embedded library
+│   ├── rocklake-client/    # Idiomatic Rust client (also used by bindings)
+│   ├── rocklake-datafusion/ # Apache DataFusion integration
+│   └── rocklake-testkit/   # Shared test helpers (TempCatalog, fixtures)
+├── bindings/
+│   ├── python/             # PyO3 Python bindings
+│   ├── go/                 # cgo Go bindings
+│   ├── nodejs/             # napi-rs Node.js bindings
+│   └── java/               # JNI Java/Kotlin bindings
+├── docs/                   # MkDocs Material documentation site
 ├── tests/                  # Integration test fixtures
 │   ├── fixtures/           # Wire corpus and handshake captures
 │   └── golden/             # Golden reference outputs
-└── plans/                  # Design documents
+└── plans/                  # Design documents and assessment reports
 ```
 
 ## Pull Request Process

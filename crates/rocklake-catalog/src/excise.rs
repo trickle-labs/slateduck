@@ -202,7 +202,7 @@ async fn record_audit_entry(
 ) -> CatalogResult<u64> {
     let timestamp_millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64;
 
     // CAS-increment the excision sequence counter so two excisions that happen

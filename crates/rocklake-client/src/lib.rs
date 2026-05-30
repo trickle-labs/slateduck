@@ -38,6 +38,9 @@ use thiserror::Error;
 use rocklake_catalog::{CatalogError, CatalogStore, OpenOptions};
 use rocklake_core::mvcc::SnapshotId;
 
+// Re-export so call sites can match on the new structured variants.
+pub use rocklake_catalog::error::{is_transient, with_transient_retry};
+
 // ─── Error type ────────────────────────────────────────────────────────────
 
 /// Errors returned by `rocklake-client`.
@@ -150,16 +153,7 @@ impl CatalogClientBuilder {
     /// client.  Fails if the URI scheme is unsupported or if the underlying
     /// store cannot be opened.
     pub async fn build(self) -> ClientResult<CatalogClient> {
-        let path = self
-            .uri
-            .strip_prefix("file://")
-            .unwrap_or(&self.uri)
-            .to_owned();
-
-        let object_store: Arc<dyn object_store::ObjectStore> =
-            Arc::new(LocalFileSystem::new_with_prefix(&path).map_err(|e| {
-                ClientError::Config(format!("cannot open local store at {path}: {e}"))
-            })?);
+        let object_store = build_object_store(&self.uri)?;
 
         let opts = OpenOptions {
             object_store,
@@ -169,8 +163,72 @@ impl CatalogClientBuilder {
 
         let store = CatalogStore::open(opts).await?;
         Ok(CatalogClient {
-            store: Arc::new(tokio::sync::Mutex::new(Some(store))),
+            store: Arc::new(tokio::sync::RwLock::new(Some(store))),
         })
+    }
+}
+
+// ─── Object-store URI resolution ───────────────────────────────────────────
+
+/// Build an `ObjectStore` from a URI string, supporting:
+/// - `file:///path` or raw local path → `LocalFileSystem`
+/// - `s3://bucket/prefix` → `AmazonS3Builder` (reads `AWS_*` env vars)
+/// - `gs://bucket/prefix` → `GoogleCloudStorageBuilder` (reads `GOOGLE_APPLICATION_CREDENTIALS`)
+/// - `az://container/prefix` or `abfs://container/prefix` → `MicrosoftAzureBuilder` (reads `AZURE_*`)
+fn build_object_store(uri: &str) -> ClientResult<Arc<dyn object_store::ObjectStore>> {
+    if let Some(without_scheme) = uri.strip_prefix("file://") {
+        let store = LocalFileSystem::new_with_prefix(without_scheme).map_err(|e| {
+            ClientError::Config(format!("cannot open local store at {without_scheme}: {e}"))
+        })?;
+        return Ok(Arc::new(store));
+    }
+
+    if let Some(without_scheme) = uri.strip_prefix("s3://") {
+        let (bucket, _prefix) = split_bucket_prefix(without_scheme);
+        let store = object_store::aws::AmazonS3Builder::from_env()
+            .with_bucket_name(bucket)
+            .build()
+            .map_err(|e| ClientError::Config(format!("cannot open S3 store for {uri}: {e}")))?;
+        return Ok(Arc::new(store));
+    }
+
+    if let Some(without_scheme) = uri.strip_prefix("gs://") {
+        let (bucket, _prefix) = split_bucket_prefix(without_scheme);
+        let store = object_store::gcp::GoogleCloudStorageBuilder::from_env()
+            .with_bucket_name(bucket)
+            .build()
+            .map_err(|e| ClientError::Config(format!("cannot open GCS store for {uri}: {e}")))?;
+        return Ok(Arc::new(store));
+    }
+
+    if let Some(without_scheme) = uri
+        .strip_prefix("az://")
+        .or_else(|| uri.strip_prefix("abfs://"))
+    {
+        let (container, _prefix) = split_bucket_prefix(without_scheme);
+        let store = object_store::azure::MicrosoftAzureBuilder::from_env()
+            .with_container_name(container)
+            .build()
+            .map_err(|e| ClientError::Config(format!("cannot open Azure store for {uri}: {e}")))?;
+        return Ok(Arc::new(store));
+    }
+
+    // Unknown scheme or raw path → treat as local filesystem
+    if uri.contains("://") {
+        return Err(ClientError::Config(format!(
+            "unsupported URI scheme in '{uri}': supported schemes are file://, s3://, gs://, az://, abfs://"
+        )));
+    }
+
+    let store = LocalFileSystem::new_with_prefix(uri)
+        .map_err(|e| ClientError::Config(format!("cannot open local store at {uri}: {e}")))?;
+    Ok(Arc::new(store))
+}
+
+fn split_bucket_prefix(without_scheme: &str) -> (&str, &str) {
+    match without_scheme.find('/') {
+        Some(idx) => (&without_scheme[..idx], &without_scheme[idx + 1..]),
+        None => (without_scheme, ""),
     }
 }
 
@@ -185,12 +243,29 @@ impl CatalogClientBuilder {
 ///
 /// `CatalogClient` is `Send + Sync` and may be shared across tasks via
 /// `Arc<CatalogClient>`.  Internally the `CatalogStore` is protected by a
-/// `tokio::sync::Mutex`.
+/// `tokio::sync::RwLock` — concurrent read operations (e.g., `list_schemas`,
+/// `list_tables`, `list_data_files`) acquire a read lock and do **not**
+/// serialise against each other.  Only `close()` acquires a write lock.
 pub struct CatalogClient {
-    store: Arc<tokio::sync::Mutex<Option<CatalogStore>>>,
+    store: Arc<tokio::sync::RwLock<Option<CatalogStore>>>,
+}
+
+impl std::fmt::Debug for CatalogClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CatalogClient").finish_non_exhaustive()
+    }
 }
 
 impl CatalogClient {
+    /// Acquire a read guard, returning an error if the catalog has been closed.
+    async fn read(&self) -> ClientResult<tokio::sync::RwLockReadGuard<'_, Option<CatalogStore>>> {
+        let guard = self.store.read().await;
+        if guard.is_none() {
+            return Err(ClientError::Config("catalog has been closed".to_owned()));
+        }
+        Ok(guard)
+    }
+
     /// Return the current (latest committed) snapshot ID.
     ///
     /// Returns `0` when the catalog has no snapshots yet.
@@ -207,10 +282,8 @@ impl CatalogClient {
     /// # });
     /// ```
     pub async fn snapshot_id(&self) -> ClientResult<u64> {
-        let guard = self.store.lock().await;
-        let store = guard
-            .as_ref()
-            .ok_or(ClientError::Config("catalog has been closed".to_owned()))?;
+        let guard = self.read().await?;
+        let store = guard.as_ref().expect("checked by read()");
         let reader = store.read_latest();
         let snap = reader.get_snapshot().await?;
         Ok(snap.map(|s| s.snapshot_id).unwrap_or(0))
@@ -232,10 +305,8 @@ impl CatalogClient {
     /// # });
     /// ```
     pub async fn list_schemas(&self, snapshot_id: u64) -> ClientResult<Vec<Schema>> {
-        let guard = self.store.lock().await;
-        let store = guard
-            .as_ref()
-            .ok_or(ClientError::Config("catalog has been closed".to_owned()))?;
+        let guard = self.read().await?;
+        let store = guard.as_ref().expect("checked by read()");
         let reader = store.read_at(SnapshotId::new(snapshot_id))?;
         let rows = reader.list_schemas().await?;
         Ok(rows
@@ -261,10 +332,8 @@ impl CatalogClient {
     /// # });
     /// ```
     pub async fn list_tables(&self, schema_id: u64, snapshot_id: u64) -> ClientResult<Vec<Table>> {
-        let guard = self.store.lock().await;
-        let store = guard
-            .as_ref()
-            .ok_or(ClientError::Config("catalog has been closed".to_owned()))?;
+        let guard = self.read().await?;
+        let store = guard.as_ref().expect("checked by read()");
         let reader = store.read_at(SnapshotId::new(snapshot_id))?;
         let rows = reader.list_tables(schema_id).await?;
         Ok(rows
@@ -297,10 +366,8 @@ impl CatalogClient {
         table_id: u64,
         snapshot_id: u64,
     ) -> ClientResult<Option<Vec<Column>>> {
-        let guard = self.store.lock().await;
-        let store = guard
-            .as_ref()
-            .ok_or(ClientError::Config("catalog has been closed".to_owned()))?;
+        let guard = self.read().await?;
+        let store = guard.as_ref().expect("checked by read()");
         let reader = store.read_at(SnapshotId::new(snapshot_id))?;
         let result = reader.describe_table(table_id).await?;
         Ok(result.map(|(_table, cols)| {
@@ -335,10 +402,8 @@ impl CatalogClient {
         table_id: u64,
         snapshot_id: u64,
     ) -> ClientResult<Vec<DataFile>> {
-        let guard = self.store.lock().await;
-        let store = guard
-            .as_ref()
-            .ok_or(ClientError::Config("catalog has been closed".to_owned()))?;
+        let guard = self.read().await?;
+        let store = guard.as_ref().expect("checked by read()");
         let reader = store.read_at(SnapshotId::new(snapshot_id))?;
         let rows = reader.list_data_files(table_id).await?;
         Ok(rows
@@ -360,7 +425,7 @@ impl CatalogClient {
     /// After this call all methods return an error.  It is not an error to
     /// call `close()` more than once.
     pub async fn close(self) {
-        let mut guard = self.store.lock().await;
+        let mut guard = self.store.write().await;
         if let Some(store) = guard.take() {
             let _ = store.close().await;
         }
@@ -515,5 +580,56 @@ mod tests {
         let client = CatalogClientSync::open(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(client.snapshot_id().unwrap(), 0);
         client.close();
+    }
+
+    // ─── Multi-URI builder scheme tests ────────────────────────────────────
+
+    #[test]
+    fn builder_file_scheme_opens_local() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let uri = format!("file://{}", dir.path().to_str().unwrap());
+        let client = CatalogClientSync::open(&uri).unwrap();
+        assert_eq!(client.snapshot_id().unwrap(), 0);
+        client.close();
+    }
+
+    #[test]
+    fn builder_unknown_scheme_returns_error() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = rt
+            .block_on(CatalogClientBuilder::new("ftp://example.com/catalog").build())
+            .unwrap_err();
+        assert!(
+            matches!(err, ClientError::Config(_)),
+            "unknown scheme should return Config error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_readers_do_not_serialize() {
+        // v0.46.0: verify that 8 concurrent list_schemas calls all complete
+        // without deadlocking (RwLock allows concurrent reads).
+        let dir = tempfile::TempDir::new().unwrap();
+        let uri = format!("file://{}", dir.path().to_str().unwrap());
+        let client = std::sync::Arc::new(CatalogClientBuilder::new(uri).build().await.unwrap());
+
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let c = client.clone();
+            tasks.push(tokio::spawn(
+                async move { c.list_schemas(0).await.unwrap() },
+            ));
+        }
+
+        for task in tasks {
+            let schemas = task.await.unwrap();
+            assert!(schemas.is_empty());
+        }
+
+        // Unwrap the Arc to close.
+        std::sync::Arc::try_unwrap(client)
+            .expect("single owner after tasks complete")
+            .close()
+            .await;
     }
 }

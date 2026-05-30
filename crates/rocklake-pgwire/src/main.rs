@@ -6,10 +6,17 @@
 //!   warmup, migrate, corpus, tune,
 //!   migrate-from-ducklake, export-catalog,
 //!   diagnose, sweep-orphans
+//!
+//! Run `rocklake --help` or `rocklake <command> --help` for full usage.
 
+mod cli;
+
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use clap::{CommandFactory as _, Parser as _};
+use clap_complete::generate;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use tokio::sync::Mutex;
@@ -22,13 +29,415 @@ use rocklake_pgwire::server::{run_server, ServerConfig};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive(
+                "info"
+                    .parse()
+                    .unwrap_or_else(|_| tracing_subscriber::filter::LevelFilter::INFO.into()),
+            ),
+        )
         .init();
 
+    // Parse with clap; this provides --help (exit 0), --version, and shell
+    // completions.  Fall back to the legacy hand-rolled dispatcher for full
+    // backward compatibility.
+    let parsed = cli::Cli::try_parse();
+    match parsed {
+        Ok(cli_args) => dispatch_clap(cli_args).await?,
+        Err(e) => {
+            // If clap emits --help / --version messages, honour its exit code.
+            if e.use_stderr() {
+                // Unknown command or bad flag — fall through to legacy dispatch
+                // for backward compatibility with scripts that use the old
+                // positional command style.
+                legacy_dispatch().await?;
+            } else {
+                // --help or --version: print and exit with the code clap chose.
+                e.print()?;
+                std::process::exit(0);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Dispatch based on a successfully-parsed clap CLI.
+async fn dispatch_clap(cli: cli::Cli) -> Result<(), Box<dyn std::error::Error>> {
+    use cli::Commands;
+
+    // Build a synthetic args vec for the legacy handlers so we don't have to
+    // rewrite every handler right now.  Each branch translates the typed clap
+    // struct back into the `--flag value` format the handlers expect.
+    match cli.command {
+        Commands::Completions(args) => {
+            let mut cmd = cli::Cli::command();
+            generate(args.shell, &mut cmd, "rocklake", &mut io::stdout());
+            return Ok(());
+        }
+        Commands::Serve(a) => {
+            let mut synthetic = vec!["rocklake".to_string(), "serve".to_string()];
+            synthetic.extend(["--catalog".to_string(), a.catalog]);
+            synthetic.extend(["--bind".to_string(), a.bind]);
+            synthetic.extend(["--max-sessions".to_string(), a.max_sessions.to_string()]);
+            if let Some(p) = a.metrics_port {
+                synthetic.extend(["--metrics-port".to_string(), p.to_string()]);
+            }
+            synthetic.extend(["--metrics-path".to_string(), a.metrics_path]);
+            if let Some(c) = a.tls_cert {
+                synthetic.extend(["--tls-cert".to_string(), c]);
+            }
+            if let Some(k) = a.tls_key {
+                synthetic.extend(["--tls-key".to_string(), k]);
+            }
+            if a.tls_required {
+                synthetic.push("--tls-required".to_string());
+            }
+            if let Some(u) = a.auth_user {
+                synthetic.extend(["--auth-user".to_string(), u]);
+            }
+            if let Some(p) = a.auth_password {
+                synthetic.extend(["--auth-password".to_string(), p]);
+            }
+            let mode = if a.read_only {
+                "reader".to_string()
+            } else {
+                a.mode
+            };
+            synthetic.extend(["--mode".to_string(), mode]);
+            synthetic.extend(["--cost-mode".to_string(), a.cost_mode]);
+            if let Some(e) = a.s3_endpoint {
+                synthetic.extend(["--s3-endpoint".to_string(), e]);
+            }
+            if a.s3_path_style {
+                synthetic.push("--s3-path-style".to_string());
+            }
+            if let Some(k) = a.encryption_key {
+                synthetic.extend(["--encryption-key".to_string(), k]);
+            }
+            if let Some(p) = a.datafusion_pg_wire {
+                synthetic.extend(["--datafusion-pg-wire".to_string(), p.to_string()]);
+            }
+            if !a.extension_schemas.is_empty() {
+                synthetic.extend([
+                    "--extension-schemas".to_string(),
+                    a.extension_schemas.join(","),
+                ]);
+            }
+            if let Some(o) = a.otlp_endpoint {
+                synthetic.extend(["--otlp-endpoint".to_string(), o]);
+            }
+            cmd_serve(&synthetic).await?;
+        }
+        Commands::Gc(sub) => {
+            use cli::GcSubcommand;
+            let (subcmd, args) = match sub {
+                GcSubcommand::Plan(a) => ("plan", a),
+                GcSubcommand::Apply(a) => ("apply", a),
+            };
+            let synthetic = vec![
+                "rocklake".to_string(),
+                "gc".to_string(),
+                subcmd.to_string(),
+                "--catalog".to_string(),
+                args.catalog,
+                "--retention-days".to_string(),
+                args.retention_days.to_string(),
+            ];
+            cmd_gc(&synthetic).await?;
+        }
+        Commands::Excise(sub) => {
+            use cli::ExciseSubcommand;
+            let (subcmd, args) = match sub {
+                ExciseSubcommand::Plan(a) => ("plan", a),
+                ExciseSubcommand::Apply(a) => ("apply", a),
+            };
+            let synthetic = vec![
+                "rocklake".to_string(),
+                "excise".to_string(),
+                subcmd.to_string(),
+                "--catalog".to_string(),
+                args.catalog,
+                "--before".to_string(),
+                args.before.to_string(),
+            ];
+            cmd_excise(&synthetic).await?;
+        }
+        Commands::Checkpoint(sub) => {
+            use cli::CheckpointSubcommand;
+            match sub {
+                CheckpointSubcommand::Create(a) => {
+                    let mut s = vec![
+                        "rocklake".to_string(),
+                        "checkpoint".to_string(),
+                        "create".to_string(),
+                        "--catalog".to_string(),
+                        a.catalog,
+                    ];
+                    if let Some(l) = a.label {
+                        s.extend(["--label".to_string(), l]);
+                    }
+                    cmd_checkpoint(&s).await?;
+                }
+                CheckpointSubcommand::List(a) => {
+                    let s = vec![
+                        "rocklake".to_string(),
+                        "checkpoint".to_string(),
+                        "list".to_string(),
+                        "--catalog".to_string(),
+                        a.catalog,
+                    ];
+                    cmd_checkpoint(&s).await?;
+                }
+                CheckpointSubcommand::Restore(a) => {
+                    let s = vec![
+                        "rocklake".to_string(),
+                        "checkpoint".to_string(),
+                        "restore".to_string(),
+                        "--catalog".to_string(),
+                        a.catalog,
+                        "--id".to_string(),
+                        a.id.to_string(),
+                    ];
+                    cmd_checkpoint(&s).await?;
+                }
+            }
+        }
+        Commands::Export(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "export".to_string(),
+                a.catalog,
+                "--output".to_string(),
+                a.output,
+            ];
+            if let Some(id) = a.snapshot_id {
+                s.extend(["--snapshot-id".to_string(), id.to_string()]);
+            }
+            cmd_export(&s).await?;
+        }
+        Commands::Import(a) => {
+            let s = vec![
+                "rocklake".to_string(),
+                "import".to_string(),
+                a.catalog,
+                "--input".to_string(),
+                a.input,
+            ];
+            cmd_import(&s).await?;
+        }
+        Commands::PgMigrate(a) => {
+            let s = vec![
+                "rocklake".to_string(),
+                "pg-migrate".to_string(),
+                "--input".to_string(),
+                a.input,
+            ];
+            cmd_pg_migrate(&s).await?;
+        }
+        Commands::Rebuild(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "rebuild".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if let Some(d) = a.data_root {
+                s.extend(["--data-root".to_string(), d]);
+            }
+            if let Some(e) = a.s3_endpoint {
+                s.extend(["--s3-endpoint".to_string(), e]);
+            }
+            if a.s3_path_style {
+                s.push("--s3-path-style".to_string());
+            }
+            cmd_rebuild(&s).await?;
+        }
+        Commands::Inspect(sub) => {
+            use cli::InspectSubcommand;
+            let (subcmd, args) = match sub {
+                InspectSubcommand::Snapshot(a) => ("snapshot", a),
+                InspectSubcommand::ApiCosts(a) => ("api-costs", a),
+                InspectSubcommand::CacheUtilization(a) => ("cache-utilization", a),
+            };
+            let s = vec![
+                "rocklake".to_string(),
+                "inspect".to_string(),
+                subcmd.to_string(),
+                "--catalog".to_string(),
+                args.catalog,
+            ];
+            cmd_inspect(&s).await?;
+        }
+        Commands::Verify(sub) => {
+            use cli::VerifySubcommand;
+            let (subcmd, args) = match sub {
+                VerifySubcommand::Catalog(a) => ("catalog", a),
+                VerifySubcommand::DataFiles(a) => ("data-files", a),
+            };
+            let s = vec![
+                "rocklake".to_string(),
+                "verify".to_string(),
+                subcmd.to_string(),
+                "--catalog".to_string(),
+                args.catalog,
+            ];
+            cmd_verify(&s).await?;
+        }
+        Commands::Repair(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "repair".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if a.dry_run {
+                s.push("--dry-run".to_string());
+            }
+            if a.apply {
+                s.push("--apply".to_string());
+            }
+            cmd_repair(&s).await?;
+        }
+        Commands::Warmup(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "warmup".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if let Some(t) = a.tables {
+                s.extend(["--tables".to_string(), t.to_string()]);
+            }
+            cmd_warmup(&s).await?;
+        }
+        Commands::Migrate(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "migrate".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if a.dry_run {
+                s.push("--dry-run".to_string());
+            }
+            if a.apply {
+                s.push("--apply".to_string());
+            }
+            cmd_migrate(&s).await?;
+        }
+        Commands::Corpus(sub) => {
+            use cli::CorpusSubcommand;
+            match sub {
+                CorpusSubcommand::Diff(a) => {
+                    let s = vec![
+                        "rocklake".to_string(),
+                        "corpus".to_string(),
+                        "diff".to_string(),
+                        a.left,
+                        a.right,
+                    ];
+                    cmd_corpus(&s).await?;
+                }
+                CorpusSubcommand::Validate(a) => {
+                    let s = vec![
+                        "rocklake".to_string(),
+                        "corpus".to_string(),
+                        "validate".to_string(),
+                        "--catalog".to_string(),
+                        a.catalog,
+                        a.corpus,
+                    ];
+                    cmd_corpus(&s).await?;
+                }
+            }
+        }
+        Commands::Tune(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "tune".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if let Some(c) = a.target_cost_usd {
+                s.extend(["--target-cost-usd".to_string(), c.to_string()]);
+            }
+            cmd_tune(&s).await?;
+        }
+        Commands::MigrateFromDucklake(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "migrate-from-ducklake".to_string(),
+                "--source".to_string(),
+                a.source,
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if a.dry_run {
+                s.push("--dry-run".to_string());
+            }
+            for v in a.accept_versions {
+                s.extend(["--accept-version".to_string(), v]);
+            }
+            cmd_migrate_from_ducklake(&s).await?;
+        }
+        Commands::ExportCatalog(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "export-catalog".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+                "--out".to_string(),
+                a.out,
+            ];
+            if let Some(id) = a.at_snapshot {
+                s.extend(["--at-snapshot".to_string(), id.to_string()]);
+            }
+            cmd_export_catalog(&s).await?;
+        }
+        Commands::Diagnose(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "diagnose".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+            ];
+            if a.json {
+                s.push("--json".to_string());
+            }
+            if let Some(d) = a.data_root {
+                s.extend(["--data-root".to_string(), d]);
+            }
+            cmd_diagnose(&s).await?;
+        }
+        Commands::SweepOrphans(a) => {
+            let mut s = vec![
+                "rocklake".to_string(),
+                "sweep-orphans".to_string(),
+                "--catalog".to_string(),
+                a.catalog,
+                "--data-root".to_string(),
+                a.data_root,
+                "--grace-period-hours".to_string(),
+                a.grace_period_hours.to_string(),
+            ];
+            if a.apply {
+                s.push("--apply".to_string());
+            }
+            cmd_sweep_orphans(&s).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Legacy dispatcher: handles the original positional command-name style for
+/// backward compatibility with scripts that do not yet use the clap path.
+async fn legacy_dispatch() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        print_usage();
+        // Delegate to clap for a nice help message.
+        cli::Cli::parse_from(["rocklake", "--help"]);
         std::process::exit(1);
     }
 
@@ -52,47 +461,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "export-catalog" => cmd_export_catalog(&args).await?,
         "diagnose" => cmd_diagnose(&args).await?,
         "sweep-orphans" => cmd_sweep_orphans(&args).await?,
-        "--help" | "-h" => print_usage(),
+        "--help" | "-h" => {
+            cli::Cli::parse_from(["rocklake", "--help"]);
+        }
         other => {
             eprintln!("Unknown command: {other}");
-            print_usage();
+            eprintln!("Run 'rocklake --help' for available commands.");
             std::process::exit(1);
         }
     }
 
     Ok(())
-}
-
-fn print_usage() {
-    eprintln!(
-        r#"Usage: rocklake <command> [options]
-
-Commands:
-  serve                          Start PG-Wire sidecar
-  gc plan|apply                  Visibility GC (advance retain-from)
-  excise plan|apply              Physical excision of old facts
-  checkpoint create|list|restore Manage catalog checkpoints
-  export                         NDJSON export of catalog
-  import                         Import catalog from NDJSON
-  pg-migrate                     Convert NDJSON to PostgreSQL INSERTs
-  rebuild                        Rebuild catalog from Parquet files
-  inspect snapshot|api-costs|cache-utilization  Show catalog state
-  verify catalog|data-files      Verify catalog integrity
-  repair --dry-run|--apply       Repair catalog issues
-  warmup [--tables N]            Warm up block cache before serving
-  migrate [--dry-run|--apply]    Migrate catalog to new format version
-  corpus diff|validate           Wire-corpus diff and validation
-  tune [--target-cost-usd N]     Output recommended settings
-  migrate-from-ducklake          Migrate from DuckLake (sqlite: or NDJSON) to RockLake
-  export-catalog                 Export all 32 DuckLake catalog tables to NDJSON
-  diagnose                       Structured catalog health report (v0.39.0)
-  sweep-orphans                  Identify / delete orphan Parquet files (v0.39.0)
-
-Options:
-  --catalog <path>             Catalog path (required for most commands)
-  --help, -h                   Show this help
-"#
-    );
 }
 
 // ─── serve ─────────────────────────────────────────────────────────────────
@@ -183,7 +562,9 @@ async fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // that port.  DataFusion clients connecting there are routed through the
     // same bounded SQL dispatcher as every other DuckLake client.
     if let Some(df_port) = config.datafusion_pg_wire_port {
-        let df_addr: SocketAddr = format!("0.0.0.0:{df_port}").parse().unwrap();
+        let df_addr: SocketAddr = format!("0.0.0.0:{df_port}")
+            .parse()
+            .map_err(|e| format!("invalid DataFusion pg-wire address port {df_port}: {e}"))?;
         let df_config = ServerConfig {
             bind_addr: df_addr,
             max_sessions: server_config.max_sessions,
@@ -240,7 +621,10 @@ struct ServeConfig {
 
 fn parse_serve_args(args: &[String]) -> Result<ServeConfig, String> {
     let mut catalog_url = String::new();
-    let mut bind_addr: SocketAddr = "0.0.0.0:5432".parse().unwrap();
+    // SAFETY: "0.0.0.0:5432" is a compile-time constant that always parses correctly.
+    let mut bind_addr: SocketAddr = "0.0.0.0:5432"
+        .parse()
+        .expect("default bind address is always valid");
     let mut max_sessions = 50;
     let mut metrics_port = None;
     // Metrics path: read from env first, CLI flag overrides.

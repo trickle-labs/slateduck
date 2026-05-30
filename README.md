@@ -79,7 +79,27 @@ The **control plane** (`rocklake-pgwire`) handles DDL and ingest. It implements 
 
 ## Getting Started
 
-### Prerequisites
+### Docker (quickest)
+
+The easiest way to run RockLake is with the official container image:
+
+```bash
+# Start a local-filesystem catalog (for testing)
+docker run -p 5432:5432 \
+  -e ROCKLAKE_CATALOG=/catalog \
+  -v /tmp/my-catalog:/catalog \
+  ghcr.io/trickle-labs/rocklake:0.46.0 serve
+
+# Against S3 (uses standard AWS_* environment variables)
+docker run -p 5432:5432 \
+  -e ROCKLAKE_CATALOG=s3://my-bucket/catalog \
+  -e AWS_ACCESS_KEY_ID=... \
+  -e AWS_SECRET_ACCESS_KEY=... \
+  -e AWS_DEFAULT_REGION=us-east-1 \
+  ghcr.io/trickle-labs/rocklake:0.46.0 serve
+```
+
+### Prerequisites (build from source)
 
 - Rust stable toolchain ([rustup.rs](https://rustup.rs))
 - An S3-compatible object store (or just a local directory to start)

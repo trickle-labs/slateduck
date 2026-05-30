@@ -33,6 +33,41 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features
 
+      # v0.46.0: Panic-free production code gate.
+      # Rejects any new .unwrap() in production (non-test) source files.
+      # Excluded: test modules (#[cfg(test)]), doc-test examples, and the
+      # fault_injection.rs Mutex::lock().unwrap() calls (infallible on
+      # non-poisoned mutexes).
+      - name: No unwrap() in production code
+        if: runner.os == 'Linux'
+        run: |
+          # Fetch main so we can compute the diff of lines added in this PR.
+          git fetch origin main --depth=1
+          # Check only lines added relative to main.
+          # Uses awk to skip hunks/contexts identified as test code:
+          #   - Hunks whose nearest function context is "mod tests" (@@ ... @@ mod tests)
+          #   - Lines containing #[cfg(test)] (context or added)
+          # Also excludes fault_injection.rs (infallible mutex locks are expected there).
+          HITS=$(git diff origin/main -- \
+            crates/rocklake-catalog/src \
+            crates/rocklake-pgwire/src \
+            crates/rocklake-core/src \
+            crates/rocklake-client/src \
+            crates/rocklake-ffi/src \
+            | awk '
+              /^\+\+\+ b\/(.+)/ { file = substr($0, 5); in_test = 0 }
+              /^@@.*@@ .*mod tests/ { in_test = 1 }
+              !/^-/ && /#\[cfg\(test\)\]/ { in_test = 1 }
+              /^\+[^+].*\.unwrap\(\)/ && !in_test && file !~ /fault_injection/ { print file ": " substr($0, 2) }
+            ' \
+            | grep -v '^\+[[:space:]]*//' \
+            || true)
+          if [ -n "$HITS" ]; then
+            echo "ERROR: new production unwrap() calls found in this PR:"
+            echo "$HITS"
+            exit 1
+          fi
+
       - name: Free disk space (Linux only)
         if: runner.os == 'Linux'
         run: |

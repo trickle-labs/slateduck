@@ -12,7 +12,7 @@ categories = ["database"]
 [dependencies]
 rocklake-core = { path = "../rocklake-core" }
 rocklake-catalog = { path = "../rocklake-catalog" }
-object_store = { workspace = true }
+object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }

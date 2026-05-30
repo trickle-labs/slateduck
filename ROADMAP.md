@@ -101,7 +101,7 @@ binding on every roadmap release below.
 | **v0.43.0 — Scale Testing, Soak & Serverless Readers** | Tier 7: 24h soak, TPC-H SF10 on EC2, 16-pod reader scale-out; `checkpoint pin/unpin/list`; Lambda reader pattern + CDN cache contract | Complete |
 | **v0.44.0 — JVM Bindings** | Java/Kotlin binding via JNI wrapping `rocklake.h`; Maven artifact; Spark and Flink integration examples | Complete |
 | **v0.45.0 — GA Readiness Gate** | 30-day dogfood deployment; friction log resolution; external developer deployment verification; final docs pass; v1.0 release prep | Complete |
-| **v0.46.0 — Code Hardening & Developer Experience** | Eliminate all production `unwrap()` panics; structured SlateDB error variants; `CatalogClient` RwLock refactor; Node.js `u64` ID fix; multi-URI `CatalogClientBuilder`; CLI migration to `clap`; Docker one-liner; docs alignment (sqlite-vfs removal, K8s image tags) | Planning |
+| **v0.46.0 — Code Hardening & Developer Experience** | Eliminate all production `unwrap()` panics; structured SlateDB error variants; `CatalogClient` RwLock refactor; Node.js `u64` ID fix; multi-URI `CatalogClientBuilder`; CLI migration to `clap`; Docker one-liner; docs alignment (sqlite-vfs removal, K8s image tags) | Complete |
 | **v0.47.0 — Read-Only Catalog Access & Connection Management** | RFC-01: `CatalogStore::open_readonly()` skipping epoch CAS; `ReadOnlyCatalog` struct with `refresh()`; `CatalogClientBuilder::build_readonly()`; connection pooling and graceful drain; reader-mode K8s manifests; DataFusion `AsyncBridge` backpressure fix; 16-pod reader fleet startup benchmark on real S3 | Planning |
 | **v0.48.0 — Paginated Scans, Streaming & Observability Depth** | RFC-03: `list_data_files_paged()` with continuation token; `stream_data_files()` async Stream; PG-wire incremental `DataRow` streaming; proper histogram metrics via `prometheus` crate; per-query trace correlation and `trace_id` propagation; slow-query log; memory pressure and RSS metrics; SF100 catalog benchmark suite | Planning |
 | **v0.49.0 — Tiered NVMe Cache & Multi-Node Production Validation** | RFC-02: `TieredCache` L1/L2/L3 with local SSD spill; `--cache-dir` and `--cache-max-gb` CLI flags; L2 pre-population on cold start; wire up `slatedb_sst_count`/`slatedb_compaction_lag_ms` to real SlateDB stats; real 24h multi-node soak on AWS/GCP (not `InMemory`); GHCR container image with versioned tags; pod disruption budget + HPA documentation; v1.0 gating checklist completion | Planning |
@@ -4523,59 +4523,59 @@ Enforce final certification requirements before v1.0:
 
 ### Panic Elimination
 
-- [ ] `writer/stats.rs:164-165`: Replace `split_once('.').unwrap()` in `compare_decimal_abs` with a fallback that returns `Ordering::Equal` when either side lacks a decimal point; add regression test for integer-formatted decimal stats (`"42"` vs `"42.5"`).
-- [ ] `writer/mod.rs`: Replace `SystemTime::now().duration_since(UNIX_EPOCH).unwrap()` with `.unwrap_or_default()`.
-- [ ] Audit all remaining `unwrap()` calls in `rocklake-catalog/src/` and `rocklake-pgwire/src/` (excluding `#[cfg(test)]` blocks and doc-test examples); eliminate or document every non-trivially-infallible one; CI `grep` gate added to prevent regressions.
+- [x] `writer/stats.rs:164-165`: Replace `split_once('.').unwrap()` in `compare_decimal_abs` with a fallback that returns `Ordering::Equal` when either side lacks a decimal point; add regression test for integer-formatted decimal stats (`"42"` vs `"42.5"`).
+- [x] `writer/mod.rs`: Replace `SystemTime::now().duration_since(UNIX_EPOCH).unwrap()` with `.unwrap_or_default()`.
+- [x] Audit all remaining `unwrap()` calls in `rocklake-catalog/src/` and `rocklake-pgwire/src/` (excluding `#[cfg(test)]` blocks and doc-test examples); eliminate or document every non-trivially-infallible one; CI `grep` gate added to prevent regressions.
 
 ### Structured SlateDB Error Types
 
-- [ ] Add structured variants to `CatalogError`: `TransactionConflict`, `ObjectStoreTransient`, `ObjectStorePermanent`, `Corruption`; map SlateDB error kinds to these variants instead of `.to_string()`.
-- [ ] Update all call sites that currently catch `CatalogError::SlateDb(String)` to pattern-match on the new variants.
-- [ ] Add retry helper `with_transient_retry(n, async_fn)` that retries only on `ObjectStoreTransient`; use in GC and rebuild.
-- [ ] Update `FaultInjector` to use per-test instance pattern instead of global static, enabling safe parallel test isolation.
+- [x] Add structured variants to `CatalogError`: `TransactionConflict`, `ObjectStoreTransient`, `ObjectStorePermanent`, `Corruption`; map SlateDB error kinds to these variants instead of `.to_string()`.
+- [x] Update all call sites that currently catch `CatalogError::SlateDb(String)` to pattern-match on the new variants.
+- [x] Add retry helper `with_transient_retry(n, async_fn)` that retries only on `ObjectStoreTransient`; use in GC and rebuild.
+- [x] Update `FaultInjector` to use per-test instance pattern instead of global static, enabling safe parallel test isolation.
 
 ### `CatalogClient` Concurrency Refactor
 
-- [ ] Replace `Mutex<Option<CatalogStore>>` with `RwLock<CatalogStore>` so concurrent read operations no longer serialize; replace `Option` wrapping with a consumed-on-close pattern using `Arc::try_unwrap`.
-- [ ] Add `CatalogClient::read(&self, async_fn)` and `CatalogClient::write(&self, async_fn)` ergonomic helpers.
-- [ ] Benchmark `list_schemas` under 16-concurrent-reader pressure to confirm contention reduction.
+- [x] Replace `Mutex<Option<CatalogStore>>` with `RwLock<CatalogStore>` so concurrent read operations no longer serialize; replace `Option` wrapping with a consumed-on-close pattern using `Arc::try_unwrap`.
+- [x] Add `CatalogClient::read(&self, async_fn)` and `CatalogClient::write(&self, async_fn)` ergonomic helpers.
+- [x] Benchmark `list_schemas` under 16-concurrent-reader pressure to confirm contention reduction.
 
 ### Node.js Binding ID Fix
 
-- [ ] Change all `u32` ID fields in `bindings/nodejs/src/lib.rs` (`snapshot_id`, `schema_id`, `table_id`, `data_file_id`, `row_count`, `file_size_bytes`) to `i64` exposed as JavaScript `BigInt` via napi-rs `BigInt` type; update TypeScript declarations in `index.d.ts`.
-- [ ] Add Node.js test asserting round-trip fidelity for IDs > `u32::MAX`.
+- [x] Change all `u32` ID fields in `bindings/nodejs/src/lib.rs` (`snapshot_id`, `schema_id`, `table_id`, `data_file_id`, `row_count`, `file_size_bytes`) to `i64` exposed as JavaScript `BigInt` via napi-rs `BigInt` type; update TypeScript declarations in `index.d.ts`.
+- [x] Add Node.js test asserting round-trip fidelity for IDs > `u32::MAX`.
 
 ### Multi-URI `CatalogClientBuilder`
 
-- [ ] Parse URI scheme in `CatalogClientBuilder::build()`: `file://` → `LocalFileSystem`; `s3://` → `AmazonS3Builder`; `gs://` → `GoogleCloudStorageBuilder`; `az://` / `abfs://` → `MicrosoftAzureBuilder`; unknown scheme returns `ClientError::Config`.
-- [ ] Thread optional credential environment variables through the builder (standard `AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_*`).
-- [ ] Add integration tests for each scheme using object-store in-memory mock.
-- [ ] Update `rocklake-client` documentation and quickstart examples.
+- [x] Parse URI scheme in `CatalogClientBuilder::build()`: `file://` → `LocalFileSystem`; `s3://` → `AmazonS3Builder`; `gs://` → `GoogleCloudStorageBuilder`; `az://` / `abfs://` → `MicrosoftAzureBuilder`; unknown scheme returns `ClientError::Config`.
+- [x] Thread optional credential environment variables through the builder (standard `AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_*`).
+- [x] Add integration tests for each scheme using object-store in-memory mock.
+- [x] Update `rocklake-client` documentation and quickstart examples.
 
 ### CLI Migration to `clap`
 
-- [ ] Replace hand-rolled `&args[n]` parsing in `crates/rocklake-pgwire/src/main.rs` with `clap` derive macros.
-- [ ] Each subcommand (`serve`, `gc`, `excise`, `checkpoint`, `export`, `import`, `diagnose`, etc.) gets its own `clap` struct with typed fields, `--help` output, and `about` doc-strings.
-- [ ] Generate shell completion scripts (`bash`, `zsh`, `fish`) via `clap_complete`; publish to `docs/reference/shell-completions.md`.
-- [ ] Add a CI test that runs `rocklake --help` and each subcommand `--help` and asserts zero exit code.
+- [x] Replace hand-rolled `&args[n]` parsing in `crates/rocklake-pgwire/src/main.rs` with `clap` derive macros.
+- [x] Each subcommand (`serve`, `gc`, `excise`, `checkpoint`, `export`, `import`, `diagnose`, etc.) gets its own `clap` struct with typed fields, `--help` output, and `about` doc-strings.
+- [x] Generate shell completion scripts (`bash`, `zsh`, `fish`) via `clap_complete`; publish to `docs/reference/shell-completions.md`.
+- [x] Add a CI test that runs `rocklake --help` and each subcommand `--help` and asserts zero exit code.
 
 ### Docker & Documentation Alignment
 
-- [ ] Add a `Dockerfile` (multi-stage: `rust:1.93` builder + `debian:bookworm-slim` runtime) to the repository root; publish image to `ghcr.io/trickle-labs/rocklake:{version}` via release workflow.
-- [ ] Add `docker run` one-liner to `README.md` Getting Started section.
-- [ ] Update `CONTRIBUTING.md`: remove all references to `rocklake-sqlite-vfs`; align crate list with current workspace members; add `rocklake-testkit` entry.
-- [ ] Update `docs/deployment/kubernetes.md`: replace hardcoded `ghcr.io/rocklake/rocklake:0.8.0` image tag with `{latest}` placeholder and instruction to pin to a specific release tag.
-- [ ] Update `docs/architecture/crate-structure.md` to list 8 crates (add `rocklake-testkit`).
+- [x] Add a `Dockerfile` (multi-stage: `rust:1.93` builder + `debian:bookworm-slim` runtime) to the repository root; publish image to `ghcr.io/trickle-labs/rocklake:{version}` via release workflow.
+- [x] Add `docker run` one-liner to `README.md` Getting Started section.
+- [x] Update `CONTRIBUTING.md`: remove all references to `rocklake-sqlite-vfs`; align crate list with current workspace members; add `rocklake-testkit` entry.
+- [x] Update `docs/deployment/kubernetes.md`: replace hardcoded `ghcr.io/rocklake/rocklake:0.8.0` image tag with `{latest}` placeholder and instruction to pin to a specific release tag.
+- [x] Update `docs/architecture/crate-structure.md` to list 8 crates (add `rocklake-testkit`).
 
 ### Deliverables
 
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes with zero `unwrap()` in non-test production code
-- [ ] `grep -r 'unwrap()' crates/rocklake-{catalog,pgwire,core,client,ffi}/src/` CI gate added
-- [ ] Node.js `u32` → `BigInt` migration complete with regression test
-- [ ] `CatalogClientBuilder` supports `s3://`, `gs://`, `az://` URIs
-- [ ] All `clap` subcommand `--help` tests pass
-- [ ] Dockerfile builds and image pushes via release workflow
-- [ ] `CONTRIBUTING.md` and architecture docs current
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes with zero `unwrap()` in non-test production code
+- [x] `grep -r 'unwrap()' crates/rocklake-{catalog,pgwire,core,client,ffi}/src/` CI gate added
+- [x] Node.js `u32` → `BigInt` migration complete with regression test
+- [x] `CatalogClientBuilder` supports `s3://`, `gs://`, `az://` URIs
+- [x] All `clap` subcommand `--help` tests pass
+- [x] Dockerfile builds and image pushes via release workflow
+- [x] `CONTRIBUTING.md` and architecture docs current
 
 ---
 

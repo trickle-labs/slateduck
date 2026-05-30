@@ -45,7 +45,7 @@ impl std::fmt::Display for WriteFaultPoint {
     }
 }
 
-/// Global registry of active fault points.
+/// Global registry of active fault points used by the global `FaultInjector`.
 static FAULT_REGISTRY: std::sync::OnceLock<Arc<Mutex<HashMap<String, FaultAction>>>> =
     std::sync::OnceLock::new();
 
@@ -66,15 +66,49 @@ pub enum FaultAction {
 
 /// Fault injector: set and clear fail points at write boundaries.
 ///
-/// All fault points are stored in a global registry so they can be set
-/// from test code and checked from within catalog code paths.
+/// Two usage patterns are supported:
+///
+/// ## Global (legacy) pattern
+///
+/// Faults are stored in a process-wide singleton registry.  Tests that use
+/// the global pattern must **not** run in parallel, because a fault set by one
+/// test will interfere with another.
+///
+/// ```rust,ignore
+/// let fi = FaultInjector::new();
+/// fi.set_error(WriteFaultPoint::BeforeSlateDbCommit, "injected");
+/// // … run test …
+/// fi.clear_all(); // important: clean up after the test
+/// ```
+///
+/// ## Per-test instance pattern (recommended for parallel tests)
+///
+/// Create a `FaultInjectorInstance` from `FaultInjector::instance()`.  The
+/// instance holds its own `Arc<Mutex<HashMap>>` that is not shared with any
+/// other instance.  Pass the `Arc<Mutex<…>>` directly to catalog code paths
+/// that accept it, or store it alongside the catalog handle.
+///
+/// ```rust,ignore
+/// let fi = FaultInjector::instance();
+/// fi.set_error(WriteFaultPoint::BeforeSlateDbCommit, "injected");
+/// // fi is dropped at end of test — no global state to clean up
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct FaultInjector;
 
 impl FaultInjector {
-    /// Create a new fault injector.
+    /// Create a new global-backed fault injector.
     pub fn new() -> Self {
         Self
+    }
+
+    /// Create a new **per-instance** fault injector that does not share state
+    /// with the global registry or any other instance.  Preferred for tests
+    /// that run in parallel.
+    pub fn instance() -> FaultInjectorInstance {
+        FaultInjectorInstance {
+            registry: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// Configure a fault point to return an error.
@@ -121,6 +155,50 @@ impl FaultInjector {
         if let Some(FaultAction::ReturnError(msg)) = self.check(point) {
             panic!("Injected fault at {point}: {msg}");
         }
+    }
+}
+
+/// Per-test fault injector instance with private state.
+///
+/// Obtained via [`FaultInjector::instance()`].  Tests that use this type can
+/// run in parallel without interfering with each other.
+#[derive(Debug, Clone)]
+pub struct FaultInjectorInstance {
+    registry: Arc<Mutex<HashMap<String, FaultAction>>>,
+}
+
+impl FaultInjectorInstance {
+    /// Configure a fault point to return an error.
+    pub fn set_error(&self, point: WriteFaultPoint, message: &str) {
+        let mut map = self.registry.lock().unwrap();
+        map.insert(
+            point.to_string(),
+            FaultAction::ReturnError(message.to_string()),
+        );
+    }
+
+    /// Configure a fault point to pause for a duration.
+    pub fn set_pause(&self, point: WriteFaultPoint, duration: Duration) {
+        let mut map = self.registry.lock().unwrap();
+        map.insert(point.to_string(), FaultAction::Pause(duration));
+    }
+
+    /// Remove a fault point (clear it).
+    pub fn clear(&self, point: WriteFaultPoint) {
+        let mut map = self.registry.lock().unwrap();
+        map.remove(&point.to_string());
+    }
+
+    /// Clear all active fault points.
+    pub fn clear_all(&self) {
+        let mut map = self.registry.lock().unwrap();
+        map.clear();
+    }
+
+    /// Check if a fault point is active and return its action, if any.
+    pub fn check(&self, point: &WriteFaultPoint) -> Option<FaultAction> {
+        let map = self.registry.lock().unwrap();
+        map.get(&point.to_string()).cloned()
     }
 }
 

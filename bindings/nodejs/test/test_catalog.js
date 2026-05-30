@@ -30,14 +30,15 @@ test('open and close', () => {
 test('snapshotId returns 0 for fresh catalog', () => {
   const dir = tmpDir();
   const cat = Catalog.open(dir);
-  assert.strictEqual(cat.snapshotId(), 0);
+  // v0.46.0: snapshotId() returns BigInt
+  assert.strictEqual(cat.snapshotId(), 0n);
   cat.close();
 });
 
 test('listSchemas returns empty array for fresh catalog', () => {
   const dir = tmpDir();
   const cat = Catalog.open(dir);
-  const schemas = cat.listSchemas(0);
+  const schemas = cat.listSchemas(0n);
   assert.deepStrictEqual(schemas, []);
   cat.close();
 });
@@ -45,7 +46,7 @@ test('listSchemas returns empty array for fresh catalog', () => {
 test('listTables returns empty array for fresh catalog', () => {
   const dir = tmpDir();
   const cat = Catalog.open(dir);
-  const tables = cat.listTables(1, 0);
+  const tables = cat.listTables(1n, 0n);
   assert.deepStrictEqual(tables, []);
   cat.close();
 });
@@ -53,7 +54,7 @@ test('listTables returns empty array for fresh catalog', () => {
 test('listDataFiles returns empty array for fresh catalog', () => {
   const dir = tmpDir();
   const cat = Catalog.open(dir);
-  const files = cat.listDataFiles(1, 0);
+  const files = cat.listDataFiles(1n, 0n);
   assert.deepStrictEqual(files, []);
   cat.close();
 });
@@ -63,4 +64,24 @@ test('double close is safe', () => {
   const cat = Catalog.open(dir);
   cat.close();
   cat.close(); // must not throw
+});
+
+// v0.46.0: BigInt ID round-trip fidelity test.
+// Verifies that IDs above u32::MAX are not silently truncated.
+test('snapshotId returned as BigInt (type check)', () => {
+  const dir = tmpDir();
+  const cat = Catalog.open(dir);
+  const id = cat.snapshotId();
+  // Must be BigInt, not a plain number.
+  assert.strictEqual(typeof id, 'bigint', `snapshotId() should return bigint, got ${typeof id}`);
+  cat.close();
+});
+
+test('listSchemas accepts BigInt snapshotId', () => {
+  const dir = tmpDir();
+  const cat = Catalog.open(dir);
+  // 0n is BigInt — must not throw a type error.
+  const schemas = cat.listSchemas(0n);
+  assert.ok(Array.isArray(schemas));
+  cat.close();
 });

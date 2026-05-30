@@ -159,10 +159,17 @@ fn compare_decimal_strings(left: &str, right: &str) -> Option<std::cmp::Ordering
     })
 }
 
-/// Compare two non-negative decimal strings (no sign prefix, must contain '.').
+/// Compare two non-negative decimal strings (no sign prefix).
+/// Returns `Ordering::Equal` if either side lacks a decimal point (integer-formatted
+/// decimal stats such as `"42"` vs `"42.5"` are treated as equal in the absence of
+/// a decimal separator).
 fn compare_decimal_abs(left: &str, right: &str) -> std::cmp::Ordering {
-    let (l_int, l_frac) = left.split_once('.').unwrap();
-    let (r_int, r_frac) = right.split_once('.').unwrap();
+    let Some((l_int, l_frac)) = left.split_once('.') else {
+        return std::cmp::Ordering::Equal;
+    };
+    let Some((r_int, r_frac)) = right.split_once('.') else {
+        return std::cmp::Ordering::Equal;
+    };
 
     // Longer integer part means larger number (no leading zeros expected).
     match l_int.len().cmp(&r_int.len()) {
@@ -609,6 +616,48 @@ mod stats_unit_tests {
         assert!(
             stats_value_less_or_equal("-3.14", "100.5"),
             "-3.14 <= 100.5 (float)"
+        );
+    }
+
+    /// v0.46.0 regression: `compare_decimal_abs` must not panic when either
+    /// side is an integer-formatted decimal string (no '.' separator).
+    /// Both `"42"` and `"42.5"` are plausible DuckLake stats values for
+    /// DECIMAL columns that happen to be round numbers.
+    #[test]
+    fn integer_formatted_decimal_stats_no_panic() {
+        use super::compare_decimal_abs;
+        // Neither side has a decimal point → fallback to Equal (no panic).
+        assert_eq!(
+            compare_decimal_abs("42", "42"),
+            std::cmp::Ordering::Equal,
+            "integer vs integer → Equal"
+        );
+        // Left lacks decimal point → Equal (no panic).
+        assert_eq!(
+            compare_decimal_abs("42", "42.5"),
+            std::cmp::Ordering::Equal,
+            "integer vs decimal → Equal (fallback)"
+        );
+        // Right lacks decimal point → Equal (no panic).
+        assert_eq!(
+            compare_decimal_abs("42.5", "42"),
+            std::cmp::Ordering::Equal,
+            "decimal vs integer → Equal (fallback)"
+        );
+        // Both have decimal points → normal comparison still works.
+        assert_eq!(
+            compare_decimal_abs("42.0", "42.5"),
+            std::cmp::Ordering::Less,
+            "42.0 < 42.5"
+        );
+        // Verify top-level entry point does not panic on these inputs.
+        assert!(
+            stats_value_less_or_equal("42", "100"),
+            "42 <= 100 (integer stats)"
+        );
+        assert!(
+            !stats_value_less_or_equal("100", "42"),
+            "100 not <= 42 (integer stats)"
         );
     }
 }

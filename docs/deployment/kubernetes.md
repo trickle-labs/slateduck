@@ -88,7 +88,7 @@ spec:
         fsGroup: 65534
       containers:
         - name: rocklake
-          image: ghcr.io/rocklake/rocklake:0.8.0
+          image: ghcr.io/trickle-labs/rocklake:latest  # pin to a specific release tag in production, e.g. 0.46.0
           ports:
             - containerPort: 5432
               name: pgwire
@@ -201,7 +201,7 @@ spec:
         runAsUser: 65534
       containers:
         - name: rocklake
-          image: ghcr.io/rocklake/rocklake:0.8.0
+          image: ghcr.io/trickle-labs/rocklake:latest  # pin to a specific release tag in production, e.g. 0.46.0
           ports:
             - containerPort: 5432
               name: pgwire
@@ -504,7 +504,7 @@ spec:
             runAsUser: 65534
           containers:
             - name: gc
-              image: ghcr.io/rocklake/rocklake:0.8.0
+              image: ghcr.io/trickle-labs/rocklake:latest  # pin to a specific release tag in production, e.g. 0.46.0
               command:
                 - "rocklake"
                 - "gc"
@@ -532,7 +532,7 @@ Because RockLake is stateless, rolling updates are straightforward:
 ```bash
 # Update image tag
 kubectl set image deployment/rocklake-writer \
-  rocklake=ghcr.io/rocklake/rocklake:0.9.0 \
+  rocklake=ghcr.io/trickle-labs/rocklake:0.46.0 \
   -n rocklake
 
 # Watch rollout
